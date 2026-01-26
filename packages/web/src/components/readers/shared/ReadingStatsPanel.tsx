@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useReadingStatsStore } from '../../../stores/readingStats';
+import { useIdleDetection } from '../../../hooks/useIdleDetection';
 
 interface ReadingStatsPanelProps {
   noteId: string;
@@ -18,6 +19,7 @@ export function ReadingStatsPanel({ noteId, currentPage, totalPages, onClose }: 
 
   const [sessionDuration, setSessionDuration] = useState(0);
   const bookStats = getBookStats(noteId);
+  const { isIdlePaused } = useIdleDetection();
 
   // Update session duration every second
   useEffect(() => {
@@ -59,9 +61,16 @@ export function ReadingStatsPanel({ noteId, currentPage, totalPages, onClose }: 
           <div className="bg-bg-deep rounded-lg p-4 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-sm text-text-secondary">Time reading</span>
-              <span className="text-lg font-mono text-text-primary">
-                {getFormattedReadingTime(sessionDuration)}
-              </span>
+              <div className="flex items-center gap-2">
+                {isIdlePaused && (
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-500" title="Session paused due to inactivity. Move your mouse or press a key to resume.">
+                    Paused
+                  </span>
+                )}
+                <span className="text-lg font-mono text-text-primary">
+                  {getFormattedReadingTime(sessionDuration)}
+                </span>
+              </div>
             </div>
             {estimatedRemaining !== null && estimatedRemaining > 0 && (
               <div className="flex items-center justify-between">
