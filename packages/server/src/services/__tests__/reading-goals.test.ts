@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 // Mock fs module
 vi.mock('node:fs', () => ({
@@ -76,7 +75,8 @@ describe('ReadingGoalsService', () => {
     it('creates default goals file when none exists', () => {
       mockExistsSync.mockReturnValue(false);
 
-      const service = new ReadingGoalsService(
+      // Creating the service should trigger file creation
+      new ReadingGoalsService(
         createMockConfig() as any,
         mockScanner as any
       );

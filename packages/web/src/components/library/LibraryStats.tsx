@@ -1,25 +1,5 @@
 import { useReadingGoals } from '../../hooks/useReadingGoals';
-
-/**
- * Format milliseconds as a human-readable time string
- * Examples: "0m", "12m", "1h 23m", "2h"
- */
-function formatReadingTime(ms: number): string {
-  if (ms < 60000) return '0m';
-  const minutes = Math.floor(ms / 60000);
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-
-  if (hours === 0) {
-    return `${minutes}m`;
-  }
-
-  if (remainingMinutes === 0) {
-    return `${hours}h`;
-  }
-
-  return `${hours}h ${remainingMinutes}m`;
-}
+import { formatReadingTime } from '../../lib/format';
 
 export function LibraryStats() {
   const { data, isLoading } = useReadingGoals();
@@ -56,7 +36,7 @@ export function LibraryStats() {
         </div>
         <div className="flex items-center gap-1.5">
           <span className={`font-medium ${goalMet ? 'text-green-500' : 'text-text-primary'}`}>
-            {formatReadingTime(todayMs)}
+            {formatReadingTime(todayMs, { showSeconds: false })}
           </span>
           {!goalMet && (
             <span className="text-text-secondary/60 text-xs">/ {goals.dailyGoalMinutes}m</span>

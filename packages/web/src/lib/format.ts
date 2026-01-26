@@ -15,16 +15,40 @@ export function formatLastRead(isoDate: string): string {
 }
 
 /**
- * Format reading time in milliseconds as a human-readable string
+ * Format reading time in milliseconds as a human-readable string.
+ *
+ * @param ms - Duration in milliseconds
+ * @param options.showSeconds - If true, show seconds for sub-minute times (default: true)
+ * @param options.showZero - If true, show "0m" for times under 1 minute when showSeconds is false (default: true)
+ *
+ * Examples:
+ * - formatReadingTime(30000) → "30s"
+ * - formatReadingTime(30000, { showSeconds: false }) → "0m"
+ * - formatReadingTime(300000) → "5m"
+ * - formatReadingTime(3900000) → "1h 5m"
+ * - formatReadingTime(7200000) → "2h"
  */
-export function formatReadingTime(ms: number): string {
+export function formatReadingTime(
+  ms: number,
+  options: { showSeconds?: boolean; showZero?: boolean } = {}
+): string {
+  const { showSeconds = true, showZero = true } = options;
+
+  // Handle sub-minute times
   if (ms < 60000) {
-    return `${Math.round(ms / 1000)}s`;
+    if (showSeconds) {
+      return `${Math.round(ms / 1000)}s`;
+    }
+    return showZero ? '0m' : '';
   }
+
+  // Handle times under an hour
   if (ms < 3600000) {
     const mins = Math.round(ms / 60000);
     return `${mins}m`;
   }
+
+  // Handle times >= 1 hour
   const hours = Math.floor(ms / 3600000);
   const mins = Math.round((ms % 3600000) / 60000);
   return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;

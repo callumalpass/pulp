@@ -69,9 +69,6 @@ const EPUB_YIELD_INTERVAL = 3;
 /** Timeout for indexing a single document (milliseconds) */
 const INDEX_TIMEOUT_MS = 60000;
 
-/** Timeout for EPUB parsing operations (milliseconds) */
-const EPUB_PARSE_TIMEOUT_MS = 30000;
-
 // Helper to yield to event loop - prevents blocking server
 const yieldToEventLoop = (): Promise<void> => new Promise(resolve => setImmediate(resolve));
 
@@ -95,7 +92,7 @@ export class SearchIndex {
   private readonly maxMatchesPerDoc: number;
   private readonly resultsPerDoc: number;
 
-  constructor(private config: Config) {
+  constructor(config: Config) {
     this.cacheDir = join(config.library_path, '.pulp-cache', 'search');
     this.cacheFile = join(this.cacheDir, 'index.json');
     // Use config values with fallbacks to default constants

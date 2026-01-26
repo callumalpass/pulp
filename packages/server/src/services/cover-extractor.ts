@@ -30,7 +30,7 @@ export class CoverExtractor {
   private readonly coverHeight: number;
   private readonly coverQuality: number;
 
-  constructor(private config: Config) {
+  constructor(config: Config) {
     this.cacheDir = join(config.library_path, '.pulp-cache', 'covers');
     // Use config values with fallbacks to default constants
     this.coverWidth = config.cover_width ?? COVER_WIDTH;

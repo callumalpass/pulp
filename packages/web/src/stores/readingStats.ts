@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ReadingStats } from '@pulp/shared';
 import { api } from '../lib/api';
+import { formatReadingTime } from '../lib/format';
 
 // Reading session represents a single reading period
 export interface ReadingSession {
@@ -442,18 +443,7 @@ export const useReadingStatsStore = create<ReadingStatsState>()(
     return Math.max(0, Math.round(remaining));
   },
 
-  getFormattedReadingTime: (ms) => {
-    if (ms < 60000) {
-      return `${Math.round(ms / 1000)}s`;
-    }
-    if (ms < 3600000) {
-      const mins = Math.round(ms / 60000);
-      return `${mins}m`;
-    }
-    const hours = Math.floor(ms / 3600000);
-    const mins = Math.round((ms % 3600000) / 60000);
-    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
-  },
+  getFormattedReadingTime: (ms) => formatReadingTime(ms),
 
   getActiveSessionDuration: () => {
     const { activeSession } = get();
