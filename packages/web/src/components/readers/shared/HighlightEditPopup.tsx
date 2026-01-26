@@ -137,12 +137,19 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose }: Hig
           <textarea
             ref={inputRef}
             value={note}
-            onChange={(e) => setNote(e.target.value)}
+            onChange={(e) => setNote(e.target.value.slice(0, 2000))}
             placeholder="Add a note..."
             className="w-full h-20 p-2 text-sm bg-bg-deep border border-text-secondary/20 rounded text-text-primary resize-none focus:outline-none focus:border-accent-primary"
+            maxLength={2000}
+            aria-describedby="edit-note-char-count"
           />
+          <div id="edit-note-char-count" className="flex justify-end mt-1">
+            <span className={`text-xs ${note.length > 1800 ? 'text-yellow-500' : 'text-text-secondary/60'} ${note.length >= 2000 ? '!text-red-400' : ''}`}>
+              {note.length}/2000
+            </span>
+          </div>
 
-          <div className="flex gap-2 mt-2">
+          <div className="flex gap-2 mt-1">
             <Button
               variant="ghost"
               size="sm"

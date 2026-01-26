@@ -21,7 +21,7 @@ export function BookmarksPanel({
   onNavigate,
   onClose,
 }: BookmarksPanelProps) {
-  const { bookmarks, isLoading, addBookmark, removeBookmark, isAdding: isSaving } = useBookmarks(noteId);
+  const { bookmarks, isLoading, addBookmark, removeBookmark, isAdding: isSaving, isRemoving } = useBookmarks(noteId);
   const [newLabel, setNewLabel] = useState('');
   const [isAddingMode, setIsAddingMode] = useState(false);
   const [bookmarkToDelete, setBookmarkToDelete] = useState<Bookmark | null>(null);
@@ -62,7 +62,7 @@ export function BookmarksPanel({
   };
 
   const handleDeleteBookmark = async () => {
-    if (!bookmarkToDelete) return;
+    if (!bookmarkToDelete || isRemoving) return;
     try {
       await removeBookmark(bookmarkToDelete.id);
       showToast('Bookmark deleted', 'success');

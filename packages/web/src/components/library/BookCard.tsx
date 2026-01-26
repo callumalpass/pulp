@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback, useRef, useEffect, memo } from 'react';
 import { Link } from 'react-router-dom';
 import type { LiteratureNoteSummary } from '@pulp/shared';
 import { Card } from '../ui/Card';
@@ -13,33 +13,102 @@ interface BookCardProps {
   note: LiteratureNoteSummary;
 }
 
-export function BookCard({ note }: BookCardProps) {
+export const BookCard = memo(function BookCard({ note }: BookCardProps) {
   const [imageError, setImageError] = useState(false);
   const [showRatingMenu, setShowRatingMenu] = useState(false);
-  const { togglePin } = usePinned();
-  const { setRating } = useRating();
+  const [focusedStar, setFocusedStar] = useState<number | null>(null);
+  const { togglePin, isPending: isPinPending } = usePinned();
+  const { setRating, isPending: isRatingPending } = useRating();
   const { getFormattedReadingTime } = useReadingStatsStore();
+  const ratingMenuRef = useRef<HTMLDivElement>(null);
+  const ratingButtonRef = useRef<HTMLButtonElement>(null);
   // Use stats from note data (from API)
   const bookStats = note.readingStats;
 
-  const handlePinClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    togglePin(note.id, note.pinned);
-  };
+  // Close rating menu when clicking outside
+  useEffect(() => {
+    if (!showRatingMenu) return;
 
-  const handleRatingClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setShowRatingMenu(!showRatingMenu);
-  };
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ratingMenuRef.current && !ratingMenuRef.current.contains(e.target as Node) &&
+          ratingButtonRef.current && !ratingButtonRef.current.contains(e.target as Node)) {
+        setShowRatingMenu(false);
+        setFocusedStar(null);
+      }
+    };
 
-  const handleSetRating = (e: React.MouseEvent, rating: number | null) => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowRatingMenu(false);
+        setFocusedStar(null);
+        ratingButtonRef.current?.focus();
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [showRatingMenu]);
+
+  const handlePinClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setRating(note.id, rating);
-    setShowRatingMenu(false);
-  };
+    if (!isPinPending) {
+      togglePin(note.id, note.pinned);
+    }
+  }, [note.id, note.pinned, togglePin, isPinPending]);
+
+  const handleRatingClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setShowRatingMenu(prev => !prev);
+    setFocusedStar(note.rating || 1);
+  }, [note.rating]);
+
+  const handleSetRating = useCallback((e: React.MouseEvent | React.KeyboardEvent, rating: number | null) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isRatingPending) {
+      setRating(note.id, rating);
+      setShowRatingMenu(false);
+      setFocusedStar(null);
+      ratingButtonRef.current?.focus();
+    }
+  }, [note.id, setRating, isRatingPending]);
+
+  const handleRatingKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!showRatingMenu) return;
+
+    const currentFocus = focusedStar || 1;
+
+    switch (e.key) {
+      case 'ArrowLeft':
+        e.preventDefault();
+        setFocusedStar(Math.max(1, currentFocus - 1));
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        setFocusedStar(Math.min(5, currentFocus + 1));
+        break;
+      case 'Enter':
+      case ' ':
+        e.preventDefault();
+        if (focusedStar) {
+          handleSetRating(e, focusedStar);
+        }
+        break;
+      case 'Delete':
+      case 'Backspace':
+        e.preventDefault();
+        if (note.rating) {
+          handleSetRating(e, null);
+        }
+        break;
+    }
+  }, [showRatingMenu, focusedStar, note.rating, handleSetRating]);
 
   const estimatedTime = getEstimatedTimeRemaining({
     totalPages: note.totalPages,
@@ -110,9 +179,15 @@ export function BookCard({ note }: BookCardProps) {
             </span>
             {/* Rating display */}
             <button
+              ref={ratingButtonRef}
               onClick={handleRatingClick}
-              className="flex items-center gap-0.5 text-xs hover:bg-bg-deep rounded px-1 py-0.5 -mx-1 -my-0.5 transition-colors"
+              onKeyDown={handleRatingKeyDown}
+              className={`flex items-center gap-0.5 text-xs hover:bg-bg-deep rounded px-1 py-0.5 -mx-1 -my-0.5 transition-colors ${isRatingPending ? 'opacity-50' : ''}`}
               title={note.rating ? `Rating: ${note.rating}/5` : 'Add rating'}
+              aria-label={note.rating ? `Rating: ${note.rating} out of 5 stars. Press to change.` : 'Add rating'}
+              aria-haspopup="true"
+              aria-expanded={showRatingMenu}
+              disabled={isRatingPending}
             >
               {note.rating ? (
                 <StarRating rating={note.rating} size={10} />
@@ -142,25 +217,44 @@ export function BookCard({ note }: BookCardProps) {
         {/* Rating dropdown menu */}
         {showRatingMenu && (
           <div
+            ref={ratingMenuRef}
             className="absolute top-full left-0 right-0 mt-1 z-50 bg-bg-surface border border-text-secondary/20 rounded-lg shadow-lg p-2"
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={handleRatingKeyDown}
+            role="radiogroup"
+            aria-label="Select rating"
           >
             <div className="flex items-center justify-center gap-1 mb-2">
               {[1, 2, 3, 4, 5].map((star) => (
                 <button
                   key={star}
                   onClick={(e) => handleSetRating(e, star)}
-                  className="p-1 hover:bg-bg-deep rounded transition-colors"
-                  title={`Rate ${star} stars`}
+                  className={`p-1 rounded transition-colors ${
+                    focusedStar === star
+                      ? 'ring-2 ring-accent-primary bg-bg-deep'
+                      : 'hover:bg-bg-deep'
+                  } ${isRatingPending ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                  aria-label={`${star} star${star > 1 ? 's' : ''}`}
+                  aria-checked={note.rating === star}
+                  role="radio"
+                  tabIndex={focusedStar === star ? 0 : -1}
+                  disabled={isRatingPending}
                 >
                   <svg
                     width="20"
                     height="20"
                     viewBox="0 0 24 24"
-                    fill={note.rating && star <= note.rating ? 'currentColor' : 'none'}
+                    fill={note.rating && star <= note.rating ? 'currentColor' : (focusedStar && star <= focusedStar ? 'currentColor' : 'none')}
                     stroke="currentColor"
                     strokeWidth="2"
-                    className={note.rating && star <= note.rating ? 'text-yellow-500' : 'text-text-secondary'}
+                    className={
+                      note.rating && star <= note.rating
+                        ? 'text-yellow-500'
+                        : focusedStar && star <= focusedStar
+                          ? 'text-yellow-500/50'
+                          : 'text-text-secondary'
+                    }
                   >
                     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                   </svg>
@@ -170,17 +264,21 @@ export function BookCard({ note }: BookCardProps) {
             {note.rating && (
               <button
                 onClick={(e) => handleSetRating(e, null)}
-                className="w-full text-xs text-text-secondary hover:text-text-primary hover:bg-bg-deep rounded px-2 py-1 transition-colors"
+                className={`w-full text-xs text-text-secondary hover:text-text-primary hover:bg-bg-deep rounded px-2 py-1 transition-colors ${isRatingPending ? 'opacity-50 cursor-not-allowed' : ''}`}
+                disabled={isRatingPending}
               >
                 Remove rating
               </button>
             )}
+            <p className="text-xs text-text-secondary/60 text-center mt-1">
+              Use arrow keys to select
+            </p>
           </div>
         )}
       </Card>
     </Link>
   );
-}
+});
 
 function PinIcon({ filled }: { filled: boolean }) {
   return (
