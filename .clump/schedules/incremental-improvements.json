@@ -1,0 +1,19 @@
+{
+  "id": "incremental-improvements",
+  "name": "Incremental improvements",
+  "description": null,
+  "status": "paused",
+  "cron_expression": "*/15 * * * *",
+  "timezone": "Australia/Melbourne",
+  "target_type": "custom",
+  "filter_query": "state:open",
+  "command_id": null,
+  "custom_prompt": "Have a look at this project. Find something that needs improving, and make improvements. Don't be afraid to break things to make improvements. Don't be afraid to be ambitious. But if there are minor changes that need addressing, or refactors needed, feel free to fix those too. If your changes involve changing the data model, prefer storing data in the literature note markdown files (preferably in frontmatter--be very cautious about changing the way that non-frontmatter data is handled. we don't need to add \"colors\" to the highlights, or anything like that).\n\nBe obsessive about details, and about improving what already is implemented. Feel free to add new features, though, too. \n\nTest the improvements with Playwright and other tests. Commit changes.  ",
+  "max_items": 10,
+  "only_new": false,
+  "permission_mode": "bypassPermissions",
+  "allowed_tools": null,
+  "max_turns": null,
+  "model": null,
+  "cli_type": null
+}

@@ -1,0 +1,19 @@
+{
+  "id": "playqwright-performance-and-ui",
+  "name": "Playqwright performance and UI",
+  "description": null,
+  "status": "paused",
+  "cron_expression": "*/15 * * * *",
+  "timezone": "Australia/Melbourne",
+  "target_type": "custom",
+  "filter_query": "state:open",
+  "command_id": null,
+  "custom_prompt": "Use Playwright to explore this app's UI/UX and performance, identify areas for improvement, and implement fixes.",
+  "max_items": 10,
+  "only_new": false,
+  "permission_mode": null,
+  "allowed_tools": null,
+  "max_turns": null,
+  "model": null,
+  "cli_type": "claude"
+}
