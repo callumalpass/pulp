@@ -16,11 +16,12 @@ function getToday(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-function getYesterday(): string {
-  const date = new Date();
-  date.setDate(date.getDate() - 1);
-  return date.toISOString().split('T')[0];
-}
+// getYesterday is no longer used after grace period refactoring
+// function getYesterday(): string {
+//   const date = new Date();
+//   date.setDate(date.getDate() - 1);
+//   return date.toISOString().split('T')[0];
+// }
 
 function getDaysAgo(days: number): string {
   const date = new Date();
@@ -47,12 +48,14 @@ export class ReadingGoalsService {
       goals: {
         dailyGoalMinutes: 30,
         weeklyGoalMinutes: null,
+        gracePeriodDays: 1,
       },
       streak: {
         currentStreak: 0,
         longestStreak: 0,
         lastReadDate: '',
         streakStartDate: today,
+        graceDaysUsed: 0,
       },
     };
 
@@ -161,12 +164,22 @@ export class ReadingGoalsService {
   }
 
   /**
+   * Calculate number of days between two dates (YYYY-MM-DD format).
+   */
+  private daysBetween(date1: string, date2: string): number {
+    const d1 = new Date(date1 + 'T12:00:00');
+    const d2 = new Date(date2 + 'T12:00:00');
+    const diffTime = Math.abs(d2.getTime() - d1.getTime());
+    return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  }
+
+  /**
    * Update streak after a reading session ends.
    * Called from reading-stats route after recording a session.
+   * Supports grace period - allows missing days without breaking streak.
    */
   updateStreak(): ReadingStreak {
     const today = getToday();
-    const yesterday = getYesterday();
     const todaySummary = this.getTodayProgress();
 
     // Only count toward streak if daily goal is met
@@ -175,21 +188,41 @@ export class ReadingGoalsService {
     }
 
     const lastRead = this.data.streak.lastReadDate;
+    const gracePeriodDays = this.data.goals.gracePeriodDays || 1;
 
     if (lastRead === today) {
       // Already counted today
       return this.getStreak();
     }
 
-    if (lastRead === yesterday) {
-      // Continuing streak
-      this.data.streak.currentStreak++;
-      this.data.streak.lastReadDate = today;
-    } else if (!lastRead || lastRead < yesterday) {
-      // Streak broken, start new streak
+    if (!lastRead) {
+      // First day - start new streak
       this.data.streak.currentStreak = 1;
       this.data.streak.lastReadDate = today;
       this.data.streak.streakStartDate = today;
+      this.data.streak.graceDaysUsed = 0;
+    } else {
+      const daysSinceLastRead = this.daysBetween(lastRead, today);
+
+      if (daysSinceLastRead === 1) {
+        // Continuing streak normally (consecutive days)
+        this.data.streak.currentStreak++;
+        this.data.streak.lastReadDate = today;
+        // Reset grace days used when we have a consecutive day
+        this.data.streak.graceDaysUsed = 0;
+      } else if (daysSinceLastRead <= gracePeriodDays + 1) {
+        // Within grace period - continue streak but track grace days used
+        const graceDaysNeeded = daysSinceLastRead - 1;
+        this.data.streak.currentStreak++;
+        this.data.streak.lastReadDate = today;
+        this.data.streak.graceDaysUsed = (this.data.streak.graceDaysUsed || 0) + graceDaysNeeded;
+      } else {
+        // Grace period exceeded - streak broken, start new streak
+        this.data.streak.currentStreak = 1;
+        this.data.streak.lastReadDate = today;
+        this.data.streak.streakStartDate = today;
+        this.data.streak.graceDaysUsed = 0;
+      }
     }
 
     // Update longest streak if needed
@@ -203,11 +236,17 @@ export class ReadingGoalsService {
 
   /**
    * Recalculate streak from history (useful for fixing inconsistencies).
+   * Supports grace period - allows missing days without breaking streak.
    */
   recalculateStreak(): ReadingStreak {
     const today = getToday();
+    const gracePeriodDays = this.data.goals.gracePeriodDays || 1;
+
     let currentStreak = 0;
     let streakStartDate = today;
+    let graceDaysUsed = 0;
+    let lastGoalMetDate = '';
+    let consecutiveMissedDays = 0;
 
     // Walk backwards from today
     for (let i = 0; i < 365; i++) {
@@ -217,31 +256,44 @@ export class ReadingGoalsService {
       if (summary.goalMet) {
         currentStreak++;
         streakStartDate = date;
+        lastGoalMetDate = lastGoalMetDate || date;
+        // Track grace days from any gaps we've passed
+        graceDaysUsed += consecutiveMissedDays;
+        consecutiveMissedDays = 0;
       } else if (i === 0) {
-        // Today not met yet, check if yesterday continues streak
+        // Today not met yet - check if we're still within grace period
+        consecutiveMissedDays = 1;
         continue;
       } else {
-        // Streak broken
-        break;
+        consecutiveMissedDays++;
+        // If we've exceeded grace period, streak is broken
+        if (consecutiveMissedDays > gracePeriodDays) {
+          break;
+        }
+        // Otherwise continue - we're in the grace period
       }
     }
 
-    // If today wasn't met but yesterday was, we're still on a streak
-    // (user might still meet today's goal)
+    // If today wasn't met, check if we're still within grace period from last goal met
     const todaySummary = this.getDaySummary(today);
-    if (!todaySummary.goalMet && currentStreak > 0) {
-      const yesterdaySummary = this.getDaySummary(getYesterday());
-      if (!yesterdaySummary.goalMet) {
+    if (!todaySummary.goalMet && currentStreak > 0 && lastGoalMetDate) {
+      const daysSinceGoalMet = this.daysBetween(lastGoalMetDate, today);
+      if (daysSinceGoalMet > gracePeriodDays) {
+        // Grace period exceeded - streak is effectively 0 until user reads again
         currentStreak = 0;
         streakStartDate = today;
+        graceDaysUsed = 0;
       }
     }
 
     this.data.streak.currentStreak = currentStreak;
     this.data.streak.streakStartDate = streakStartDate;
-    if (currentStreak > 0) {
-      this.data.streak.lastReadDate = currentStreak === 0 ? '' :
-        todaySummary.goalMet ? today : getYesterday();
+    this.data.streak.graceDaysUsed = graceDaysUsed;
+
+    if (currentStreak > 0 && lastGoalMetDate) {
+      this.data.streak.lastReadDate = lastGoalMetDate;
+    } else {
+      this.data.streak.lastReadDate = '';
     }
 
     if (this.data.streak.currentStreak > this.data.streak.longestStreak) {

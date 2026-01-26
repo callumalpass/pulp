@@ -146,11 +146,13 @@ export interface ReadingStatsUpdate {
 export interface ReadingGoals {
   dailyGoalMinutes: number;        // Target daily reading time in minutes
   weeklyGoalMinutes: number | null; // Optional weekly target (null = 7x daily)
+  gracePeriodDays: number;          // Number of days allowed to miss without breaking streak (default: 1)
 }
 
 export interface ReadingGoalsUpdate {
   dailyGoalMinutes?: number;
   weeklyGoalMinutes?: number | null;
+  gracePeriodDays?: number;
 }
 
 // Reading history entry - one per day per book (stored in note frontmatter)
@@ -167,6 +169,7 @@ export interface ReadingStreak {
   longestStreak: number;     // All-time longest streak
   lastReadDate: string;      // Last date counted toward streak (YYYY-MM-DD)
   streakStartDate: string;   // When current streak started (YYYY-MM-DD)
+  graceDaysUsed: number;     // Number of grace days used in current streak
 }
 
 // Aggregated daily stats across all books

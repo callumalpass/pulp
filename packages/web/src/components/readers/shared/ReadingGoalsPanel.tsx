@@ -15,6 +15,7 @@ export function ReadingGoalsPanel({ onClose }: ReadingGoalsPanelProps) {
   const [sessionDuration, setSessionDuration] = useState(0);
   const [editingGoal, setEditingGoal] = useState(false);
   const [goalInput, setGoalInput] = useState('');
+  const [gracePeriodInput, setGracePeriodInput] = useState('');
 
   // Fetch reading goals data
   const { data, isLoading, error } = useQuery<ReadingGoalsResponse>({
@@ -25,7 +26,8 @@ export function ReadingGoalsPanel({ onClose }: ReadingGoalsPanelProps) {
 
   // Update goals mutation
   const updateGoalsMutation = useMutation({
-    mutationFn: (dailyGoalMinutes: number) => api.readingGoals.update({ dailyGoalMinutes }),
+    mutationFn: (updates: { dailyGoalMinutes?: number; gracePeriodDays?: number }) =>
+      api.readingGoals.update(updates),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reading-goals'] });
       setEditingGoal(false);
@@ -44,6 +46,7 @@ export function ReadingGoalsPanel({ onClose }: ReadingGoalsPanelProps) {
   useEffect(() => {
     if (data?.goals) {
       setGoalInput(String(data.goals.dailyGoalMinutes));
+      setGracePeriodInput(String(data.goals.gracePeriodDays ?? 1));
     }
   }, [data?.goals]);
 
@@ -95,8 +98,12 @@ export function ReadingGoalsPanel({ onClose }: ReadingGoalsPanelProps) {
 
   const handleSaveGoal = () => {
     const minutes = parseInt(goalInput, 10);
-    if (minutes >= 1 && minutes <= 1440) {
-      updateGoalsMutation.mutate(minutes);
+    const graceDays = parseInt(gracePeriodInput, 10);
+    if (minutes >= 1 && minutes <= 1440 && graceDays >= 0 && graceDays <= 7) {
+      updateGoalsMutation.mutate({
+        dailyGoalMinutes: minutes,
+        gracePeriodDays: graceDays,
+      });
     }
   };
 
@@ -153,40 +160,60 @@ export function ReadingGoalsPanel({ onClose }: ReadingGoalsPanelProps) {
             {/* Edit goal */}
             <div className="mt-4 pt-3 border-t border-text-secondary/10">
               {editingGoal ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="1"
-                    max="1440"
-                    value={goalInput}
-                    onChange={(e) => setGoalInput(e.target.value)}
-                    className="flex-1 px-2 py-1 text-sm bg-bg-surface border border-text-secondary/20 rounded focus:outline-none focus:border-accent-primary"
-                    aria-label="Daily goal in minutes"
-                  />
-                  <span className="text-xs text-text-secondary">min</span>
-                  <button
-                    onClick={handleSaveGoal}
-                    disabled={updateGoalsMutation.isPending}
-                    className="px-2 py-1 text-xs bg-accent-primary text-white rounded hover:bg-accent-primary/80 disabled:opacity-50"
-                  >
-                    Save
-                  </button>
-                  <button
-                    onClick={() => {
-                      setEditingGoal(false);
-                      setGoalInput(String(goals.dailyGoalMinutes));
-                    }}
-                    className="px-2 py-1 text-xs text-text-secondary hover:text-text-primary"
-                  >
-                    Cancel
-                  </button>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-text-secondary w-16">Daily goal</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="1440"
+                      value={goalInput}
+                      onChange={(e) => setGoalInput(e.target.value)}
+                      className="flex-1 px-2 py-1 text-sm bg-bg-surface border border-text-secondary/20 rounded focus:outline-none focus:border-accent-primary"
+                      aria-label="Daily goal in minutes"
+                    />
+                    <span className="text-xs text-text-secondary">min</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-text-secondary w-16">Grace days</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="7"
+                      value={gracePeriodInput}
+                      onChange={(e) => setGracePeriodInput(e.target.value)}
+                      className="flex-1 px-2 py-1 text-sm bg-bg-surface border border-text-secondary/20 rounded focus:outline-none focus:border-accent-primary"
+                      aria-label="Grace period days"
+                      title="Days you can miss without breaking your streak"
+                    />
+                    <span className="text-xs text-text-secondary">days</span>
+                  </div>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      onClick={() => {
+                        setEditingGoal(false);
+                        setGoalInput(String(goals.dailyGoalMinutes));
+                        setGracePeriodInput(String(goals.gracePeriodDays ?? 1));
+                      }}
+                      className="px-2 py-1 text-xs text-text-secondary hover:text-text-primary"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSaveGoal}
+                      disabled={updateGoalsMutation.isPending}
+                      className="px-2 py-1 text-xs bg-accent-primary text-white rounded hover:bg-accent-primary/80 disabled:opacity-50"
+                    >
+                      Save
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <button
                   onClick={() => setEditingGoal(true)}
                   className="w-full text-xs text-text-secondary hover:text-accent-primary transition-colors"
                 >
-                  Edit daily goal
+                  Edit goals
                 </button>
               )}
             </div>
@@ -312,7 +339,7 @@ interface StreakDisplayProps {
 }
 
 function StreakDisplay({ streak, goalMetToday }: StreakDisplayProps) {
-  const { currentStreak, longestStreak } = streak;
+  const { currentStreak, longestStreak, graceDaysUsed } = streak;
 
   // Determine if streak is at risk (goal not met today and it's not a fresh streak)
   const atRisk = !goalMetToday && currentStreak > 0;
@@ -332,7 +359,11 @@ function StreakDisplay({ streak, goalMetToday }: StreakDisplayProps) {
             {atRisk ? (
               <span className="text-yellow-500">Complete today's goal to continue!</span>
             ) : currentStreak > 0 ? (
-              'Current streak'
+              graceDaysUsed > 0 ? (
+                <span>Current streak <span className="text-accent-secondary">({graceDaysUsed} grace {graceDaysUsed === 1 ? 'day' : 'days'} used)</span></span>
+              ) : (
+                'Current streak'
+              )
             ) : (
               'Start your streak today!'
             )}
