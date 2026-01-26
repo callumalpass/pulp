@@ -147,8 +147,9 @@ test.describe('Library Page', () => {
     expect(lastSort).toBe('lastRead');
 
     // Click Title sort - wait for response in parallel with click
+    // Use nth(1) because nth(0) is the search mode "Title" button
     const titleResponsePromise = page.waitForResponse('**/api/library**');
-    await page.getByRole('button', { name: 'Title' }).click();
+    await page.getByRole('button', { name: 'Title' }).nth(1).click();
     await titleResponsePromise;
     expect(lastSort).toBe('title');
 
