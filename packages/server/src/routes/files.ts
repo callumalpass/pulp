@@ -43,8 +43,73 @@ export const filesRoutes: FastifyPluginAsync<FilesRouteOptions> = async (fastify
 
     if (range) {
       const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const startStr = parts[0];
+      const endStr = parts[1];
+
+      // Validate range format
+      if (startStr === '' && endStr === '') {
+        // Invalid: "bytes=-" with nothing specified
+        return reply.code(416).send({
+          error: 'Invalid range',
+          message: 'Range header must specify start and/or end position',
+        });
+      }
+
+      let start: number;
+      let end: number;
+
+      if (startStr === '') {
+        // Suffix range: "bytes=-500" means last 500 bytes
+        const suffix = parseInt(endStr, 10);
+        if (isNaN(suffix) || suffix <= 0) {
+          return reply.code(416).send({
+            error: 'Invalid range',
+            message: 'Suffix length must be a positive number',
+          });
+        }
+        start = Math.max(0, fileSize - suffix);
+        end = fileSize - 1;
+      } else {
+        start = parseInt(startStr, 10);
+
+        if (isNaN(start) || start < 0) {
+          return reply.code(416).send({
+            error: 'Invalid range',
+            message: 'Range start must be a non-negative number',
+          });
+        }
+
+        if (endStr !== '' && endStr !== undefined) {
+          end = parseInt(endStr, 10);
+          if (isNaN(end)) {
+            return reply.code(416).send({
+              error: 'Invalid range',
+              message: 'Range end must be a valid number',
+            });
+          }
+        } else {
+          end = fileSize - 1;
+        }
+      }
+
+      // Validate range is satisfiable
+      if (start >= fileSize) {
+        return reply.code(416).send({
+          error: 'Range not satisfiable',
+          message: `Start position ${start} is beyond file size ${fileSize}`,
+        });
+      }
+
+      // Clamp end to file size and ensure valid range
+      end = Math.min(end, fileSize - 1);
+
+      if (start > end) {
+        return reply.code(416).send({
+          error: 'Invalid range',
+          message: `Start position ${start} is greater than end position ${end}`,
+        });
+      }
+
       const chunkSize = end - start + 1;
 
       reply.code(206);

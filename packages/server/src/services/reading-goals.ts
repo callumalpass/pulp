@@ -34,18 +34,34 @@ interface GoalsFileData {
   streak: ReadingStreak;
 }
 
+/**
+ * Get today's date in local timezone as YYYY-MM-DD.
+ * Uses local timezone methods to avoid UTC conversion issues.
+ */
 function getToday(): string {
-  return new Date().toISOString().split('T')[0];
-}
-
-function getDaysAgo(days: number): string {
-  const date = new Date();
-  date.setDate(date.getDate() - days);
-  return date.toISOString().split('T')[0];
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 /**
- * Get the start of the current week (Monday).
+ * Get a date N days ago in local timezone as YYYY-MM-DD.
+ * Uses local timezone methods to correctly handle DST transitions.
+ */
+function getDaysAgo(days: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Get the start of the current week (Monday) in local timezone.
+ * Returns YYYY-MM-DD format.
  */
 function getWeekStart(): string {
   const date = new Date();
@@ -53,18 +69,24 @@ function getWeekStart(): string {
   // Adjust for Monday as start of week (Sunday = 0, so Monday = 1)
   const diff = day === 0 ? 6 : day - 1;
   date.setDate(date.getDate() - diff);
-  return date.toISOString().split('T')[0];
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const dayStr = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${dayStr}`;
 }
 
 /**
  * Get hours remaining until midnight (local time).
+ * Handles DST transitions by computing the actual time until next midnight.
  */
 function getHoursUntilMidnight(): number {
   const now = new Date();
-  const midnight = new Date(now);
-  midnight.setDate(midnight.getDate() + 1);
-  midnight.setHours(0, 0, 0, 0);
-  return (midnight.getTime() - now.getTime()) / (1000 * 60 * 60);
+  // Create midnight of the next day in local timezone
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+  const msUntilMidnight = midnight.getTime() - now.getTime();
+  // Clamp to reasonable values (DST transitions could make this 23 or 25 hours)
+  const hours = msUntilMidnight / (1000 * 60 * 60);
+  return Math.max(0, Math.min(25, hours));
 }
 
 /**
@@ -76,11 +98,16 @@ function getMonthString(date: string): string {
 
 /**
  * Get a date N days after a given date string.
+ * Uses noon to avoid DST boundary issues when crossing day boundaries.
  */
 function getDatePlusDays(dateStr: string, days: number): string {
-  const date = new Date(dateStr + 'T12:00:00');
-  date.setDate(date.getDate() + days);
-  return date.toISOString().split('T')[0];
+  // Parse the date at noon local time to avoid DST issues
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const date = new Date(year, month - 1, day + days, 12, 0, 0, 0);
+  const newYear = date.getFullYear();
+  const newMonth = String(date.getMonth() + 1).padStart(2, '0');
+  const newDay = String(date.getDate()).padStart(2, '0');
+  return `${newYear}-${newMonth}-${newDay}`;
 }
 
 export class ReadingGoalsService {

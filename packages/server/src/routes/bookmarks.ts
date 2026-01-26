@@ -11,6 +11,57 @@ interface BookmarkRouteOptions {
   config: Config;
 }
 
+/** Maximum allowed bookmark label length */
+const MAX_LABEL_LENGTH = 500;
+
+/** Minimum allowed bookmark label length */
+const MIN_LABEL_LENGTH = 1;
+
+/**
+ * Validate and sanitize a bookmark label.
+ * Returns the sanitized label or null if invalid.
+ */
+function validateLabel(label: string): { valid: true; label: string } | { valid: false; error: string } {
+  if (typeof label !== 'string') {
+    return { valid: false, error: 'Label must be a string' };
+  }
+
+  const trimmed = label.trim();
+
+  if (trimmed.length < MIN_LABEL_LENGTH) {
+    return { valid: false, error: 'Label cannot be empty' };
+  }
+
+  if (trimmed.length > MAX_LABEL_LENGTH) {
+    return { valid: false, error: `Label cannot exceed ${MAX_LABEL_LENGTH} characters` };
+  }
+
+  return { valid: true, label: trimmed };
+}
+
+/**
+ * Validate page number is within valid range.
+ */
+function validatePage(page: number | undefined, totalPages: number | null): { valid: true } | { valid: false; error: string } {
+  if (page === undefined) {
+    return { valid: true };
+  }
+
+  if (typeof page !== 'number' || !Number.isInteger(page)) {
+    return { valid: false, error: 'Page must be an integer' };
+  }
+
+  if (page < 1) {
+    return { valid: false, error: 'Page must be at least 1' };
+  }
+
+  if (totalPages !== null && page > totalPages) {
+    return { valid: false, error: `Page ${page} exceeds document length of ${totalPages} pages` };
+  }
+
+  return { valid: true };
+}
+
 export const bookmarkRoutes: FastifyPluginAsync<BookmarkRouteOptions> = async (fastify, opts) => {
   const { scanner, config } = opts;
 
@@ -68,6 +119,24 @@ export const bookmarkRoutes: FastifyPluginAsync<BookmarkRouteOptions> = async (f
     }
 
     const { label, page, cfi } = request.body;
+
+    // Validate label
+    const labelResult = validateLabel(label);
+    if (!labelResult.valid) {
+      return reply.code(400).send({ error: labelResult.error });
+    }
+
+    // Validate page if provided
+    const pageResult = validatePage(page, note.totalPages);
+    if (!pageResult.valid) {
+      return reply.code(400).send({ error: pageResult.error });
+    }
+
+    // Ensure either page or cfi is provided (but not both required)
+    if (page === undefined && cfi === undefined) {
+      return reply.code(400).send({ error: 'Either page or cfi must be provided' });
+    }
+
     const now = new Date().toISOString();
 
     // Generate a unique ID based on location
@@ -76,7 +145,7 @@ export const bookmarkRoutes: FastifyPluginAsync<BookmarkRouteOptions> = async (f
 
     const newBookmark: Bookmark = {
       id,
-      label,
+      label: labelResult.label,
       page,
       cfi,
       createdAt: now,
@@ -156,6 +225,16 @@ export const bookmarkRoutes: FastifyPluginAsync<BookmarkRouteOptions> = async (f
 
     const existingBookmark = note.bookmarks[bookmarkIndex];
 
+    // Validate label if provided
+    let validatedLabel: string | undefined;
+    if (label !== undefined) {
+      const labelResult = validateLabel(label);
+      if (!labelResult.valid) {
+        return reply.code(400).send({ error: labelResult.error });
+      }
+      validatedLabel = labelResult.label;
+    }
+
     try {
       // Read and parse the note file
       const fileContent = readFileSync(note.notePath, 'utf-8');
@@ -170,7 +249,7 @@ export const bookmarkRoutes: FastifyPluginAsync<BookmarkRouteOptions> = async (f
       // Create updated bookmark
       const updatedBookmark: Bookmark = {
         ...existingBookmark,
-        label: label || existingBookmark.label,
+        label: validatedLabel ?? existingBookmark.label,
       };
 
       // Replace the old wikilink with the updated one

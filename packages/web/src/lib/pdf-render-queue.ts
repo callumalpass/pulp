@@ -108,13 +108,65 @@ class LRUCache {
  * PDF Render Queue with priority scheduling and caching
  */
 const MAX_CONCURRENT_RENDERS = 4; // Limit concurrent worker requests
+const MAX_TEXT_CACHE_SIZE = 100; // Maximum number of pages to cache text content for
+
+/**
+ * Simple LRU cache for text content data
+ */
+class TextContentLRUCache {
+  private cache = new Map<number, { data: TextContentData; lastUsed: number }>();
+  private maxSize: number;
+
+  constructor(maxSize: number = MAX_TEXT_CACHE_SIZE) {
+    this.maxSize = maxSize;
+  }
+
+  get(pageNum: number): TextContentData | null {
+    const entry = this.cache.get(pageNum);
+    if (!entry) return null;
+    entry.lastUsed = Date.now();
+    return entry.data;
+  }
+
+  set(pageNum: number, data: TextContentData): void {
+    // Evict LRU entries if at capacity
+    while (this.cache.size >= this.maxSize) {
+      this.evictLRU();
+    }
+    this.cache.set(pageNum, { data, lastUsed: Date.now() });
+  }
+
+  has(pageNum: number): boolean {
+    return this.cache.has(pageNum);
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+
+  private evictLRU(): void {
+    let oldestKey: number | null = null;
+    let oldestTime = Infinity;
+
+    for (const [key, entry] of this.cache) {
+      if (entry.lastUsed < oldestTime) {
+        oldestTime = entry.lastUsed;
+        oldestKey = key;
+      }
+    }
+
+    if (oldestKey !== null) {
+      this.cache.delete(oldestKey);
+    }
+  }
+}
 
 export class PdfRenderQueue {
   private worker: Worker;
   private queue = new Map<string, RenderTask>();
   private pendingRequests = new Map<string, RenderTask>();
   private cache: LRUCache;
-  private textContentCache = new Map<number, TextContentData>();
+  private textContentCache: TextContentLRUCache;
   private textContentCallbacks: TextContentCallback[] = [];
   private idCounter = 0;
   private currentPdfUrl: string | null = null;
@@ -122,7 +174,7 @@ export class PdfRenderQueue {
   private idleCallbackId: number | null = null;
   private processing = false;
 
-  constructor(maxCacheSize: number = 15) {
+  constructor(maxCacheSize: number = 15, maxTextCacheSize: number = MAX_TEXT_CACHE_SIZE) {
     // Create the worker
     this.worker = new Worker(
       new URL('../workers/pdf-render.worker.ts', import.meta.url),
@@ -133,6 +185,7 @@ export class PdfRenderQueue {
     this.worker.onerror = this.handleWorkerError.bind(this);
 
     this.cache = new LRUCache(maxCacheSize);
+    this.textContentCache = new TextContentLRUCache(maxTextCacheSize);
     this.devicePixelRatio = window.devicePixelRatio || 1;
   }
 
