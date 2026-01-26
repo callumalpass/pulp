@@ -23,6 +23,9 @@ const MAX_DAILY_GOAL_MINUTES = 1440;
 /** Maximum allowed grace period in days */
 const MAX_GRACE_PERIOD_DAYS = 7;
 
+/** Maximum number of freeze days that can be scheduled */
+const MAX_FREEZE_DAYS = 30;
+
 /** Maximum days to look back when recalculating streaks */
 const STREAK_LOOKBACK_DAYS = 365;
 
@@ -32,6 +35,39 @@ const DAYS_IN_WEEK = 7;
 interface GoalsFileData {
   goals: ReadingGoals;
   streak: ReadingStreak;
+}
+
+/**
+ * Check if a date is a scheduled freeze day.
+ */
+function isFreezeDay(date: string, freezeDays: string[]): boolean {
+  return freezeDays.includes(date);
+}
+
+/**
+ * Get the next freeze day from today onwards.
+ */
+function getNextFreezeDay(freezeDays: string[]): string | null {
+  const today = getToday();
+  const futureDays = freezeDays.filter(d => d >= today).sort();
+  return futureDays[0] || null;
+}
+
+/**
+ * Get upcoming freeze days within the next N days.
+ */
+function getUpcomingFreezeDays(freezeDays: string[], daysAhead: number = 7): string[] {
+  const today = getToday();
+  const endDate = getDatePlusDays(today, daysAhead);
+  return freezeDays.filter(d => d >= today && d <= endDate).sort();
+}
+
+/**
+ * Clean up past freeze days (remove dates before today).
+ */
+function cleanupFreezeDays(freezeDays: string[]): string[] {
+  const today = getToday();
+  return freezeDays.filter(d => d >= today).sort();
 }
 
 /**
@@ -130,6 +166,7 @@ export class ReadingGoalsService {
         dailyGoalMinutes: this.config.default_daily_goal_minutes ?? DEFAULT_DAILY_GOAL_MINUTES,
         weeklyGoalMinutes: null,
         gracePeriodDays: this.config.default_grace_period_days ?? DEFAULT_GRACE_PERIOD_DAYS,
+        streakFreezeDays: [],
       },
       streak: {
         currentStreak: 0,
@@ -137,6 +174,7 @@ export class ReadingGoalsService {
         lastReadDate: '',
         streakStartDate: today,
         graceDaysUsed: 0,
+        freezeDaysUsed: 0,
       },
     };
 
@@ -206,12 +244,73 @@ export class ReadingGoalsService {
       sanitizedGoals.gracePeriodDays = Math.max(0, Math.min(MAX_GRACE_PERIOD_DAYS, Math.round(goals.gracePeriodDays)));
     }
 
+    if (goals.streakFreezeDays !== undefined) {
+      // Validate dates and limit the number of freeze days
+      const validDates = goals.streakFreezeDays
+        .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)) // Must be valid YYYY-MM-DD format
+        .slice(0, MAX_FREEZE_DAYS);
+      // Clean up past dates and sort
+      sanitizedGoals.streakFreezeDays = cleanupFreezeDays(validDates);
+    }
+
     this.data.goals = {
       ...this.data.goals,
       ...sanitizedGoals,
     };
     this.saveGoalsFile(this.data);
     return this.getGoals();
+  }
+
+  /**
+   * Add a freeze day to the schedule.
+   */
+  addFreezeDay(date: string): ReadingGoals {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return this.getGoals(); // Invalid date format
+    }
+
+    const today = getToday();
+    if (date < today) {
+      return this.getGoals(); // Can't add past dates
+    }
+
+    const existingDays = this.data.goals.streakFreezeDays || [];
+    if (existingDays.includes(date)) {
+      return this.getGoals(); // Already scheduled
+    }
+
+    if (existingDays.length >= MAX_FREEZE_DAYS) {
+      return this.getGoals(); // Too many freeze days
+    }
+
+    this.data.goals.streakFreezeDays = [...existingDays, date].sort();
+    this.saveGoalsFile(this.data);
+    return this.getGoals();
+  }
+
+  /**
+   * Remove a freeze day from the schedule.
+   */
+  removeFreezeDay(date: string): ReadingGoals {
+    const existingDays = this.data.goals.streakFreezeDays || [];
+    this.data.goals.streakFreezeDays = existingDays.filter(d => d !== date);
+    this.saveGoalsFile(this.data);
+    return this.getGoals();
+  }
+
+  /**
+   * Check if today is a scheduled freeze day.
+   */
+  isTodayFreezeDay(): boolean {
+    const today = getToday();
+    return isFreezeDay(today, this.data.goals.streakFreezeDays || []);
+  }
+
+  /**
+   * Get upcoming freeze days.
+   */
+  getUpcomingFreezeDays(daysAhead: number = 7): string[] {
+    return getUpcomingFreezeDays(this.data.goals.streakFreezeDays || [], daysAhead);
   }
 
   /**
@@ -280,11 +379,12 @@ export class ReadingGoalsService {
   /**
    * Update streak after a reading session ends.
    * Called from reading-stats route after recording a session.
-   * Supports grace period - allows missing days without breaking streak.
+   * Supports grace period and freeze days - allows missing days without breaking streak.
    */
   updateStreak(): ReadingStreak {
     const today = getToday();
     const todaySummary = this.getTodayProgress();
+    const freezeDays = this.data.goals.streakFreezeDays || [];
 
     // Only count toward streak if daily goal is met
     if (!todaySummary.goalMet) {
@@ -305,6 +405,7 @@ export class ReadingGoalsService {
       this.data.streak.lastReadDate = today;
       this.data.streak.streakStartDate = today;
       this.data.streak.graceDaysUsed = 0;
+      this.data.streak.freezeDaysUsed = 0;
     } else {
       const daysSinceLastRead = this.daysBetween(lastRead, today);
 
@@ -314,18 +415,36 @@ export class ReadingGoalsService {
         this.data.streak.lastReadDate = today;
         // Reset grace days used when we have a consecutive day
         this.data.streak.graceDaysUsed = 0;
-      } else if (daysSinceLastRead <= gracePeriodDays + 1) {
-        // Within grace period - continue streak but track grace days used
-        const graceDaysNeeded = daysSinceLastRead - 1;
-        this.data.streak.currentStreak++;
-        this.data.streak.lastReadDate = today;
-        this.data.streak.graceDaysUsed = (this.data.streak.graceDaysUsed || 0) + graceDaysNeeded;
       } else {
-        // Grace period exceeded - streak broken, start new streak
-        this.data.streak.currentStreak = 1;
-        this.data.streak.lastReadDate = today;
-        this.data.streak.streakStartDate = today;
-        this.data.streak.graceDaysUsed = 0;
+        // Count freeze days and grace days needed in the gap
+        let freezeDaysInGap = 0;
+        let graceDaysNeeded = 0;
+
+        // Check each day in the gap (excluding last read and today)
+        for (let i = 1; i < daysSinceLastRead; i++) {
+          const checkDate = getDatePlusDays(lastRead, i);
+          if (isFreezeDay(checkDate, freezeDays)) {
+            freezeDaysInGap++;
+          } else {
+            graceDaysNeeded++;
+          }
+        }
+
+        // Check if we can continue the streak
+        if (graceDaysNeeded <= gracePeriodDays) {
+          // Continue streak - freeze days don't count against grace period
+          this.data.streak.currentStreak++;
+          this.data.streak.lastReadDate = today;
+          this.data.streak.graceDaysUsed = (this.data.streak.graceDaysUsed || 0) + graceDaysNeeded;
+          this.data.streak.freezeDaysUsed = (this.data.streak.freezeDaysUsed || 0) + freezeDaysInGap;
+        } else {
+          // Grace period exceeded - streak broken, start new streak
+          this.data.streak.currentStreak = 1;
+          this.data.streak.lastReadDate = today;
+          this.data.streak.streakStartDate = today;
+          this.data.streak.graceDaysUsed = 0;
+          this.data.streak.freezeDaysUsed = 0;
+        }
       }
     }
 
@@ -340,15 +459,17 @@ export class ReadingGoalsService {
 
   /**
    * Recalculate streak from history (useful for fixing inconsistencies).
-   * Supports grace period - allows missing days without breaking streak.
+   * Supports grace period and freeze days - allows missing days without breaking streak.
    */
   recalculateStreak(): ReadingStreak {
     const today = getToday();
     const gracePeriodDays = this.data.goals.gracePeriodDays || 1;
+    const freezeDays = this.data.goals.streakFreezeDays || [];
 
     let currentStreak = 0;
     let streakStartDate = today;
     let graceDaysUsed = 0;
+    let freezeDaysUsed = 0;
     let lastGoalMetDate = '';
     let consecutiveMissedDays = 0;
 
@@ -356,17 +477,27 @@ export class ReadingGoalsService {
     for (let i = 0; i < STREAK_LOOKBACK_DAYS; i++) {
       const date = getDaysAgo(i);
       const summary = this.getDaySummary(date);
+      const isFreeze = isFreezeDay(date, freezeDays);
 
       if (summary.goalMet) {
         currentStreak++;
         streakStartDate = date;
         lastGoalMetDate = lastGoalMetDate || date;
-        // Track grace days from any gaps we've passed
+        // Track grace days from any gaps we've passed (excluding freeze days)
         graceDaysUsed += consecutiveMissedDays;
         consecutiveMissedDays = 0;
       } else if (i === 0) {
-        // Today not met yet - check if we're still within grace period
-        consecutiveMissedDays = 1;
+        // Today not met yet - check if it's a freeze day or we're still within grace period
+        if (isFreeze) {
+          // Today is a freeze day - doesn't count as missed
+          freezeDaysUsed++;
+        } else {
+          consecutiveMissedDays = 1;
+        }
+        continue;
+      } else if (isFreeze) {
+        // This is a scheduled freeze day - doesn't count against grace period
+        freezeDaysUsed++;
         continue;
       } else {
         consecutiveMissedDays++;
@@ -380,19 +511,31 @@ export class ReadingGoalsService {
 
     // If today wasn't met, check if we're still within grace period from last goal met
     const todaySummary = this.getDaySummary(today);
-    if (!todaySummary.goalMet && currentStreak > 0 && lastGoalMetDate) {
+    const isTodayFreeze = isFreezeDay(today, freezeDays);
+    if (!todaySummary.goalMet && !isTodayFreeze && currentStreak > 0 && lastGoalMetDate) {
+      // Count non-freeze days between last goal met and today
+      let nonFreezeDaysSince = 0;
       const daysSinceGoalMet = this.daysBetween(lastGoalMetDate, today);
-      if (daysSinceGoalMet > gracePeriodDays) {
+      for (let i = 1; i <= daysSinceGoalMet; i++) {
+        const checkDate = getDatePlusDays(lastGoalMetDate, i);
+        if (!isFreezeDay(checkDate, freezeDays)) {
+          nonFreezeDaysSince++;
+        }
+      }
+
+      if (nonFreezeDaysSince > gracePeriodDays) {
         // Grace period exceeded - streak is effectively 0 until user reads again
         currentStreak = 0;
         streakStartDate = today;
         graceDaysUsed = 0;
+        freezeDaysUsed = 0;
       }
     }
 
     this.data.streak.currentStreak = currentStreak;
     this.data.streak.streakStartDate = streakStartDate;
     this.data.streak.graceDaysUsed = graceDaysUsed;
+    this.data.streak.freezeDaysUsed = freezeDaysUsed;
 
     if (currentStreak > 0 && lastGoalMetDate) {
       this.data.streak.lastReadDate = lastGoalMetDate;
@@ -510,6 +653,9 @@ export class ReadingGoalsService {
   getStreakRiskInfo(): StreakRiskInfo | null {
     const todaySummary = this.getTodayProgress();
     const streak = this.getStreak();
+    const freezeDays = this.data.goals.streakFreezeDays || [];
+    const today = getToday();
+    const isTodayFreeze = isFreezeDay(today, freezeDays);
 
     // No streak to be at risk
     if (streak.currentStreak === 0 && !streak.lastReadDate) {
@@ -523,24 +669,46 @@ export class ReadingGoalsService {
         minutesRemaining: 0,
         hoursUntilMidnight: getHoursUntilMidnight(),
         graceDaysRemaining: this.data.goals.gracePeriodDays - (streak.graceDaysUsed || 0),
+        isFreezeDay: isTodayFreeze,
+        nextFreezeDay: getNextFreezeDay(freezeDays),
       };
     }
 
-    const today = getToday();
+    // If today is a freeze day, streak is protected
+    if (isTodayFreeze) {
+      return {
+        isAtRisk: false,
+        minutesRemaining: 0,
+        hoursUntilMidnight: getHoursUntilMidnight(),
+        graceDaysRemaining: this.data.goals.gracePeriodDays - (streak.graceDaysUsed || 0),
+        isFreezeDay: true,
+        nextFreezeDay: getNextFreezeDay(freezeDays),
+      };
+    }
+
     const lastRead = streak.lastReadDate;
     const gracePeriodDays = this.data.goals.gracePeriodDays || 1;
 
-    // Calculate days since last goal was met
-    const daysSinceLastRead = lastRead ? this.daysBetween(lastRead, today) : 0;
+    // Calculate non-freeze days since last goal was met
+    let nonFreezeDaysSinceLastRead = 0;
+    if (lastRead) {
+      const daysSinceLastRead = this.daysBetween(lastRead, today);
+      for (let i = 1; i <= daysSinceLastRead; i++) {
+        const checkDate = getDatePlusDays(lastRead, i);
+        if (!isFreezeDay(checkDate, freezeDays)) {
+          nonFreezeDaysSinceLastRead++;
+        }
+      }
+    }
 
-    // If we already missed enough days to exceed grace period, streak would break
-    // unless we read today
-    const graceDaysRemaining = Math.max(0, gracePeriodDays - daysSinceLastRead + 1);
+    // Grace days remaining = grace period - non-freeze missed days
+    const graceDaysRemaining = Math.max(0, gracePeriodDays - nonFreezeDaysSinceLastRead + 1);
 
     // Streak is at risk if:
-    // 1. We have a streak going (currentStreak > 0 or we read yesterday/within grace)
+    // 1. We have a streak going (currentStreak > 0 or we read recently within grace)
     // 2. Today's goal isn't met yet
-    const isAtRisk = streak.currentStreak > 0 || (lastRead && daysSinceLastRead <= gracePeriodDays);
+    // 3. Today is not a freeze day
+    const isAtRisk = streak.currentStreak > 0 || (lastRead && nonFreezeDaysSinceLastRead <= gracePeriodDays);
 
     const goalMs = this.data.goals.dailyGoalMinutes * 60 * 1000;
     const remainingMs = Math.max(0, goalMs - todaySummary.totalDurationMs);
@@ -551,6 +719,8 @@ export class ReadingGoalsService {
       minutesRemaining,
       hoursUntilMidnight: getHoursUntilMidnight(),
       graceDaysRemaining,
+      isFreezeDay: false,
+      nextFreezeDay: getNextFreezeDay(freezeDays),
     };
   }
 

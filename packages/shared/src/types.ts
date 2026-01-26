@@ -50,6 +50,7 @@ export interface LiteratureNoteSummary {
   lastRead: string | null;
   dateCreated: string | null;
   dateFinished: string | null; // Date when book was completed (progress reached 100%)
+  yearCompleted: number | null; // Year the book was completed (for annual stats)
   cover: string | null;
   pinned: boolean;
   rating: number | null;       // User rating (1-5 stars, null if not rated)
@@ -57,6 +58,7 @@ export interface LiteratureNoteSummary {
   totalPages: number | null;   // Total pages in document
   highlightCount: number;      // Number of highlights in this note
   collections: string[];       // User-defined collections/shelves this book belongs to
+  currentChapter: string | null; // Current chapter/section for display in library
 }
 
 // Highlight categories with predefined colors
@@ -250,12 +252,14 @@ export interface ReadingGoals {
   dailyGoalMinutes: number;        // Target daily reading time in minutes
   weeklyGoalMinutes: number | null; // Optional weekly target (null = 7x daily)
   gracePeriodDays: number;          // Number of days allowed to miss without breaking streak (default: 1)
+  streakFreezeDays: string[];       // Pre-scheduled days off (YYYY-MM-DD) that won't break streak
 }
 
 export interface ReadingGoalsUpdate {
   dailyGoalMinutes?: number;
   weeklyGoalMinutes?: number | null;
   gracePeriodDays?: number;
+  streakFreezeDays?: string[];      // Update scheduled freeze days
 }
 
 // Reading history entry - one per day per book (stored in note frontmatter)
@@ -283,6 +287,7 @@ export interface ReadingStreak {
   lastReadDate: string;      // Last date counted toward streak (YYYY-MM-DD)
   streakStartDate: string;   // When current streak started (YYYY-MM-DD)
   graceDaysUsed: number;     // Number of grace days used in current streak
+  freezeDaysUsed: number;    // Number of pre-scheduled freeze days used in current streak
 }
 
 // Aggregated daily stats across all books
@@ -326,6 +331,7 @@ export interface ReadingGoalsResponse {
   weekHistory: DailyReadingSummary[];  // Last 7 days
   weekSummary: WeeklyReadingSummary;   // Current week aggregated stats
   streakAtRisk: StreakRiskInfo | null; // Info about streak risk status
+  upcomingFreezeDays: string[];        // Next freeze days in the upcoming week
 }
 
 // Information about streak risk status
@@ -334,6 +340,8 @@ export interface StreakRiskInfo {
   minutesRemaining: number;    // Minutes of reading needed to save streak
   hoursUntilMidnight: number;  // Hours until midnight (deadline)
   graceDaysRemaining: number;  // Grace days still available
+  isFreezeDay: boolean;        // Whether today is a pre-scheduled freeze day
+  nextFreezeDay: string | null; // Next upcoming freeze day (YYYY-MM-DD)
 }
 
 // Breakdown of highlights by category
@@ -353,6 +361,11 @@ export interface RatingBreakdown {
   rated2: number;
   rated1: number;
   unrated: number;
+}
+
+// Books completed by year breakdown
+export interface YearlyCompletionBreakdown {
+  [year: number]: number;  // year -> count of books completed
 }
 
 // Aggregated library statistics
@@ -378,6 +391,10 @@ export interface LibraryStatistics {
   booksByRating: RatingBreakdown;
   booksWithEstimatedCompletion: number;
   averageDaysToComplete: number | null;
+  // Yearly statistics
+  booksCompletedByYear: YearlyCompletionBreakdown;
+  booksCompletedThisYear: number;
+  currentYear: number;
 }
 
 // WebSocket event types

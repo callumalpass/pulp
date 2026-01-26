@@ -312,6 +312,23 @@ export const api = {
         { method: 'POST' }
       );
     },
+
+    addFreezeDay(date: string) {
+      return fetchJSON<{ success: boolean; goals: ReadingGoalsResponse['goals'] }>(
+        '/reading-goals/freeze-day',
+        {
+          method: 'POST',
+          body: JSON.stringify({ date }),
+        }
+      );
+    },
+
+    removeFreezeDay(date: string) {
+      return fetchJSON<{ success: boolean; goals: ReadingGoalsResponse['goals'] }>(
+        `/reading-goals/freeze-day/${date}`,
+        { method: 'DELETE' }
+      );
+    },
   },
 
   libraryStats: {

@@ -1,52 +1,9 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type { LibraryScanner } from '../services/library-scanner.js';
-import type { HighlightCategory } from '@pulp/shared';
+import type { HighlightCategory, LibraryStatistics, HighlightCategoryBreakdown, RatingBreakdown, YearlyCompletionBreakdown } from '@pulp/shared';
 
 interface LibraryStatsRouteOptions {
   scanner: LibraryScanner;
-}
-
-// Breakdown of highlights by category
-export interface HighlightCategoryBreakdown {
-  highlight: number;
-  important: number;
-  question: number;
-  todo: number;
-  definition: number;
-}
-
-// Breakdown of books by rating
-export interface RatingBreakdown {
-  rated5: number;
-  rated4: number;
-  rated3: number;
-  rated2: number;
-  rated1: number;
-  unrated: number;
-}
-
-export interface LibraryStatistics {
-  totalBooks: number;
-  totalPdfBooks: number;
-  totalEpubBooks: number;
-  totalReadingTimeMs: number;
-  totalHighlights: number;
-  totalBookmarks: number;
-  booksCompleted: number;
-  booksInProgress: number;
-  booksUnread: number;
-  averageProgress: number;
-  collectionsCount: number;
-  // New detailed statistics
-  totalPagesRead: number;
-  totalSessions: number;
-  averageReadingSpeedPagesPerHour: number | null;
-  averageSessionDurationMs: number | null;
-  longestSessionMs: number | null;
-  highlightsByCategory: HighlightCategoryBreakdown;
-  booksByRating: RatingBreakdown;
-  booksWithEstimatedCompletion: number;
-  averageDaysToComplete: number | null;
 }
 
 export const libraryStatsRoutes: FastifyPluginAsync<LibraryStatsRouteOptions> = async (fastify, opts) => {
@@ -94,6 +51,11 @@ export const libraryStatsRoutes: FastifyPluginAsync<LibraryStatsRouteOptions> = 
       rated1: 0,
       unrated: 0,
     };
+
+    // Yearly completion breakdown
+    const booksCompletedByYear: YearlyCompletionBreakdown = {};
+    const currentYear = new Date().getFullYear();
+    let booksCompletedThisYear = 0;
 
     // Collect reading speed data for averaging
     const readingSpeeds: number[] = [];
@@ -152,6 +114,15 @@ export const libraryStatsRoutes: FastifyPluginAsync<LibraryStatsRouteOptions> = 
       // Count by progress status
       if (note.progress === 100) {
         booksCompleted++;
+
+        // Track year of completion
+        if (note.dateFinished) {
+          const yearCompleted = new Date(note.dateFinished).getFullYear();
+          booksCompletedByYear[yearCompleted] = (booksCompletedByYear[yearCompleted] || 0) + 1;
+          if (yearCompleted === currentYear) {
+            booksCompletedThisYear++;
+          }
+        }
       } else if (note.progress > 0) {
         booksInProgress++;
       } else {
@@ -211,7 +182,7 @@ export const libraryStatsRoutes: FastifyPluginAsync<LibraryStatsRouteOptions> = 
       booksUnread,
       averageProgress,
       collectionsCount: collectionsSet.size,
-      // New detailed statistics
+      // Detailed statistics
       totalPagesRead,
       totalSessions,
       averageReadingSpeedPagesPerHour,
@@ -221,6 +192,10 @@ export const libraryStatsRoutes: FastifyPluginAsync<LibraryStatsRouteOptions> = 
       booksByRating,
       booksWithEstimatedCompletion,
       averageDaysToComplete,
+      // Yearly statistics
+      booksCompletedByYear,
+      booksCompletedThisYear,
+      currentYear,
     };
   });
 };

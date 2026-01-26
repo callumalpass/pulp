@@ -183,6 +183,12 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
               {note.author}
             </p>
           )}
+          {/* Show current chapter for in-progress books */}
+          {note.currentChapter && note.progress > 0 && note.progress < 100 && (
+            <p className="text-xs text-text-secondary/70 line-clamp-1 mt-0.5 italic">
+              {note.currentChapter}
+            </p>
+          )}
           <div className="flex items-center gap-2 mt-auto pt-1.5 flex-wrap">
             <span className="text-xs text-text-secondary uppercase">
               {note.sourceType}

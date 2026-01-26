@@ -18,6 +18,7 @@ export const readingGoalsRoutes: FastifyPluginAsync<ReadingGoalsRouteOptions> = 
       weekHistory: goalsService.getWeekHistory(),
       weekSummary: goalsService.getWeekSummary(),
       streakAtRisk: goalsService.getStreakRiskInfo(),
+      upcomingFreezeDays: goalsService.getUpcomingFreezeDays(14),
     };
 
     return response;
@@ -34,6 +35,7 @@ export const readingGoalsRoutes: FastifyPluginAsync<ReadingGoalsRouteOptions> = 
           dailyGoalMinutes: { type: 'number', minimum: 1, maximum: 1440 },
           weeklyGoalMinutes: { type: ['number', 'null'], minimum: 1 },
           gracePeriodDays: { type: 'number', minimum: 0, maximum: 7 },
+          streakFreezeDays: { type: 'array', items: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' } },
         },
       },
     },
@@ -47,6 +49,50 @@ export const readingGoalsRoutes: FastifyPluginAsync<ReadingGoalsRouteOptions> = 
       success: true,
       goals: updatedGoals,
       streak,
+    };
+  });
+
+  // POST /api/reading-goals/freeze-day - Add a freeze day
+  fastify.post<{
+    Body: { date: string };
+  }>('/api/reading-goals/freeze-day', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['date'],
+        properties: {
+          date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+        },
+      },
+    },
+  }, async (request) => {
+    const updatedGoals = goalsService.addFreezeDay(request.body.date);
+
+    return {
+      success: true,
+      goals: updatedGoals,
+    };
+  });
+
+  // DELETE /api/reading-goals/freeze-day/:date - Remove a freeze day
+  fastify.delete<{
+    Params: { date: string };
+  }>('/api/reading-goals/freeze-day/:date', {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['date'],
+        properties: {
+          date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+        },
+      },
+    },
+  }, async (request) => {
+    const updatedGoals = goalsService.removeFreezeDay(request.params.date);
+
+    return {
+      success: true,
+      goals: updatedGoals,
     };
   });
 

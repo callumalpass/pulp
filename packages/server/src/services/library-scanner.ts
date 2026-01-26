@@ -275,6 +275,7 @@ export class LibraryScanner {
       lastRead: note.lastRead,
       dateCreated: note.dateCreated,
       dateFinished: note.dateFinished,
+      yearCompleted: note.dateFinished ? new Date(note.dateFinished).getFullYear() : null,
       cover: note.cover,
       pinned: note.pinned,
       rating: note.rating,
@@ -282,6 +283,7 @@ export class LibraryScanner {
       totalPages: note.totalPages,
       highlightCount: note.highlights.length,
       collections: note.collections,
+      currentChapter: note.currentChapter,
     }));
   }
 

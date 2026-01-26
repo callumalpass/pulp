@@ -345,7 +345,7 @@ Content`);
 
         // The in-memory cache update should NOT include lastOpenedCfi for PDF
         // This verifies line 79 of progress.ts: ...(lastOpenedCfi && note.sourceType === 'epub' ? { lastOpenedCfi } : {})
-        const updateCall = mockScanner.updateNote.mock.calls[0];
+        const updateCall = vi.mocked(mockScanner.updateNote).mock.calls[0];
         expect(updateCall[1]).not.toHaveProperty('lastOpenedCfi');
       });
     });

@@ -88,14 +88,44 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
       // Calculate average session
       const averageSessionMs = totalReadingTimeMs / totalSessions;
 
-      // Calculate reading speed (pages per hour)
-      // Only calculate if we have meaningful data (at least 1 page and 1 minute of reading)
+      // Calculate reading speed (pages per hour) using weighted recent sessions
+      // Recent sessions are weighted more heavily for better accuracy
       let pagesPerHour: number | null = existingStats?.pagesPerHour || null;
-      if (totalPagesRead > 0 && totalReadingTimeMs >= 60000) {
+
+      // Get existing sessions for weighted calculation
+      const existingSessionsForSpeed = getReadingSessions(frontmatter, config.reading_sessions_key);
+
+      // Create array with current session for calculation
+      const sessionsForSpeed = [
+        { durationMs: sessionDurationMs, pagesRead, startTime },
+        ...existingSessionsForSpeed.slice(0, 19), // Last 20 sessions including current
+      ].filter(s => s.durationMs >= 60000 && s.pagesRead > 0); // At least 1 min and 1 page
+
+      if (sessionsForSpeed.length > 0) {
+        // Weight more recent sessions more heavily (exponential decay)
+        // Most recent session gets weight 1.0, each older session decays by 0.85
+        const DECAY_FACTOR = 0.85;
+        let weightedPagesPerHour = 0;
+        let totalWeight = 0;
+
+        for (let i = 0; i < sessionsForSpeed.length; i++) {
+          const session = sessionsForSpeed[i];
+          const hours = session.durationMs / (1000 * 60 * 60);
+          const sessionPPH = session.pagesRead / hours;
+          const weight = Math.pow(DECAY_FACTOR, i);
+
+          weightedPagesPerHour += sessionPPH * weight;
+          totalWeight += weight;
+        }
+
+        if (totalWeight > 0) {
+          pagesPerHour = Math.round((weightedPagesPerHour / totalWeight) * 10) / 10;
+        }
+      } else if (totalPagesRead > 0 && totalReadingTimeMs >= 60000) {
+        // Fallback to overall average if no valid sessions
         const hoursRead = totalReadingTimeMs / (1000 * 60 * 60);
-        // Guard against division by zero (should not happen with the check above, but defensive)
         if (hoursRead > 0) {
-          pagesPerHour = Math.round((totalPagesRead / hoursRead) * 10) / 10; // Round to 1 decimal
+          pagesPerHour = Math.round((totalPagesRead / hoursRead) * 10) / 10;
         }
       }
 
@@ -115,20 +145,31 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
       );
 
       // Calculate average daily reading time from recent history (last 14 days with activity)
+      // Use weighted average - more recent days count more
       const recentHistory = updatedHistory.filter(h => h.durationMs > 0).slice(0, 14);
       let averageDailyReadingMs: number | null = null;
       if (recentHistory.length >= 2) {
-        const totalRecentMs = recentHistory.reduce((sum, h) => sum + h.durationMs, 0);
-        averageDailyReadingMs = Math.round(totalRecentMs / recentHistory.length);
+        // Weight more recent days more heavily
+        const DAILY_DECAY = 0.9;
+        let weightedDailyMs = 0;
+        let totalDailyWeight = 0;
+
+        for (let i = 0; i < recentHistory.length; i++) {
+          const weight = Math.pow(DAILY_DECAY, i);
+          weightedDailyMs += recentHistory[i].durationMs * weight;
+          totalDailyWeight += weight;
+        }
+
+        if (totalDailyWeight > 0) {
+          averageDailyReadingMs = Math.round(weightedDailyMs / totalDailyWeight);
+        }
       }
 
-      // Calculate estimated completion date
+      // Calculate estimated completion date with improved accuracy
       let estimatedCompletionDate: string | null = null;
       if (
         pagesPerHour !== null &&
         pagesPerHour > 0 &&
-        averageDailyReadingMs !== null &&
-        averageDailyReadingMs > 0 &&
         note.totalPages !== null &&
         note.progress < 100
       ) {
@@ -137,18 +178,35 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
         const remainingPages = note.totalPages - currentPage;
 
         if (remainingPages > 0) {
-          // Pages per day = (pages per hour) * (hours read per day)
-          const hoursPerDay = averageDailyReadingMs / (1000 * 60 * 60);
-          const pagesPerDay = pagesPerHour * hoursPerDay;
+          // Use weighted daily average if available, otherwise estimate from sessions
+          let hoursPerDay: number;
 
-          if (pagesPerDay > 0) {
-            // Days to complete
-            const daysToComplete = Math.ceil(remainingPages / pagesPerDay);
+          if (averageDailyReadingMs !== null && averageDailyReadingMs > 0) {
+            hoursPerDay = averageDailyReadingMs / (1000 * 60 * 60);
+          } else if (sessionsForSpeed.length > 0) {
+            // Estimate from recent session frequency
+            // If user has been reading recently, assume they'll continue at similar rate
+            const recentDays = Math.min(7, sessionsForSpeed.length);
+            const recentTotalMs = sessionsForSpeed.slice(0, recentDays).reduce((s, x) => s + x.durationMs, 0);
+            hoursPerDay = (recentTotalMs / recentDays) / (1000 * 60 * 60);
+          } else {
+            // No good data - skip estimation
+            hoursPerDay = 0;
+          }
 
-            // Calculate the target date
-            const targetDate = new Date();
-            targetDate.setDate(targetDate.getDate() + daysToComplete);
-            estimatedCompletionDate = targetDate.toISOString().split('T')[0];
+          if (hoursPerDay > 0) {
+            const pagesPerDay = pagesPerHour * hoursPerDay;
+
+            if (pagesPerDay > 0) {
+              // Calculate days to complete
+              // Add a small buffer (5%) for more realistic estimates
+              const daysToComplete = Math.ceil((remainingPages / pagesPerDay) * 1.05);
+
+              // Calculate the target date
+              const targetDate = new Date();
+              targetDate.setDate(targetDate.getDate() + daysToComplete);
+              estimatedCompletionDate = targetDate.toISOString().split('T')[0];
+            }
           }
         }
       }

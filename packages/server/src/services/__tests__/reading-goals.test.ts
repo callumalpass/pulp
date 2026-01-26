@@ -36,6 +36,7 @@ function createGoalsFileData(overrides: Record<string, unknown> = {}) {
       dailyGoalMinutes: 30,
       weeklyGoalMinutes: null,
       gracePeriodDays: 1,
+      streakFreezeDays: [],
       ...(overrides.goals as Record<string, unknown> || {}),
     },
     streak: {
@@ -44,6 +45,7 @@ function createGoalsFileData(overrides: Record<string, unknown> = {}) {
       lastReadDate: '',
       streakStartDate: '2024-01-15',
       graceDaysUsed: 0,
+      freezeDaysUsed: 0,
       ...(overrides.streak as Record<string, unknown> || {}),
     },
   };
@@ -830,6 +832,176 @@ describe('ReadingGoalsService', () => {
       expect(risk).not.toBeNull();
       expect(risk!.hoursUntilMidnight).toBeLessThan(24);
       expect(risk!.hoursUntilMidnight).toBeGreaterThan(0);
+    });
+  });
+
+  describe('streak freeze days', () => {
+    it('allows adding a freeze day in the future', () => {
+      mockExistsSync.mockReturnValue(false);
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const goals = service.addFreezeDay('2024-01-20');
+      expect(goals.streakFreezeDays).toContain('2024-01-20');
+    });
+
+    it('prevents adding freeze days in the past', () => {
+      mockExistsSync.mockReturnValue(false);
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const goals = service.addFreezeDay('2024-01-10'); // Before today (2024-01-15)
+      expect(goals.streakFreezeDays).not.toContain('2024-01-10');
+    });
+
+    it('allows removing a freeze day', () => {
+      const existingData = createGoalsFileData({
+        goals: { streakFreezeDays: ['2024-01-20', '2024-01-25'] },
+      });
+
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify(existingData));
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const goals = service.removeFreezeDay('2024-01-20');
+      expect(goals.streakFreezeDays).not.toContain('2024-01-20');
+      expect(goals.streakFreezeDays).toContain('2024-01-25');
+    });
+
+    it('recognizes today as a freeze day', () => {
+      const existingData = createGoalsFileData({
+        goals: { streakFreezeDays: ['2024-01-15'] }, // Today
+      });
+
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify(existingData));
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      expect(service.isTodayFreezeDay()).toBe(true);
+    });
+
+    it('does not break streak on freeze day even without reading', () => {
+      const existingData = createGoalsFileData({
+        goals: { streakFreezeDays: ['2024-01-14'] }, // Yesterday was a freeze day
+        streak: {
+          currentStreak: 3,
+          lastReadDate: '2024-01-13',
+          streakStartDate: '2024-01-11',
+        },
+      });
+
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify(existingData));
+      mockScanner.getAll.mockReturnValue([
+        {
+          frontmatter: {
+            reading_history: [
+              { date: '2024-01-15', duration_ms: 1800000, sessions: 1, pages: 10 }, // Read today (30min)
+            ],
+          },
+        },
+      ]);
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const streak = service.updateStreak();
+      expect(streak.currentStreak).toBe(4); // Streak continues
+      expect(streak.freezeDaysUsed).toBe(1); // Jan 14 was a freeze day
+    });
+
+    it('correctly counts freeze days during streak gap', () => {
+      const existingData = createGoalsFileData({
+        goals: {
+          gracePeriodDays: 1,
+          streakFreezeDays: ['2024-01-13', '2024-01-14'], // Two freeze days
+        },
+        streak: {
+          currentStreak: 5,
+          lastReadDate: '2024-01-12', // Last read 3 days ago
+          streakStartDate: '2024-01-08',
+        },
+      });
+
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify(existingData));
+      mockScanner.getAll.mockReturnValue([
+        {
+          frontmatter: {
+            reading_history: [
+              { date: '2024-01-15', duration_ms: 1800000, sessions: 1, pages: 10 },
+            ],
+          },
+        },
+      ]);
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const streak = service.updateStreak();
+      // 3 days since last read: Jan 13, 14 are freeze days, no grace needed
+      expect(streak.currentStreak).toBe(6); // Streak continues
+      expect(streak.freezeDaysUsed).toBe(2); // Two freeze days used
+      expect(streak.graceDaysUsed).toBe(0); // No grace days needed
+    });
+
+    it('includes freeze day info in streak risk', () => {
+      const existingData = createGoalsFileData({
+        goals: { streakFreezeDays: ['2024-01-15'] }, // Today is a freeze day
+        streak: {
+          currentStreak: 5,
+          lastReadDate: '2024-01-14',
+        },
+      });
+
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify(existingData));
+      mockScanner.getAll.mockReturnValue([]); // No reading today
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const risk = service.getStreakRiskInfo();
+      expect(risk).not.toBeNull();
+      expect(risk!.isFreezeDay).toBe(true);
+      expect(risk!.isAtRisk).toBe(false); // Not at risk because it's a freeze day
+    });
+
+    it('returns upcoming freeze days', () => {
+      const existingData = createGoalsFileData({
+        goals: { streakFreezeDays: ['2024-01-16', '2024-01-18', '2024-01-25'] },
+      });
+
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify(existingData));
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const upcoming = service.getUpcomingFreezeDays(7);
+      expect(upcoming).toEqual(['2024-01-16', '2024-01-18']); // 2024-01-25 is beyond 7 days
     });
   });
 

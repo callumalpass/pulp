@@ -87,7 +87,23 @@ export function LibraryStats() {
             *
           </span>
         )}
+        {streak.freezeDaysUsed > 0 && streak.currentStreak > 0 && (
+          <span className="text-blue-400/70 text-xs" title={`${streak.freezeDaysUsed} freeze day${streak.freezeDaysUsed === 1 ? '' : 's'} used`}>
+            ❄
+          </span>
+        )}
       </div>
+
+      {/* Freeze day indicator */}
+      {data.streakAtRisk?.isFreezeDay && (
+        <>
+          <div className="h-4 w-px bg-text-secondary/20" />
+          <div className="flex items-center gap-1.5 text-blue-400">
+            <span>❄️</span>
+            <span className="text-xs">Freeze day</span>
+          </div>
+        </>
+      )}
 
       {/* Library stats (if available) */}
       {libraryStats && (
@@ -122,6 +138,17 @@ export function LibraryStats() {
                 <HighlightIcon className="w-3.5 h-3.5 text-text-secondary opacity-70" />
                 <span className="font-medium text-text-primary">{libraryStats.totalHighlights}</span>
                 <span className="text-text-secondary text-xs">highlights</span>
+              </div>
+            </>
+          )}
+
+          {/* Books completed this year */}
+          {libraryStats.booksCompletedThisYear > 0 && (
+            <>
+              <div className="h-4 w-px bg-text-secondary/20" />
+              <div className="flex items-center gap-1.5" title={`${libraryStats.booksCompletedThisYear} book${libraryStats.booksCompletedThisYear === 1 ? '' : 's'} completed in ${libraryStats.currentYear}`}>
+                <span className="font-medium text-green-500">{libraryStats.booksCompletedThisYear}</span>
+                <span className="text-text-secondary text-xs">in {libraryStats.currentYear}</span>
               </div>
             </>
           )}
