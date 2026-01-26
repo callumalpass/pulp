@@ -10,15 +10,20 @@ import type {
   RenderRequest,
   RenderResponse,
   CancelRequest,
+  TextContentPayload,
 } from '../workers/pdf-render.worker';
 
 type RenderPriority = 'high' | 'low';
+
+export type TextContentData = TextContentPayload;
+type TextContentCallback = (pageNum: number, textContent: TextContentData) => void;
 
 interface RenderTask {
   id: string;
   pageNum: number;
   scale: number;
   priority: RenderPriority;
+  includeText: boolean;
   resolve: (bitmap: ImageBitmap) => void;
   reject: (error: Error) => void;
 }
@@ -109,6 +114,8 @@ export class PdfRenderQueue {
   private queue = new Map<string, RenderTask>();
   private pendingRequests = new Map<string, RenderTask>();
   private cache: LRUCache;
+  private textContentCache = new Map<number, TextContentData>();
+  private textContentCallbacks: TextContentCallback[] = [];
   private idCounter = 0;
   private currentPdfUrl: string | null = null;
   private devicePixelRatio: number;
@@ -135,6 +142,7 @@ export class PdfRenderQueue {
   setPdfUrl(url: string): void {
     if (this.currentPdfUrl !== url) {
       this.currentPdfUrl = url;
+      this.textContentCache.clear();
       // Cancel all pending renders when PDF changes
       this.cancelAll();
     }
@@ -145,7 +153,8 @@ export class PdfRenderQueue {
    */
   async renderVisible(
     pages: number[],
-    scale: number
+    scale: number,
+    includeText: boolean = true
   ): Promise<Map<number, ImageBitmap>> {
     const results = new Map<number, ImageBitmap>();
     const promises: Promise<void>[] = [];
@@ -160,7 +169,7 @@ export class PdfRenderQueue {
       }
 
       promises.push(
-        this.queueRender(pageNum, scale, 'high').then((bitmap) => {
+        this.queueRender(pageNum, scale, 'high', includeText).then((bitmap) => {
           results.set(pageNum, bitmap);
         }).catch(() => {
           // Ignore errors for individual pages
@@ -186,7 +195,7 @@ export class PdfRenderQueue {
       if (existingId) continue;
 
       // Queue with low priority
-      this.queueRender(pageNum, scale, 'low').catch(() => {
+      this.queueRender(pageNum, scale, 'low', false).catch(() => {
         // Ignore errors for buffer pages
       });
     }
@@ -262,11 +271,30 @@ export class PdfRenderQueue {
   }
 
   /**
+   * Get cached text content for a page
+   */
+  getTextContent(pageNum: number): TextContentData | null {
+    return this.textContentCache.get(pageNum) || null;
+  }
+
+  /**
+   * Register a callback for when text content is received
+   */
+  onTextContent(callback: TextContentCallback): () => void {
+    this.textContentCallbacks.push(callback);
+    return () => {
+      const idx = this.textContentCallbacks.indexOf(callback);
+      if (idx >= 0) this.textContentCallbacks.splice(idx, 1);
+    };
+  }
+
+  /**
    * Cleanup resources
    */
   destroy(): void {
     this.cancelAll();
     this.cache.clear();
+    this.textContentCache.clear();
     this.worker.terminate();
   }
 
@@ -276,7 +304,8 @@ export class PdfRenderQueue {
   private queueRender(
     pageNum: number,
     scale: number,
-    priority: RenderPriority
+    priority: RenderPriority,
+    includeText: boolean
   ): Promise<ImageBitmap> {
     return new Promise((resolve, reject) => {
       const id = this.generateId();
@@ -286,6 +315,7 @@ export class PdfRenderQueue {
         pageNum,
         scale,
         priority,
+        includeText,
         resolve,
         reject,
       };
@@ -339,6 +369,7 @@ export class PdfRenderQueue {
       pageNum: task.pageNum,
       scale: task.scale,
       devicePixelRatio: this.devicePixelRatio,
+      includeText: task.includeText,
     };
 
     // Move from queue to pending
@@ -362,9 +393,22 @@ export class PdfRenderQueue {
     if ('error' in response) {
       task.reject(new Error(response.error));
     } else {
-      // Cache the result
+      // Cache the bitmap result
       const cacheKey = LRUCache.makeKey(task.pageNum, task.scale);
       this.cache.set(cacheKey, response.bitmap);
+
+      // Cache and notify about text content (only once per page)
+      if (response.textContent && !this.textContentCache.has(task.pageNum)) {
+        this.textContentCache.set(task.pageNum, response.textContent);
+        // Notify all callbacks
+        for (const callback of this.textContentCallbacks) {
+          try {
+            callback(task.pageNum, response.textContent);
+          } catch (e) {
+            console.error('Text content callback error:', e);
+          }
+        }
+      }
 
       task.resolve(response.bitmap);
     }
