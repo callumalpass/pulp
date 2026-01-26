@@ -294,6 +294,42 @@ export interface ReadingSession {
   pagesRead: number;         // Pages read in this session
   startPage: number;         // Page when session started
   endPage: number;           // Page when session ended
+  hourOfDay?: number;        // Hour when session started (0-23), for time-of-day analysis
+}
+
+// Time-of-day reading pattern analysis
+export interface TimeOfDayPattern {
+  hour: number;              // Hour of day (0-23)
+  totalSessions: number;     // Number of sessions started in this hour
+  totalDurationMs: number;   // Total reading time in this hour
+  averageDurationMs: number; // Average session duration in this hour
+}
+
+// Reading pace data point for trend visualization
+export interface ReadingPacePoint {
+  date: string;              // ISO date (YYYY-MM-DD)
+  pagesPerHour: number | null; // Pages per hour for this session
+  pagesRead: number;         // Pages read in this session
+  durationMs: number;        // Duration of this session
+}
+
+// Reading pace trends response
+export interface ReadingPaceTrends {
+  paceData: ReadingPacePoint[];     // Individual session pace data
+  trend: 'improving' | 'declining' | 'stable' | null; // Overall trend
+  currentPace: number | null;       // Recent average pace (last 5 sessions)
+  overallAverage: number | null;    // Overall average pace
+  totalSessions: number;            // Total sessions analyzed
+  timeOfDayPatterns: TimeOfDayPattern[]; // Reading patterns by hour
+  preferredReadingTime: PreferredReadingTime | null; // Best reading time analysis
+}
+
+// Analysis of when user reads best
+export interface PreferredReadingTime {
+  peakHour: number;          // Hour with most reading activity
+  peakPeriod: 'morning' | 'afternoon' | 'evening' | 'night'; // Time period classification
+  sessionsInPeakPeriod: number; // Sessions in this period
+  percentageInPeakPeriod: number; // Percentage of reading in this period
 }
 
 // Global reading streak data (stored in .pulp-goals file)

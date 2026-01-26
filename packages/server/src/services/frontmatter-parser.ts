@@ -701,6 +701,7 @@ export interface ParsedReadingSession {
   pagesRead: number;
   startPage: number;
   endPage: number;
+  hourOfDay?: number;  // Hour when session started (0-23)
 }
 
 /**
@@ -869,6 +870,16 @@ export function getReadingSessions(
 
     if (!startTime || !endTime) continue;
 
+    // Extract hour of day from start time (or use stored value)
+    let hourOfDay: number | undefined;
+    if (typeof sessionObj.hour_of_day === 'number') {
+      hourOfDay = sessionObj.hour_of_day;
+    } else {
+      // Calculate from startTime if not stored
+      const startDate = new Date(startTime);
+      hourOfDay = startDate.getHours();
+    }
+
     entries.push({
       startTime,
       endTime,
@@ -876,6 +887,7 @@ export function getReadingSessions(
       pagesRead: typeof sessionObj.pages === 'number' ? sessionObj.pages : 0,
       startPage: typeof sessionObj.start_page === 'number' ? sessionObj.start_page : 0,
       endPage: typeof sessionObj.end_page === 'number' ? sessionObj.end_page : 0,
+      hourOfDay,
     });
   }
 
@@ -889,7 +901,7 @@ export function getReadingSessions(
 export function createReadingSessionForFrontmatter(
   session: ParsedReadingSession
 ): Record<string, unknown> {
-  return {
+  const result: Record<string, unknown> = {
     start: session.startTime,
     end: session.endTime,
     duration_ms: session.durationMs,
@@ -897,6 +909,13 @@ export function createReadingSessionForFrontmatter(
     start_page: session.startPage,
     end_page: session.endPage,
   };
+
+  // Include hour of day if available
+  if (session.hourOfDay !== undefined) {
+    result.hour_of_day = session.hourOfDay;
+  }
+
+  return result;
 }
 
 /**

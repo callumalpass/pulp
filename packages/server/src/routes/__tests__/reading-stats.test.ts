@@ -667,6 +667,72 @@ reading_stats:
 
       expect(response.statusCode).toBe(404);
     });
+
+    it('returns time-of-day patterns', async () => {
+      // Create sessions at different times of day
+      const sessions = [
+        { start: '2024-01-15T08:00:00Z', end: '2024-01-15T09:00:00Z', duration_ms: 3600000, pages: 30, start_page: 0, end_page: 30, hour_of_day: 8 },
+        { start: '2024-01-14T09:00:00Z', end: '2024-01-14T10:00:00Z', duration_ms: 3600000, pages: 25, start_page: 30, end_page: 55, hour_of_day: 9 },
+        { start: '2024-01-13T20:00:00Z', end: '2024-01-13T21:00:00Z', duration_ms: 3600000, pages: 28, start_page: 55, end_page: 83, hour_of_day: 20 },
+        { start: '2024-01-12T08:30:00Z', end: '2024-01-12T09:30:00Z', duration_ms: 3600000, pages: 32, start_page: 83, end_page: 115, hour_of_day: 8 },
+      ];
+
+      testNotes.get('test-note')!.frontmatter = { reading_sessions: sessions };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-pace',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // Should have time-of-day patterns
+      expect(body.timeOfDayPatterns).toBeDefined();
+      expect(body.timeOfDayPatterns).toHaveLength(24);
+
+      // Check that patterns aggregate correctly
+      const hour8Pattern = body.timeOfDayPatterns.find((p: { hour: number }) => p.hour === 8);
+      expect(hour8Pattern.totalSessions).toBe(2); // 2 sessions at 8am
+      expect(hour8Pattern.totalDurationMs).toBe(7200000); // 2 hours total
+    });
+
+    it('calculates preferred reading time', async () => {
+      // Create sessions predominantly in the morning
+      const sessions = [
+        { start: '2024-01-20T08:00:00Z', end: '2024-01-20T09:00:00Z', duration_ms: 3600000, pages: 30, start_page: 0, end_page: 30, hour_of_day: 8 },
+        { start: '2024-01-19T09:00:00Z', end: '2024-01-19T10:00:00Z', duration_ms: 3600000, pages: 25, start_page: 30, end_page: 55, hour_of_day: 9 },
+        { start: '2024-01-18T07:00:00Z', end: '2024-01-18T08:00:00Z', duration_ms: 3600000, pages: 28, start_page: 55, end_page: 83, hour_of_day: 7 },
+        { start: '2024-01-17T10:00:00Z', end: '2024-01-17T11:00:00Z', duration_ms: 3600000, pages: 32, start_page: 83, end_page: 115, hour_of_day: 10 },
+        { start: '2024-01-16T20:00:00Z', end: '2024-01-16T21:00:00Z', duration_ms: 3600000, pages: 26, start_page: 115, end_page: 141, hour_of_day: 20 },
+      ];
+
+      testNotes.get('test-note')!.frontmatter = { reading_sessions: sessions };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-pace',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      expect(body.preferredReadingTime).toBeDefined();
+      expect(body.preferredReadingTime.peakPeriod).toBe('morning'); // 4 out of 5 sessions in morning hours
+      expect(body.preferredReadingTime.percentageInPeakPeriod).toBe(80);
+    });
+
+    it('returns null preferred time when no sessions', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-pace',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      expect(body.preferredReadingTime).toBeNull();
+    });
   });
 
   describe('estimated completion date calculation', () => {

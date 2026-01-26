@@ -25,6 +25,7 @@ import type {
   ReaderPreferencesUpdate,
   HighlightExportFormat,
   HighlightExportResponse,
+  ReadingPaceTrends,
 } from '@pulp/shared';
 
 const API_BASE = '/api';
@@ -289,6 +290,11 @@ export const api = {
         }>;
         totalSessions: number;
       }>(`/library/${noteId}/reading-sessions${params}`);
+    },
+
+    getPaceTrends(noteId: string, limit?: number) {
+      const params = limit ? `?limit=${limit}` : '';
+      return fetchJSON<ReadingPaceTrends>(`/library/${noteId}/reading-pace${params}`);
     },
   },
 

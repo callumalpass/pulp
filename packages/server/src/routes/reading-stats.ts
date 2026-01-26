@@ -223,8 +223,9 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
           averageDailyReadingMs,
         };
 
-        // Add individual session record
+        // Add individual session record with hour of day for time-of-day analysis
         const existingSessions = getReadingSessions(frontmatter, config.reading_sessions_key);
+        const startDate = new Date(startTime);
         const newSession = {
           startTime,
           endTime: now,
@@ -232,6 +233,7 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
           pagesRead,
           startPage,
           endPage,
+          hourOfDay: startDate.getHours(),
         };
         const updatedSessions = addReadingSession(existingSessions, newSession);
 
@@ -482,12 +484,99 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
       ? Math.round((validPaces.reduce((a, b) => a + b, 0) / validPaces.length) * 10) / 10
       : null;
 
+    // Calculate time-of-day patterns from all sessions
+    const timeOfDayPatterns = calculateTimeOfDayPatterns(sessions);
+    const preferredReadingTime = calculatePreferredReadingTime(timeOfDayPatterns);
+
     return {
       paceData: paceData.reverse(), // Return chronologically (oldest first)
       trend,
       currentPace,
       overallAverage,
       totalSessions: sessions.length,
+      timeOfDayPatterns,
+      preferredReadingTime,
     };
   });
 };
+
+/**
+ * Calculate reading patterns by hour of day.
+ */
+function calculateTimeOfDayPatterns(
+  sessions: Array<{ hourOfDay?: number; durationMs: number }>
+): Array<{ hour: number; totalSessions: number; totalDurationMs: number; averageDurationMs: number }> {
+  // Initialize all 24 hours
+  const hourlyStats = new Map<number, { sessions: number; durationMs: number }>();
+  for (let h = 0; h < 24; h++) {
+    hourlyStats.set(h, { sessions: 0, durationMs: 0 });
+  }
+
+  // Accumulate sessions by hour
+  for (const session of sessions) {
+    const hour = session.hourOfDay;
+    if (hour !== undefined && hour >= 0 && hour < 24) {
+      const stats = hourlyStats.get(hour)!;
+      stats.sessions++;
+      stats.durationMs += session.durationMs;
+    }
+  }
+
+  // Convert to array format
+  const patterns: Array<{ hour: number; totalSessions: number; totalDurationMs: number; averageDurationMs: number }> = [];
+  for (let h = 0; h < 24; h++) {
+    const stats = hourlyStats.get(h)!;
+    patterns.push({
+      hour: h,
+      totalSessions: stats.sessions,
+      totalDurationMs: stats.durationMs,
+      averageDurationMs: stats.sessions > 0 ? Math.round(stats.durationMs / stats.sessions) : 0,
+    });
+  }
+
+  return patterns;
+}
+
+/**
+ * Analyze preferred reading time based on patterns.
+ */
+function calculatePreferredReadingTime(
+  patterns: Array<{ hour: number; totalSessions: number; totalDurationMs: number }>
+): { peakHour: number; peakPeriod: 'morning' | 'afternoon' | 'evening' | 'night'; sessionsInPeakPeriod: number; percentageInPeakPeriod: number } | null {
+  const totalSessions = patterns.reduce((sum, p) => sum + p.totalSessions, 0);
+  if (totalSessions === 0) return null;
+
+  // Find peak hour
+  let peakHour = 0;
+  let maxSessions = 0;
+  for (const p of patterns) {
+    if (p.totalSessions > maxSessions) {
+      maxSessions = p.totalSessions;
+      peakHour = p.hour;
+    }
+  }
+
+  // Classify into periods
+  // Morning: 5-11, Afternoon: 12-16, Evening: 17-20, Night: 21-4
+  const getPeriod = (hour: number): 'morning' | 'afternoon' | 'evening' | 'night' => {
+    if (hour >= 5 && hour <= 11) return 'morning';
+    if (hour >= 12 && hour <= 16) return 'afternoon';
+    if (hour >= 17 && hour <= 20) return 'evening';
+    return 'night';
+  };
+
+  const peakPeriod = getPeriod(peakHour);
+
+  // Count sessions in peak period
+  const sessionsInPeakPeriod = patterns.filter(p => getPeriod(p.hour) === peakPeriod)
+    .reduce((sum, p) => sum + p.totalSessions, 0);
+
+  const percentageInPeakPeriod = Math.round((sessionsInPeakPeriod / totalSessions) * 100);
+
+  return {
+    peakHour,
+    peakPeriod,
+    sessionsInPeakPeriod,
+    percentageInPeakPeriod,
+  };
+}

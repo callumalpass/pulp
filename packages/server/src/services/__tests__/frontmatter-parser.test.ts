@@ -19,6 +19,8 @@ import {
   createDailyReadingEntryForFrontmatter,
   updateDailyReadingHistory,
   getBookNotes,
+  getReadingSessions,
+  createReadingSessionForFrontmatter,
 } from '../frontmatter-parser.js';
 
 describe('hasTag', () => {
@@ -797,5 +799,91 @@ describe('bookmarkToFrontmatter', () => {
     const obj = result as { link: string; notes: string };
     expect(obj.link).toContain('cfi=');
     expect(obj.notes).toBe('Start of the story');
+  });
+});
+
+describe('getReadingSessions', () => {
+  it('returns empty array when key is missing', () => {
+    expect(getReadingSessions({}, 'reading_sessions')).toEqual([]);
+  });
+
+  it('returns empty array when not an array', () => {
+    expect(getReadingSessions({ reading_sessions: 'invalid' }, 'reading_sessions')).toEqual([]);
+  });
+
+  it('parses reading sessions with hourOfDay', () => {
+    const sessions = getReadingSessions({
+      reading_sessions: [
+        {
+          start: '2024-01-15T10:00:00Z',
+          end: '2024-01-15T11:00:00Z',
+          duration_ms: 3600000,
+          pages: 30,
+          start_page: 0,
+          end_page: 30,
+          hour_of_day: 10,
+        },
+      ],
+    }, 'reading_sessions');
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].hourOfDay).toBe(10);
+  });
+
+  it('calculates hourOfDay from startTime if not stored', () => {
+    const sessions = getReadingSessions({
+      reading_sessions: [
+        {
+          start: '2024-01-15T08:30:00Z', // 8 AM UTC
+          end: '2024-01-15T09:30:00Z',
+          duration_ms: 3600000,
+          pages: 30,
+          start_page: 0,
+          end_page: 30,
+          // hour_of_day not provided
+        },
+      ],
+    }, 'reading_sessions');
+
+    expect(sessions).toHaveLength(1);
+    // Should calculate hour from startTime - exact hour depends on timezone
+    expect(sessions[0].hourOfDay).toBeDefined();
+    expect(sessions[0].hourOfDay).toBeGreaterThanOrEqual(0);
+    expect(sessions[0].hourOfDay).toBeLessThan(24);
+  });
+});
+
+describe('createReadingSessionForFrontmatter', () => {
+  it('creates session object with all fields', () => {
+    const result = createReadingSessionForFrontmatter({
+      startTime: '2024-01-15T10:00:00Z',
+      endTime: '2024-01-15T11:00:00Z',
+      durationMs: 3600000,
+      pagesRead: 30,
+      startPage: 0,
+      endPage: 30,
+      hourOfDay: 10,
+    });
+
+    expect(result.start).toBe('2024-01-15T10:00:00Z');
+    expect(result.end).toBe('2024-01-15T11:00:00Z');
+    expect(result.duration_ms).toBe(3600000);
+    expect(result.pages).toBe(30);
+    expect(result.start_page).toBe(0);
+    expect(result.end_page).toBe(30);
+    expect(result.hour_of_day).toBe(10);
+  });
+
+  it('omits hourOfDay if undefined', () => {
+    const result = createReadingSessionForFrontmatter({
+      startTime: '2024-01-15T10:00:00Z',
+      endTime: '2024-01-15T11:00:00Z',
+      durationMs: 3600000,
+      pagesRead: 30,
+      startPage: 0,
+      endPage: 30,
+    });
+
+    expect(result.hour_of_day).toBeUndefined();
   });
 });

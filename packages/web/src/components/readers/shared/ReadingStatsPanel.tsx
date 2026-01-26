@@ -2,7 +2,9 @@ import { useEffect, useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useReadingStatsStore } from '../../../stores/readingStats';
 import { useIdleDetection } from '../../../hooks/useIdleDetection';
+import { useReadingPaceTrends } from '../../../hooks/useReadingPaceTrends';
 import { api } from '../../../lib/api';
+import type { TimeOfDayPattern, PreferredReadingTime } from '@pulp/shared';
 
 interface ReadingStatsPanelProps {
   noteId: string;
@@ -30,6 +32,9 @@ export function ReadingStatsPanel({ noteId, currentPage, totalPages, dateFinishe
     queryFn: () => api.readingStats.getHistory(noteId, 14),
     staleTime: 60000, // Refresh every minute
   });
+
+  // Fetch reading pace trends and time-of-day patterns
+  const { data: paceTrends } = useReadingPaceTrends(noteId, 30);
 
   // Update session duration every second
   useEffect(() => {
@@ -116,6 +121,38 @@ export function ReadingStatsPanel({ noteId, currentPage, totalPages, dateFinishe
                 history={historyData.history}
                 sessionDuration={sessionDuration}
                 getFormattedReadingTime={getFormattedReadingTime}
+              />
+            </div>
+          </section>
+        )}
+
+        {/* Reading Pace Trends */}
+        {paceTrends && paceTrends.paceData.length >= 2 && (
+          <section>
+            <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wide mb-3">
+              Reading Pace
+            </h3>
+            <div className="bg-bg-deep rounded-lg p-4">
+              <ReadingPaceChart
+                paceData={paceTrends.paceData}
+                trend={paceTrends.trend}
+                currentPace={paceTrends.currentPace}
+                overallAverage={paceTrends.overallAverage}
+              />
+            </div>
+          </section>
+        )}
+
+        {/* Time of Day Patterns */}
+        {paceTrends && paceTrends.timeOfDayPatterns.some(p => p.totalSessions > 0) && (
+          <section>
+            <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wide mb-3">
+              Reading Time Patterns
+            </h3>
+            <div className="bg-bg-deep rounded-lg p-4">
+              <TimeOfDayChart
+                patterns={paceTrends.timeOfDayPatterns}
+                preferredTime={paceTrends.preferredReadingTime}
               />
             </div>
           </section>
@@ -315,4 +352,221 @@ function formatChartDate(dateStr: string | undefined): string {
   if (!dateStr) return '';
   const date = new Date(dateStr + 'T12:00:00');
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+interface ReadingPaceChartProps {
+  paceData: Array<{ date: string; pagesPerHour: number | null; pagesRead: number; durationMs: number }>;
+  trend: 'improving' | 'declining' | 'stable' | null;
+  currentPace: number | null;
+  overallAverage: number | null;
+}
+
+function ReadingPaceChart({ paceData, trend, currentPace, overallAverage }: ReadingPaceChartProps) {
+  // Filter to sessions with valid pace data
+  const validData = paceData.filter(p => p.pagesPerHour !== null && p.pagesPerHour > 0);
+
+  const maxPace = useMemo(() => {
+    const paces = validData.map(p => p.pagesPerHour!);
+    return Math.max(...paces, 1);
+  }, [validData]);
+
+  const minPace = useMemo(() => {
+    const paces = validData.map(p => p.pagesPerHour!);
+    return Math.min(...paces, 0);
+  }, [validData]);
+
+  // Show last 15 sessions for the chart
+  const chartData = validData.slice(-15);
+
+  return (
+    <div className="space-y-3">
+      {/* Pace trend indicator */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-lg font-semibold text-text-primary">
+            {currentPace !== null ? `${currentPace} pg/hr` : '--'}
+          </span>
+          {trend && (
+            <span className={`text-xs px-1.5 py-0.5 rounded flex items-center gap-0.5 ${
+              trend === 'improving' ? 'bg-green-500/20 text-green-500' :
+              trend === 'declining' ? 'bg-red-500/20 text-red-500' :
+              'bg-text-secondary/20 text-text-secondary'
+            }`}>
+              {trend === 'improving' && <TrendUpIcon className="w-3 h-3" />}
+              {trend === 'declining' && <TrendDownIcon className="w-3 h-3" />}
+              {trend === 'stable' && <TrendStableIcon className="w-3 h-3" />}
+              {trend.charAt(0).toUpperCase() + trend.slice(1)}
+            </span>
+          )}
+        </div>
+        {overallAverage !== null && (
+          <div className="text-xs text-text-secondary">
+            Avg: {overallAverage} pg/hr
+          </div>
+        )}
+      </div>
+
+      {/* Mini line chart visualization */}
+      {chartData.length >= 2 && (
+        <div className="relative h-16">
+          {/* Y-axis range markers */}
+          <div className="absolute inset-y-0 left-0 w-8 flex flex-col justify-between text-[9px] text-text-secondary/50">
+            <span>{Math.round(maxPace)}</span>
+            <span>{Math.round(minPace)}</span>
+          </div>
+
+          {/* Chart area */}
+          <div className="ml-9 h-full flex items-end gap-0.5">
+            {chartData.map((point, index) => {
+              const normalizedHeight = maxPace > minPace
+                ? ((point.pagesPerHour! - minPace) / (maxPace - minPace)) * 100
+                : 50;
+              const height = Math.max(4, Math.min(100, normalizedHeight));
+              const isLatest = index === chartData.length - 1;
+
+              return (
+                <div
+                  key={`${point.date}-${index}`}
+                  className="flex-1 flex flex-col items-center justify-end"
+                  title={`${formatChartDate(point.date)}: ${point.pagesPerHour} pg/hr (${point.pagesRead} pages)`}
+                >
+                  <div
+                    className={`w-full max-w-3 rounded-t transition-all ${
+                      isLatest ? 'bg-accent-primary' : 'bg-accent-primary/50'
+                    }`}
+                    style={{ height: `${height}%`, minHeight: '4px' }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Legend */}
+      <div className="flex justify-between text-[10px] text-text-secondary/70 pt-1">
+        <span>{validData.length} sessions</span>
+        <span>Recent pace over time</span>
+      </div>
+    </div>
+  );
+}
+
+interface TimeOfDayChartProps {
+  patterns: TimeOfDayPattern[];
+  preferredTime: PreferredReadingTime | null;
+}
+
+function TimeOfDayChart({ patterns, preferredTime }: TimeOfDayChartProps) {
+  // Group into 4-hour periods for a cleaner visualization
+  const periods = useMemo(() => {
+    const periodData = [
+      { name: 'Night', range: '12-4am', hours: [0, 1, 2, 3], sessions: 0, durationMs: 0 },
+      { name: 'Early', range: '4-8am', hours: [4, 5, 6, 7], sessions: 0, durationMs: 0 },
+      { name: 'Morning', range: '8am-12pm', hours: [8, 9, 10, 11], sessions: 0, durationMs: 0 },
+      { name: 'Afternoon', range: '12-4pm', hours: [12, 13, 14, 15], sessions: 0, durationMs: 0 },
+      { name: 'Evening', range: '4-8pm', hours: [16, 17, 18, 19], sessions: 0, durationMs: 0 },
+      { name: 'Night', range: '8pm-12am', hours: [20, 21, 22, 23], sessions: 0, durationMs: 0 },
+    ];
+
+    for (const pattern of patterns) {
+      const period = periodData.find(p => p.hours.includes(pattern.hour));
+      if (period) {
+        period.sessions += pattern.totalSessions;
+        period.durationMs += pattern.totalDurationMs;
+      }
+    }
+
+    return periodData;
+  }, [patterns]);
+
+  const maxSessions = Math.max(...periods.map(p => p.sessions), 1);
+
+  // Determine period names for display
+  const periodLabels = ['Night', 'Early', 'Morning', 'Afternoon', 'Evening', 'Night'];
+
+  return (
+    <div className="space-y-3">
+      {/* Preferred reading time callout */}
+      {preferredTime && (
+        <div className="flex items-center gap-2 text-sm">
+          <ClockIcon className="w-4 h-4 text-accent-primary" />
+          <span className="text-text-secondary">
+            You read most in the{' '}
+            <span className="text-text-primary font-medium">
+              {preferredTime.peakPeriod}
+            </span>
+            {' '}({preferredTime.percentageInPeakPeriod}% of sessions)
+          </span>
+        </div>
+      )}
+
+      {/* Bar chart by time period */}
+      <div className="space-y-1.5">
+        {periods.map((period, index) => {
+          const width = Math.max(4, (period.sessions / maxSessions) * 100);
+          const isPeak = preferredTime && periodLabels[index].toLowerCase() === preferredTime.peakPeriod;
+
+          return (
+            <div key={`${period.name}-${index}`} className="flex items-center gap-2">
+              <div className="w-16 text-[10px] text-text-secondary truncate" title={period.range}>
+                {period.range}
+              </div>
+              <div className="flex-1 h-4 bg-bg-surface rounded overflow-hidden">
+                <div
+                  className={`h-full rounded transition-all ${
+                    isPeak ? 'bg-accent-primary' : 'bg-accent-primary/40'
+                  }`}
+                  style={{ width: `${width}%`, minWidth: period.sessions > 0 ? '4px' : '0' }}
+                />
+              </div>
+              <div className="w-8 text-[10px] text-text-secondary text-right">
+                {period.sessions > 0 ? period.sessions : '-'}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Footer */}
+      <div className="text-[10px] text-text-secondary/70 text-center pt-1">
+        Sessions by time of day
+      </div>
+    </div>
+  );
+}
+
+function TrendUpIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+      <polyline points="17 6 23 6 23 12" />
+    </svg>
+  );
+}
+
+function TrendDownIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <polyline points="23 18 13.5 8.5 8.5 13.5 1 6" />
+      <polyline points="17 18 23 18 23 12" />
+    </svg>
+  );
+}
+
+function TrendStableIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <line x1="1" y1="12" x2="23" y2="12" />
+    </svg>
+  );
+}
+
+function ClockIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  );
 }
