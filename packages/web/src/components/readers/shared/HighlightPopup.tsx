@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import type { TextSelection } from '@pulp/shared';
 import { Button } from '../../ui/Button';
 import { useCreateHighlight } from '../../../hooks/useHighlights';
+import { DictionaryDefinition } from './DictionaryDefinition';
 
 interface BaseSelection {
   text: string;
@@ -11,6 +12,7 @@ interface BaseSelection {
 
 interface PDFSelection extends BaseSelection {
   selection: TextSelection;
+  pageLabel?: string;
 }
 
 interface EPUBSelection extends BaseSelection {
@@ -60,6 +62,7 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
         await createHighlight.mutateAsync({
           type: 'pdf',
           page: selection.page,
+          pageLabel: selection.pageLabel,
           selection: selection.selection,
           text: selection.text,
           note: note || undefined,
@@ -102,24 +105,27 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
       }}
     >
       {!showNoteInput ? (
-        <div className="flex">
-          <button
-            onClick={handleQuickHighlight}
-            className="flex items-center gap-2 px-4 py-3 text-sm text-text-primary hover:bg-accent-primary/20 transition-colors"
-            disabled={createHighlight.isPending}
-          >
-            <HighlightIcon />
-            Highlight
-          </button>
-          <div className="w-px bg-text-secondary/20" />
-          <button
-            onClick={handleAddNote}
-            className="flex items-center gap-2 px-4 py-3 text-sm text-text-primary hover:bg-accent-primary/20 transition-colors"
-          >
-            <NoteIcon />
-            Note
-          </button>
-        </div>
+        <>
+          <div className="flex">
+            <button
+              onClick={handleQuickHighlight}
+              className="flex items-center gap-2 px-4 py-3 text-sm text-text-primary hover:bg-accent-primary/20 transition-colors"
+              disabled={createHighlight.isPending}
+            >
+              <HighlightIcon />
+              Highlight
+            </button>
+            <div className="w-px bg-text-secondary/20" />
+            <button
+              onClick={handleAddNote}
+              className="flex items-center gap-2 px-4 py-3 text-sm text-text-primary hover:bg-accent-primary/20 transition-colors"
+            >
+              <NoteIcon />
+              Note
+            </button>
+          </div>
+          <DictionaryDefinition text={selection.text} />
+        </>
       ) : (
         <div className="w-64 p-3">
           <p className="text-xs text-text-secondary mb-2 line-clamp-2 italic">

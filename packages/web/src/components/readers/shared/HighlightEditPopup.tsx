@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import type { Highlight } from '@pulp/shared';
 import { Button } from '../../ui/Button';
 import { useUpdateHighlight, useDeleteHighlight } from '../../../hooks/useHighlights';
+import { DictionaryDefinition } from './DictionaryDefinition';
 
 interface HighlightEditPopupProps {
   highlight: Highlight;
@@ -87,6 +88,9 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose }: Hig
           &ldquo;{highlight.text.slice(0, 150)}{highlight.text.length > 150 ? '...' : ''}&rdquo;
         </p>
       </div>
+
+      {/* Dictionary definition for single words */}
+      <DictionaryDefinition text={highlight.text} />
 
       {!isEditing ? (
         <div className="p-3">

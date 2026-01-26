@@ -39,6 +39,7 @@ export class HighlightWriter {
         id,
         type: 'pdf',
         page: request.page!,
+        pageLabel: request.pageLabel,
         selection: request.selection,
         text: request.text,
         note: request.note,
@@ -50,6 +51,7 @@ export class HighlightWriter {
       formatted = this.pdfTemplate({
         source: note.sourceRelative,
         page: highlight.page,
+        pageLabel: highlight.pageLabel ?? String(highlight.page), // Falls back to physical page if no label
         selection: this.formatSelection(highlight.selection),
         text: this.formatBlockquote(highlight.text),
         note: highlight.note ? new Handlebars.SafeString(highlight.note) : undefined,
