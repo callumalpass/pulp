@@ -14,6 +14,9 @@ import type {
   SearchStatus,
   ReadingStats,
   ReadingStatsUpdate,
+  ReadingGoalsResponse,
+  ReadingGoalsUpdate,
+  ReadingStreak,
 } from '@pulp/shared';
 
 const API_BASE = '/api';
@@ -202,12 +205,35 @@ export const api = {
     },
 
     update(noteId: string, data: ReadingStatsUpdate) {
-      return fetchJSON<{ success: boolean; readingStats: ReadingStats; lastRead: string }>(
+      return fetchJSON<{ success: boolean; readingStats: ReadingStats; lastRead: string; streak?: ReadingStreak }>(
         `/library/${noteId}/reading-stats`,
         {
           method: 'PATCH',
           body: JSON.stringify(data),
         }
+      );
+    },
+  },
+
+  readingGoals: {
+    get() {
+      return fetchJSON<ReadingGoalsResponse>('/reading-goals');
+    },
+
+    update(data: ReadingGoalsUpdate) {
+      return fetchJSON<{ success: boolean; goals: ReadingGoalsResponse['goals']; streak: ReadingStreak }>(
+        '/reading-goals',
+        {
+          method: 'PATCH',
+          body: JSON.stringify(data),
+        }
+      );
+    },
+
+    recalculate() {
+      return fetchJSON<{ success: boolean; streak: ReadingStreak }>(
+        '/reading-goals/recalculate',
+        { method: 'POST' }
       );
     },
   },

@@ -17,6 +17,7 @@ import { MarkdownEditorPanel } from './shared/MarkdownEditorPanel';
 import { KeyboardShortcutsPanel } from './shared/KeyboardShortcutsPanel';
 import { BookmarksPanel } from './shared/BookmarksPanel';
 import { ReadingStatsPanel } from './shared/ReadingStatsPanel';
+import { ReadingGoalsPanel } from './shared/ReadingGoalsPanel';
 import { api } from '../../lib/api';
 import { PdfRenderQueue, type TextContentData } from '../../lib/pdf-render-queue';
 
@@ -86,6 +87,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     shortcutsOpen,
     bookmarksOpen,
     statsOpen,
+    goalsOpen,
     setCurrentPage,
     setTotalPages,
     setPageLabels,
@@ -105,6 +107,8 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     toggleBookmarks,
     setStatsOpen,
     toggleStats,
+    setGoalsOpen,
+    toggleGoals,
     toggleToc,
     togglePdfColorMode,
     reset,
@@ -615,6 +619,14 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     renderedPagesRef.current = new Set();
     renderingRef.current = new Set();
     pageZoomRef.current = new Map();
+    // Clear text layer contents so they get re-rendered at the new zoom level
+    textLayerRefs.current.forEach((textLayerDiv) => {
+      textLayerDiv.innerHTML = '';
+    });
+    // Cancel any pending text layer tasks
+    textLayerTasksRef.current.forEach((task) => task.cancel());
+    textLayerTasksRef.current.clear();
+    textLayerRenderingRef.current.clear();
     setRenderVersion((v) => v + 1);
   }, [debouncedZoom]);
 
@@ -1598,6 +1610,19 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         return;
       }
 
+      // Goals: R (for "Reading goals")
+      if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        toggleGoals();
+        return;
+      }
+
+      // Close goals panel on Escape (if open)
+      if (e.key === 'Escape' && goalsOpen) {
+        setGoalsOpen(false);
+        return;
+      }
+
       // Normal navigation
       if (e.key === 'ArrowRight' || e.key === 'PageDown') {
         goToPage(currentPage + 1);
@@ -1618,7 +1643,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentPage, totalPages, zoom, goToPage, setZoom, toggleSearch, isSearchOpen, clearSearch, isPresentation, exitPresentation, shortcutsOpen, bookmarksOpen, statsOpen, toggleShortcuts, setShortcutsOpen, toggleBookmarks, setBookmarksOpen, toggleStats, setStatsOpen, toggleToc, togglePdfColorMode, handleZoomModeChange, enterPresentation]);
+  }, [currentPage, totalPages, zoom, goToPage, setZoom, toggleSearch, isSearchOpen, clearSearch, isPresentation, exitPresentation, shortcutsOpen, bookmarksOpen, statsOpen, goalsOpen, toggleShortcuts, setShortcutsOpen, toggleBookmarks, setBookmarksOpen, toggleStats, setStatsOpen, toggleGoals, setGoalsOpen, toggleToc, togglePdfColorMode, handleZoomModeChange, enterPresentation]);
 
   // Render a single page container - use debouncedZoom to match canvas size
   const renderPageContainer = (pageNum: number) => {
@@ -1812,7 +1837,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         hasToc={hasToc}
       />
 
-      <div className="flex-1 flex overflow-hidden min-w-0">
+      <div className="flex-1 flex overflow-hidden min-w-0 relative">
         {/* Bookmarks Panel */}
         {bookmarksOpen && (
           <BookmarksPanel
@@ -1935,6 +1960,11 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
             totalPages={totalPages}
             onClose={() => setStatsOpen(false)}
           />
+        )}
+
+        {/* Reading Goals Panel */}
+        {goalsOpen && (
+          <ReadingGoalsPanel onClose={() => setGoalsOpen(false)} />
         )}
       </div>
 

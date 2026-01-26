@@ -65,6 +65,8 @@ export function ReaderControls({
     toggleShortcuts,
     statsOpen,
     toggleStats,
+    goalsOpen,
+    toggleGoals,
   } = useReaderStore();
 
   useEffect(() => {
@@ -685,6 +687,23 @@ export function ReaderControls({
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M18 20V10M12 20V4M6 20v-6" />
+          </svg>
+        </Button>
+
+        {/* Goals button */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toggleGoals}
+          className={`w-8 h-8 !p-0 ${goalsOpen ? 'bg-accent-primary/20 text-accent-primary' : ''}`}
+          aria-label="Reading goals (R)"
+          aria-expanded={goalsOpen}
+          aria-controls="reading-goals-panel"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <circle cx="12" cy="12" r="6" />
+            <circle cx="12" cy="12" r="2" />
           </svg>
         </Button>
 

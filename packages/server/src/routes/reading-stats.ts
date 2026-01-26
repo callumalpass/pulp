@@ -4,15 +4,23 @@ import matter from 'gray-matter';
 import type { ReadingStatsUpdate } from '@pulp/shared';
 import type { LibraryScanner } from '../services/library-scanner.js';
 import type { Config } from '../config/schema.js';
-import { getReadingStats, createReadingStatsForFrontmatter } from '../services/frontmatter-parser.js';
+import type { ReadingGoalsService } from '../services/reading-goals.js';
+import {
+  getReadingStats,
+  createReadingStatsForFrontmatter,
+  getDailyReadingHistory,
+  updateDailyReadingHistory,
+  createDailyReadingEntryForFrontmatter,
+} from '../services/frontmatter-parser.js';
 
 interface ReadingStatsRouteOptions {
   scanner: LibraryScanner;
   config: Config;
+  goalsService: ReadingGoalsService;
 }
 
 export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = async (fastify, opts) => {
-  const { scanner, config } = opts;
+  const { scanner, config, goalsService } = opts;
 
   // PATCH /api/library/:id/reading-stats - Update reading statistics after a session ends
   fastify.patch<{
@@ -43,8 +51,9 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
       return reply.code(404).send({ error: 'Note not found' });
     }
 
-    const { sessionDurationMs } = request.body;
+    const { sessionDurationMs, pagesRead = 0 } = request.body;
     const now = new Date().toISOString();
+    const today = now.split('T')[0]; // YYYY-MM-DD
 
     try {
       // Read and parse the note file
@@ -64,8 +73,18 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
       // Calculate average
       newStats.averageSessionMs = newStats.totalReadingTimeMs / newStats.totalSessions;
 
+      // Update daily reading history
+      const existingHistory = getDailyReadingHistory(frontmatter, config.reading_history_key);
+      const updatedHistory = updateDailyReadingHistory(
+        existingHistory,
+        today,
+        sessionDurationMs,
+        pagesRead
+      );
+
       // Update frontmatter
       frontmatter[config.reading_stats_key] = createReadingStatsForFrontmatter(newStats);
+      frontmatter[config.reading_history_key] = updatedHistory.map(createDailyReadingEntryForFrontmatter);
       frontmatter[config.last_read_key] = now;
 
       // Write back
@@ -76,12 +95,17 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
       scanner.updateNote(request.params.id, {
         readingStats: newStats,
         lastRead: now,
+        frontmatter, // Update frontmatter cache for goals service
       });
+
+      // Update global streak after recording the session
+      const streak = goalsService.updateStreak();
 
       return {
         success: true,
         readingStats: newStats,
         lastRead: now,
+        streak,
       };
     } catch (error) {
       fastify.log.error(error, 'Failed to update reading stats');

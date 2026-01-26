@@ -306,3 +306,113 @@ export function createReadingStatsForFrontmatter(
     first_read: stats.firstReadDate,
   };
 }
+
+export interface ParsedDailyReadingEntry {
+  date: string;              // YYYY-MM-DD
+  durationMs: number;
+  sessions: number;
+  pagesRead: number;
+}
+
+/**
+ * Parse daily reading history from frontmatter.
+ * History is stored as an array of objects:
+ * reading_history:
+ *   - date: "2024-01-15"
+ *     duration_ms: 1800000
+ *     sessions: 2
+ *     pages: 15
+ */
+export function getDailyReadingHistory(
+  frontmatter: Record<string, unknown>,
+  historyKey: string
+): ParsedDailyReadingEntry[] {
+  const history = frontmatter[historyKey];
+
+  if (!history || !Array.isArray(history)) return [];
+
+  const entries: ParsedDailyReadingEntry[] = [];
+
+  for (const entry of history) {
+    if (!entry || typeof entry !== 'object') continue;
+
+    const entryObj = entry as Record<string, unknown>;
+
+    // Parse date - accept both Date objects and strings
+    let date: string | null = null;
+    if (entryObj.date instanceof Date) {
+      date = entryObj.date.toISOString().split('T')[0];
+    } else if (typeof entryObj.date === 'string') {
+      // Validate YYYY-MM-DD format
+      const match = entryObj.date.match(/^\d{4}-\d{2}-\d{2}/);
+      if (match) {
+        date = match[0];
+      }
+    }
+
+    if (!date) continue;
+
+    entries.push({
+      date,
+      durationMs: typeof entryObj.duration_ms === 'number' ? entryObj.duration_ms : 0,
+      sessions: typeof entryObj.sessions === 'number' ? entryObj.sessions : 0,
+      pagesRead: typeof entryObj.pages === 'number' ? entryObj.pages : 0,
+    });
+  }
+
+  // Sort by date descending (most recent first)
+  return entries.sort((a, b) => b.date.localeCompare(a.date));
+}
+
+/**
+ * Create daily reading history entry for frontmatter storage.
+ */
+export function createDailyReadingEntryForFrontmatter(
+  entry: ParsedDailyReadingEntry
+): Record<string, unknown> {
+  return {
+    date: entry.date,
+    duration_ms: entry.durationMs,
+    sessions: entry.sessions,
+    pages: entry.pagesRead,
+  };
+}
+
+/**
+ * Update or add a daily reading entry in the history array.
+ * Keeps only the last 90 days of history to avoid bloating frontmatter.
+ */
+export function updateDailyReadingHistory(
+  existingHistory: ParsedDailyReadingEntry[],
+  date: string,
+  sessionDurationMs: number,
+  pagesRead: number
+): ParsedDailyReadingEntry[] {
+  const updated = [...existingHistory];
+
+  // Find existing entry for this date
+  const existingIndex = updated.findIndex(e => e.date === date);
+
+  if (existingIndex >= 0) {
+    // Update existing entry
+    updated[existingIndex] = {
+      ...updated[existingIndex],
+      durationMs: updated[existingIndex].durationMs + sessionDurationMs,
+      sessions: updated[existingIndex].sessions + 1,
+      pagesRead: updated[existingIndex].pagesRead + pagesRead,
+    };
+  } else {
+    // Add new entry
+    updated.push({
+      date,
+      durationMs: sessionDurationMs,
+      sessions: 1,
+      pagesRead,
+    });
+  }
+
+  // Sort by date descending and keep only last 90 days
+  return updated
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 90);
+}

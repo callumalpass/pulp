@@ -137,6 +137,51 @@ export interface ReadingStatsUpdate {
   pagesRead?: number;         // Pages read in this session
 }
 
+// Reading goals and streaks - stored globally (in a .pulp-goals file or config)
+// and per-book daily reading history in note frontmatter
+export interface ReadingGoals {
+  dailyGoalMinutes: number;        // Target daily reading time in minutes
+  weeklyGoalMinutes: number | null; // Optional weekly target (null = 7x daily)
+}
+
+export interface ReadingGoalsUpdate {
+  dailyGoalMinutes?: number;
+  weeklyGoalMinutes?: number | null;
+}
+
+// Reading history entry - one per day per book (stored in note frontmatter)
+export interface DailyReadingEntry {
+  date: string;              // ISO date (YYYY-MM-DD)
+  durationMs: number;        // Total reading time that day
+  sessions: number;          // Number of sessions that day
+  pagesRead: number;         // Pages read that day
+}
+
+// Global reading streak data (stored in .pulp-goals file)
+export interface ReadingStreak {
+  currentStreak: number;     // Current consecutive days
+  longestStreak: number;     // All-time longest streak
+  lastReadDate: string;      // Last date counted toward streak (YYYY-MM-DD)
+  streakStartDate: string;   // When current streak started (YYYY-MM-DD)
+}
+
+// Aggregated daily stats across all books
+export interface DailyReadingSummary {
+  date: string;              // ISO date (YYYY-MM-DD)
+  totalDurationMs: number;   // Total reading across all books
+  totalSessions: number;     // Total sessions across all books
+  booksRead: number;         // Number of distinct books read
+  goalMet: boolean;          // Whether daily goal was met
+}
+
+// Combined response for reading goals API
+export interface ReadingGoalsResponse {
+  goals: ReadingGoals;
+  streak: ReadingStreak;
+  todayProgress: DailyReadingSummary;
+  weekHistory: DailyReadingSummary[];  // Last 7 days
+}
+
 // WebSocket event types
 export type WebSocketEvent =
   | FileChangedEvent

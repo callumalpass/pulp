@@ -12,7 +12,9 @@ import { HighlightEditPopup } from './shared/HighlightEditPopup';
 import { KeyboardShortcutsPanel } from './shared/KeyboardShortcutsPanel';
 import { BookmarksPanel } from './shared/BookmarksPanel';
 import { ReadingStatsPanel } from './shared/ReadingStatsPanel';
+import { ReadingGoalsPanel } from './shared/ReadingGoalsPanel';
 import { ReadingTimeIndicator } from './shared/ReadingTimeIndicator';
+import { MarkdownEditorPanel } from './shared/MarkdownEditorPanel';
 import { api } from '../../lib/api';
 import { Link } from 'react-router-dom';
 
@@ -27,12 +29,13 @@ interface Selection {
   cfi: string;
 }
 
-type EPUBTheme = 'light' | 'dark' | 'sepia';
+type EPUBTheme = 'light' | 'dark' | 'sepia' | 'eink';
 
 const THEME_STYLES: Record<EPUBTheme, { bg: string; text: string; link: string }> = {
   light: { bg: '#ffffff', text: '#2d3436', link: '#0984e3' },
   dark: { bg: '#1a1a2e', text: '#e4e4e7', link: '#60a5fa' },
   sepia: { bg: '#f4ecd8', text: '#5c4b37', link: '#8b5a2b' },
+  eink: { bg: '#ffffff', text: '#000000', link: '#000000' },
 };
 
 export function EPUBReader({ note }: EPUBReaderProps) {
@@ -47,6 +50,8 @@ export function EPUBReader({ note }: EPUBReaderProps) {
     shortcutsOpen,
     bookmarksOpen,
     statsOpen,
+    goalsOpen,
+    markdownPanelOpen,
     setCurrentPage,
     setTotalPages,
     setIsLoading,
@@ -56,6 +61,10 @@ export function EPUBReader({ note }: EPUBReaderProps) {
     toggleBookmarks,
     setStatsOpen,
     toggleStats,
+    setGoalsOpen,
+    toggleGoals,
+    setMarkdownPanelOpen,
+    toggleMarkdownPanel,
     reset,
   } = useReaderStore();
 
@@ -485,6 +494,32 @@ export function EPUBReader({ note }: EPUBReaderProps) {
         return;
       }
 
+      // Goals: R (for "Reading goals")
+      if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        toggleGoals();
+        return;
+      }
+
+      // Close goals panel on Escape (if open)
+      if (e.key === 'Escape' && goalsOpen) {
+        setGoalsOpen(false);
+        return;
+      }
+
+      // Close markdown panel on Escape (if open)
+      if (e.key === 'Escape' && markdownPanelOpen) {
+        setMarkdownPanelOpen(false);
+        return;
+      }
+
+      // Notes editor: Cmd/Ctrl+E
+      if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
+        e.preventDefault();
+        toggleMarkdownPanel();
+        return;
+      }
+
       // Table of contents: T
       if (e.key === 't' || e.key === 'T') {
         e.preventDefault();
@@ -496,7 +531,7 @@ export function EPUBReader({ note }: EPUBReaderProps) {
       // Toggle dark mode: D
       if (e.key === 'd' || e.key === 'D') {
         e.preventDefault();
-        const themes: EPUBTheme[] = ['light', 'dark', 'sepia'];
+        const themes: EPUBTheme[] = ['light', 'dark', 'sepia', 'eink'];
         const currentIndex = themes.indexOf(theme);
         const nextIndex = (currentIndex + 1) % themes.length;
         setReaderTheme(themes[nextIndex]);
@@ -529,7 +564,7 @@ export function EPUBReader({ note }: EPUBReaderProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [shortcutsOpen, bookmarksOpen, statsOpen, tocOpen, theme, fontSize, toggleShortcuts, setShortcutsOpen, toggleBookmarks, setBookmarksOpen, toggleStats, setStatsOpen, setReaderTheme, setFontSize]);
+  }, [shortcutsOpen, bookmarksOpen, statsOpen, goalsOpen, markdownPanelOpen, tocOpen, theme, fontSize, toggleShortcuts, setShortcutsOpen, toggleBookmarks, setBookmarksOpen, toggleStats, setStatsOpen, toggleGoals, setGoalsOpen, toggleMarkdownPanel, setMarkdownPanelOpen, setReaderTheme, setFontSize]);
 
   const progress = totalPages > 0 ? (currentPage / totalPages) * 100 : 0;
   const colors = THEME_STYLES[theme];
@@ -638,6 +673,21 @@ export function EPUBReader({ note }: EPUBReaderProps) {
           </svg>
         </button>
 
+        {/* Goals button */}
+        <button
+          onClick={() => { toggleGoals(); setTocOpen(false); setSettingsOpen(false); }}
+          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-current/50 ${goalsOpen ? 'bg-current/20' : 'hover:bg-current/10'}`}
+          aria-label="Reading goals (R)"
+          aria-expanded={goalsOpen}
+          aria-controls="reading-goals-panel"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <circle cx="12" cy="12" r="6" />
+            <circle cx="12" cy="12" r="2" />
+          </svg>
+        </button>
+
         {/* Bookmarks button */}
         <button
           onClick={() => { toggleBookmarks(); setTocOpen(false); setSettingsOpen(false); }}
@@ -648,6 +698,23 @@ export function EPUBReader({ note }: EPUBReaderProps) {
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" />
+          </svg>
+        </button>
+
+        {/* Notes button */}
+        <button
+          onClick={() => { toggleMarkdownPanel(); setTocOpen(false); setSettingsOpen(false); }}
+          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-current/50 ${markdownPanelOpen ? 'bg-current/20' : 'hover:bg-current/10'}`}
+          aria-label="Notes (Cmd+E)"
+          aria-expanded={markdownPanelOpen}
+          aria-controls="markdown-notes-panel"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="16" y1="13" x2="8" y2="13" />
+            <line x1="16" y1="17" x2="8" y2="17" />
+            <polyline points="10 9 9 9 8 9" />
           </svg>
         </button>
 
@@ -716,6 +783,19 @@ export function EPUBReader({ note }: EPUBReaderProps) {
           />
         )}
 
+        {/* Reading Goals Panel */}
+        {goalsOpen && (
+          <ReadingGoalsPanel onClose={() => setGoalsOpen(false)} />
+        )}
+
+        {/* Markdown Notes Panel */}
+        {markdownPanelOpen && (
+          <MarkdownEditorPanel
+            noteId={note.id}
+            onClose={() => setMarkdownPanelOpen(false)}
+          />
+        )}
+
         {/* TOC Sidebar */}
         {tocOpen && (
           <aside
@@ -772,7 +852,7 @@ export function EPUBReader({ note }: EPUBReaderProps) {
             <fieldset className="mb-6">
               <legend className="text-sm opacity-70 block mb-2">Theme</legend>
               <div className="flex gap-2" role="radiogroup" aria-label="Reader theme">
-                {(['light', 'dark', 'sepia'] as EPUBTheme[]).map((t) => (
+                {(['light', 'dark', 'sepia', 'eink'] as EPUBTheme[]).map((t) => (
                   <button
                     key={t}
                     onClick={() => setReaderTheme(t)}
@@ -782,7 +862,7 @@ export function EPUBReader({ note }: EPUBReaderProps) {
                     style={{ background: THEME_STYLES[t].bg }}
                     role="radio"
                     aria-checked={theme === t}
-                    aria-label={`${t.charAt(0).toUpperCase() + t.slice(1)} theme`}
+                    aria-label={`${t === 'eink' ? 'E-ink' : t.charAt(0).toUpperCase() + t.slice(1)} theme`}
                   >
                     <span style={{ color: THEME_STYLES[t].text }} className="text-xs" aria-hidden="true">
                       A

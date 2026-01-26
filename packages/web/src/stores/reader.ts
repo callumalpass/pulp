@@ -70,6 +70,9 @@ interface ReaderState {
   // Reading stats panel state
   statsOpen: boolean;
 
+  // Reading goals panel state
+  goalsOpen: boolean;
+
   setCurrentPage: (page: number) => void;
   setTotalPages: (total: number) => void;
   setPageLabels: (labels: string[] | null) => void;
@@ -113,6 +116,10 @@ interface ReaderState {
   setStatsOpen: (open: boolean) => void;
   toggleStats: () => void;
 
+  // Reading goals actions
+  setGoalsOpen: (open: boolean) => void;
+  toggleGoals: () => void;
+
   reset: () => void;
 }
 
@@ -150,6 +157,9 @@ export const useReaderStore = create<ReaderState>((set) => ({
 
   // Reading stats state
   statsOpen: false,
+
+  // Reading goals state
+  goalsOpen: false,
 
   setCurrentPage: (page) => set({ currentPage: page }),
   setTotalPages: (total) => set({ totalPages: total }),
@@ -215,6 +225,10 @@ export const useReaderStore = create<ReaderState>((set) => ({
   setStatsOpen: (open) => set({ statsOpen: open }),
   toggleStats: () => set((state) => ({ statsOpen: !state.statsOpen })),
 
+  // Reading goals actions
+  setGoalsOpen: (open) => set({ goalsOpen: open }),
+  toggleGoals: () => set((state) => ({ goalsOpen: !state.goalsOpen })),
+
   reset: () => set({
     currentPage: 1,
     totalPages: 0,
@@ -236,5 +250,6 @@ export const useReaderStore = create<ReaderState>((set) => ({
     shortcutsOpen: false,
     bookmarksOpen: false,
     statsOpen: false,
+    goalsOpen: false,
   }),
 }));

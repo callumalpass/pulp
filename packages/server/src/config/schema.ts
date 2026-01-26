@@ -18,6 +18,7 @@ export const configSchema = z.object({
   bookmarks_key: z.string().default('bookmarks'),
   pinned_key: z.string().default('pinned'),
   reading_stats_key: z.string().default('reading_stats'),
+  reading_history_key: z.string().default('reading_history'),
 });
 
 export type Config = z.infer<typeof configSchema>;

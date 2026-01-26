@@ -14,7 +14,9 @@ import { searchRoutes } from './routes/search.js';
 import { bookmarkRoutes } from './routes/bookmarks.js';
 import { pinRoutes } from './routes/pin.js';
 import { readingStatsRoutes } from './routes/reading-stats.js';
+import { readingGoalsRoutes } from './routes/reading-goals.js';
 import { websocketPlugin } from './plugins/websocket.js';
+import { ReadingGoalsService } from './services/reading-goals.js';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -32,6 +34,7 @@ async function main() {
   const highlightWriter = new HighlightWriter(config);
   const fileWatcher = new FileWatcher(config);
   const searchIndex = new SearchIndex(config);
+  const goalsService = new ReadingGoalsService(config, scanner);
 
   // Create Fastify instance
   const fastify = Fastify({
@@ -65,7 +68,8 @@ async function main() {
   await fastify.register(searchRoutes, { searchIndex, scanner });
   await fastify.register(bookmarkRoutes, { scanner, config });
   await fastify.register(pinRoutes, { scanner, config });
-  await fastify.register(readingStatsRoutes, { scanner, config });
+  await fastify.register(readingStatsRoutes, { scanner, config, goalsService });
+  await fastify.register(readingGoalsRoutes, { goalsService });
 
   // Health check
   fastify.get('/health', async () => ({ status: 'ok' }));
