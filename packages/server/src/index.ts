@@ -11,6 +11,9 @@ import { filesRoutes } from './routes/files.js';
 import { highlightsRoutes } from './routes/highlights.js';
 import { coversRoutes } from './routes/covers.js';
 import { searchRoutes } from './routes/search.js';
+import { bookmarkRoutes } from './routes/bookmarks.js';
+import { pinRoutes } from './routes/pin.js';
+import { readingStatsRoutes } from './routes/reading-stats.js';
 import { websocketPlugin } from './plugins/websocket.js';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -60,6 +63,9 @@ async function main() {
   await fastify.register(highlightsRoutes, { scanner, highlightWriter });
   await fastify.register(coversRoutes, { scanner, config });
   await fastify.register(searchRoutes, { searchIndex, scanner });
+  await fastify.register(bookmarkRoutes, { scanner, config });
+  await fastify.register(pinRoutes, { scanner, config });
+  await fastify.register(readingStatsRoutes, { scanner, config });
 
   // Health check
   fastify.get('/health', async () => ({ status: 'ok' }));

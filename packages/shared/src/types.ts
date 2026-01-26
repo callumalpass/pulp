@@ -26,6 +26,9 @@ export interface LiteratureNote {
   tags: string[];
   cover: string | null;
   highlights: Highlight[];
+  bookmarks: Bookmark[];
+  pinned: boolean;
+  readingStats: ReadingStats | null;
   frontmatter: Record<string, unknown>;
 }
 
@@ -37,6 +40,8 @@ export interface LiteratureNoteSummary {
   lastRead: string | null;
   dateCreated: string | null;
   cover: string | null;
+  pinned: boolean;
+  readingStats: ReadingStats | null;
 }
 
 // Highlight types
@@ -81,6 +86,10 @@ export interface ProgressUpdate {
   progress: number;
 }
 
+export interface PinUpdate {
+  pinned: boolean;
+}
+
 export interface CreateHighlightRequest {
   type: 'pdf' | 'epub';
   page?: number;
@@ -93,6 +102,39 @@ export interface CreateHighlightRequest {
 
 export interface UpdateHighlightRequest {
   note?: string;
+}
+
+// Bookmark types - stored as wikilinks in frontmatter
+export interface Bookmark {
+  id: string;
+  label: string;
+  page?: number;       // For PDFs
+  cfi?: string;        // For EPUBs
+  createdAt: string;
+}
+
+export interface CreateBookmarkRequest {
+  label: string;
+  page?: number;
+  cfi?: string;
+}
+
+export interface UpdateBookmarkRequest {
+  label?: string;
+}
+
+// Reading statistics types - stored in frontmatter
+export interface ReadingStats {
+  totalReadingTimeMs: number;
+  totalSessions: number;
+  averageSessionMs: number;
+  firstReadDate: string | null;
+  // lastReadDate is already tracked via last_read_key
+}
+
+export interface ReadingStatsUpdate {
+  sessionDurationMs: number;  // Duration of the session that just ended
+  pagesRead?: number;         // Pages read in this session
 }
 
 // WebSocket event types

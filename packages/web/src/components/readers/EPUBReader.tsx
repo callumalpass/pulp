@@ -3,11 +3,16 @@ import ePub, { Book, Rendition, Contents, NavItem } from 'epubjs';
 import type { LiteratureNote, EPUBHighlight } from '@pulp/shared';
 import { useReaderStore } from '../../stores/reader';
 import { usePreferencesStore } from '../../stores/preferences';
+import { useReadingStatsStore } from '../../stores/readingStats';
 import { useProgress } from '../../hooks/useProgress';
 import { useHighlights } from '../../hooks/useNote';
 import { useMobile } from '../../hooks/useMobile';
 import { HighlightPopup } from './shared/HighlightPopup';
 import { HighlightEditPopup } from './shared/HighlightEditPopup';
+import { KeyboardShortcutsPanel } from './shared/KeyboardShortcutsPanel';
+import { BookmarksPanel } from './shared/BookmarksPanel';
+import { ReadingStatsPanel } from './shared/ReadingStatsPanel';
+import { ReadingTimeIndicator } from './shared/ReadingTimeIndicator';
 import { api } from '../../lib/api';
 import { Link } from 'react-router-dom';
 
@@ -35,7 +40,42 @@ export function EPUBReader({ note }: EPUBReaderProps) {
   const bookRef = useRef<Book | null>(null);
   const renditionRef = useRef<Rendition | null>(null);
 
-  const { currentPage, totalPages, isLoading, setCurrentPage, setTotalPages, setIsLoading, reset } = useReaderStore();
+  const {
+    currentPage,
+    totalPages,
+    isLoading,
+    shortcutsOpen,
+    bookmarksOpen,
+    statsOpen,
+    setCurrentPage,
+    setTotalPages,
+    setIsLoading,
+    setShortcutsOpen,
+    toggleShortcuts,
+    setBookmarksOpen,
+    toggleBookmarks,
+    setStatsOpen,
+    toggleStats,
+    reset,
+  } = useReaderStore();
+
+  // Reading statistics tracking
+  const {
+    startSession,
+    updateCurrentPage: updateStatsCurrentPage,
+    endSession,
+    pauseSession,
+    resumeSession,
+    setBookStats,
+  } = useReadingStatsStore();
+
+  // Populate stats cache from note data
+  useEffect(() => {
+    if (note.readingStats) {
+      setBookStats(note.id, note.readingStats);
+    }
+  }, [note.id, note.readingStats, setBookStats]);
+
   const { readerTheme, fontSize, lineHeight, setFontSize, setLineHeight, setReaderTheme } = usePreferencesStore();
   const { updateProgress, saveImmediately } = useProgress(note.id);
   const { data: highlights } = useHighlights(note.id);
@@ -48,6 +88,7 @@ export function EPUBReader({ note }: EPUBReaderProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [currentChapter, setCurrentChapter] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [currentCfi, setCurrentCfi] = useState<string | null>(null);
 
   const isMobile = useMobile();
   const theme = (readerTheme || 'dark') as EPUBTheme;
@@ -64,10 +105,32 @@ export function EPUBReader({ note }: EPUBReaderProps) {
     return () => {
       cancelAnimationFrame(timeoutId);
       saveImmediately();
+      endSession(); // End reading session when leaving
       renditionRef.current?.destroy();
       bookRef.current?.destroy();
     };
   }, [note.id]);
+
+  // Track page changes for reading stats
+  useEffect(() => {
+    if (!isLoading && totalPages > 0) {
+      updateStatsCurrentPage(currentPage);
+    }
+  }, [currentPage, isLoading, totalPages, updateStatsCurrentPage]);
+
+  // Pause/resume session on visibility change (tab switching)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        pauseSession();
+      } else {
+        resumeSession();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [pauseSession, resumeSession]);
 
   const loadEPUB = async () => {
     if (!containerRef.current) {
@@ -142,6 +205,14 @@ export function EPUBReader({ note }: EPUBReaderProps) {
       // Hide loading spinner - content is visible now
       setIsLoading(false);
 
+      // Start reading session after EPUB is loaded
+      // Use location count if available, otherwise estimate from initial display
+      const startPage = note.progress > 0 && generatedLocations.length > 0
+        ? Math.floor((note.progress / 100) * generatedLocations.length) + 1
+        : 1;
+      const totalPagesEstimate = generatedLocations.length || 100; // Estimate until locations are ready
+      startSession(note.id, startPage, totalPagesEstimate);
+
       // Generate locations in background if not cached
       if (!cachedLocations || generatedLocations.length === 0) {
         // Use requestIdleCallback for non-blocking generation
@@ -170,6 +241,9 @@ export function EPUBReader({ note }: EPUBReaderProps) {
         if (locationIndex >= 0) {
           setCurrentPage(locationIndex + 1);
         }
+
+        // Track current CFI for bookmarks
+        setCurrentCfi(location.start.cfi);
 
         // Update progress when locations are available
         const currentLocations = book.locations.length();
@@ -367,6 +441,80 @@ export function EPUBReader({ note }: EPUBReaderProps) {
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't handle shortcuts if typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      // Keyboard shortcuts help: ?
+      if (e.key === '?') {
+        e.preventDefault();
+        toggleShortcuts();
+        return;
+      }
+
+      // Close shortcuts panel on Escape (if open)
+      if (e.key === 'Escape' && shortcutsOpen) {
+        setShortcutsOpen(false);
+        return;
+      }
+
+      // Close bookmarks panel on Escape (if open)
+      if (e.key === 'Escape' && bookmarksOpen) {
+        setBookmarksOpen(false);
+        return;
+      }
+
+      // Bookmarks: B
+      if (e.key === 'b' || e.key === 'B') {
+        e.preventDefault();
+        toggleBookmarks();
+        return;
+      }
+
+      // Statistics: S
+      if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        toggleStats();
+        return;
+      }
+
+      // Close stats panel on Escape (if open)
+      if (e.key === 'Escape' && statsOpen) {
+        setStatsOpen(false);
+        return;
+      }
+
+      // Table of contents: T
+      if (e.key === 't' || e.key === 'T') {
+        e.preventDefault();
+        setTocOpen(!tocOpen);
+        setSettingsOpen(false);
+        return;
+      }
+
+      // Toggle dark mode: D
+      if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        const themes: EPUBTheme[] = ['light', 'dark', 'sepia'];
+        const currentIndex = themes.indexOf(theme);
+        const nextIndex = (currentIndex + 1) % themes.length;
+        setReaderTheme(themes[nextIndex]);
+        return;
+      }
+
+      // Font size: + / -
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        setFontSize(Math.min(28, fontSize + 2));
+        return;
+      }
+      if (e.key === '-') {
+        e.preventDefault();
+        setFontSize(Math.max(14, fontSize - 2));
+        return;
+      }
+
       if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
         e.preventDefault();
         renditionRef.current?.next();
@@ -381,7 +529,7 @@ export function EPUBReader({ note }: EPUBReaderProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [shortcutsOpen, bookmarksOpen, statsOpen, tocOpen, theme, fontSize, toggleShortcuts, setShortcutsOpen, toggleBookmarks, setBookmarksOpen, toggleStats, setStatsOpen, setReaderTheme, setFontSize]);
 
   const progress = totalPages > 0 ? (currentPage / totalPages) * 100 : 0;
   const colors = THEME_STYLES[theme];
@@ -469,6 +617,40 @@ export function EPUBReader({ note }: EPUBReaderProps) {
           </button>
         </nav>
 
+        {/* Reading time indicator */}
+        <ReadingTimeIndicator
+          noteId={note.id}
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onClick={() => { toggleStats(); setTocOpen(false); setSettingsOpen(false); }}
+        />
+
+        {/* Stats button */}
+        <button
+          onClick={() => { toggleStats(); setTocOpen(false); setSettingsOpen(false); }}
+          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-current/50 ${statsOpen ? 'bg-current/20' : 'hover:bg-current/10'}`}
+          aria-label="Reading statistics (S)"
+          aria-expanded={statsOpen}
+          aria-controls="reading-stats-panel"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <path d="M18 20V10M12 20V4M6 20v-6" />
+          </svg>
+        </button>
+
+        {/* Bookmarks button */}
+        <button
+          onClick={() => { toggleBookmarks(); setTocOpen(false); setSettingsOpen(false); }}
+          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-current/50 ${bookmarksOpen ? 'bg-current/20' : 'hover:bg-current/10'}`}
+          aria-label="Bookmarks (B)"
+          aria-expanded={bookmarksOpen}
+          aria-controls="bookmarks-panel"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" />
+          </svg>
+        </button>
+
         {/* Settings button */}
         <button
           onClick={() => { setSettingsOpen(!settingsOpen); setTocOpen(false); }}
@@ -480,6 +662,19 @@ export function EPUBReader({ note }: EPUBReaderProps) {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
             <circle cx="12" cy="12" r="3" />
+          </svg>
+        </button>
+
+        {/* Help button */}
+        <button
+          onClick={toggleShortcuts}
+          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-current/50 ${shortcutsOpen ? 'bg-current/20' : 'hover:bg-current/10'}`}
+          aria-label="Keyboard shortcuts (?)"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
         </button>
       </header>
@@ -501,6 +696,26 @@ export function EPUBReader({ note }: EPUBReaderProps) {
 
       {/* Main content area */}
       <div className="flex-1 flex overflow-hidden relative">
+        {/* Bookmarks Panel */}
+        {bookmarksOpen && (
+          <BookmarksPanel
+            noteId={note.id}
+            currentCfi={currentCfi || undefined}
+            onNavigate={(_, cfi) => cfi && renditionRef.current?.display(cfi)}
+            onClose={() => setBookmarksOpen(false)}
+          />
+        )}
+
+        {/* Reading Statistics Panel */}
+        {statsOpen && (
+          <ReadingStatsPanel
+            noteId={note.id}
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onClose={() => setStatsOpen(false)}
+          />
+        )}
+
         {/* TOC Sidebar */}
         {tocOpen && (
           <aside
@@ -655,6 +870,13 @@ export function EPUBReader({ note }: EPUBReaderProps) {
           onClose={() => setEditingHighlight(null)}
         />
       )}
+
+      {/* Keyboard Shortcuts Panel */}
+      <KeyboardShortcutsPanel
+        isOpen={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+        readerType="epub"
+      />
     </div>
   );
 }

@@ -61,6 +61,15 @@ interface ReaderState {
   // Mobile state
   mobileMenuOpen: boolean;
 
+  // Shortcuts panel state
+  shortcutsOpen: boolean;
+
+  // Bookmarks panel state (data comes from API via useBookmarks hook)
+  bookmarksOpen: boolean;
+
+  // Reading stats panel state
+  statsOpen: boolean;
+
   setCurrentPage: (page: number) => void;
   setTotalPages: (total: number) => void;
   setPageLabels: (labels: string[] | null) => void;
@@ -92,6 +101,18 @@ interface ReaderState {
   setMobileMenuOpen: (open: boolean) => void;
   toggleMobileMenu: () => void;
 
+  // Shortcuts panel actions
+  setShortcutsOpen: (open: boolean) => void;
+  toggleShortcuts: () => void;
+
+  // Bookmark panel actions (data managed via useBookmarks hook)
+  setBookmarksOpen: (open: boolean) => void;
+  toggleBookmarks: () => void;
+
+  // Reading stats actions
+  setStatsOpen: (open: boolean) => void;
+  toggleStats: () => void;
+
   reset: () => void;
 }
 
@@ -120,6 +141,15 @@ export const useReaderStore = create<ReaderState>((set) => ({
 
   // Mobile state
   mobileMenuOpen: false,
+
+  // Shortcuts panel state
+  shortcutsOpen: false,
+
+  // Bookmarks panel state (data from API)
+  bookmarksOpen: false,
+
+  // Reading stats state
+  statsOpen: false,
 
   setCurrentPage: (page) => set({ currentPage: page }),
   setTotalPages: (total) => set({ totalPages: total }),
@@ -173,6 +203,18 @@ export const useReaderStore = create<ReaderState>((set) => ({
   setMobileMenuOpen: (open) => set({ mobileMenuOpen: open }),
   toggleMobileMenu: () => set((state) => ({ mobileMenuOpen: !state.mobileMenuOpen })),
 
+  // Shortcuts panel actions
+  setShortcutsOpen: (open) => set({ shortcutsOpen: open }),
+  toggleShortcuts: () => set((state) => ({ shortcutsOpen: !state.shortcutsOpen })),
+
+  // Bookmark panel actions
+  setBookmarksOpen: (open) => set({ bookmarksOpen: open }),
+  toggleBookmarks: () => set((state) => ({ bookmarksOpen: !state.bookmarksOpen })),
+
+  // Reading stats actions
+  setStatsOpen: (open) => set({ statsOpen: open }),
+  toggleStats: () => set((state) => ({ statsOpen: !state.statsOpen })),
+
   reset: () => set({
     currentPage: 1,
     totalPages: 0,
@@ -191,5 +233,8 @@ export const useReaderStore = create<ReaderState>((set) => ({
     pdfViewMode: getPersistedViewMode(),
     pdfColorMode: getPersistedColorMode(),
     mobileMenuOpen: false,
+    shortcutsOpen: false,
+    bookmarksOpen: false,
+    statsOpen: false,
   }),
 }));

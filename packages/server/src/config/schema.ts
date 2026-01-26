@@ -15,6 +15,9 @@ export const configSchema = z.object({
   ),
   progress_debounce_ms: z.number().default(5000),
   exclude_folders: z.array(z.string()).default(['.obsidian', '.trash', 'templates']),
+  bookmarks_key: z.string().default('bookmarks'),
+  pinned_key: z.string().default('pinned'),
+  reading_stats_key: z.string().default('reading_stats'),
 });
 
 export type Config = z.infer<typeof configSchema>;

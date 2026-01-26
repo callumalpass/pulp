@@ -2,12 +2,18 @@ import type {
   LiteratureNoteSummary,
   LiteratureNote,
   Highlight,
+  Bookmark,
   ProgressUpdate,
+  PinUpdate,
   CreateHighlightRequest,
   UpdateHighlightRequest,
+  CreateBookmarkRequest,
+  UpdateBookmarkRequest,
   DictionaryEntry,
   SearchResponse,
   SearchStatus,
+  ReadingStats,
+  ReadingStatsUpdate,
 } from '@pulp/shared';
 
 const API_BASE = '/api';
@@ -75,6 +81,18 @@ export const api = {
     },
   },
 
+  pin: {
+    update(id: string, data: PinUpdate) {
+      return fetchJSON<{ success: boolean; pinned: boolean }>(
+        `/library/${id}/pin`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(data),
+        }
+      );
+    },
+  },
+
   highlights: {
     create(id: string, data: CreateHighlightRequest) {
       return fetchJSON<{ success: boolean; highlight: Highlight }>(
@@ -99,6 +117,33 @@ export const api = {
     delete(noteId: string, highlightId: string) {
       return fetchJSON<{ success: boolean }>(
         `/library/${noteId}/highlights/${highlightId}`,
+        { method: 'DELETE' }
+      );
+    },
+  },
+
+  bookmarks: {
+    list(noteId: string) {
+      return fetchJSON<Bookmark[]>(`/library/${noteId}/bookmarks`);
+    },
+
+    create(noteId: string, data: CreateBookmarkRequest) {
+      return fetchJSON<Bookmark>(`/library/${noteId}/bookmarks`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+
+    update(noteId: string, bookmarkId: string, data: UpdateBookmarkRequest) {
+      return fetchJSON<Bookmark>(`/library/${noteId}/bookmarks/${bookmarkId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+    },
+
+    delete(noteId: string, bookmarkId: string) {
+      return fetchJSON<{ success: boolean }>(
+        `/library/${noteId}/bookmarks/${bookmarkId}`,
         { method: 'DELETE' }
       );
     },
@@ -148,6 +193,22 @@ export const api = {
       return fetchJSON<{ message: string; totalDocuments: number }>('/search/reindex', {
         method: 'POST',
       });
+    },
+  },
+
+  readingStats: {
+    get(noteId: string) {
+      return fetchJSON<{ readingStats: ReadingStats | null }>(`/library/${noteId}/reading-stats`);
+    },
+
+    update(noteId: string, data: ReadingStatsUpdate) {
+      return fetchJSON<{ success: boolean; readingStats: ReadingStats; lastRead: string }>(
+        `/library/${noteId}/reading-stats`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(data),
+        }
+      );
     },
   },
 };

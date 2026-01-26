@@ -11,6 +11,9 @@ import {
   getLastRead,
   getDateCreated,
   getTitle,
+  getBookmarks,
+  getPinned,
+  getReadingStats,
 } from './frontmatter-parser.js';
 import { parseHighlightsFromNote } from './highlight-parser.js';
 
@@ -93,6 +96,9 @@ export class LibraryScanner {
       // Parse existing highlights from the note
       const highlights = parseHighlightsFromNote(notePath, sourcePath);
 
+      // Parse bookmarks from frontmatter
+      const bookmarks = getBookmarks(frontmatter, this.config.bookmarks_key);
+
       const note: LiteratureNote = {
         id,
         title: getTitle(frontmatter, basename(notePath)),
@@ -107,6 +113,9 @@ export class LibraryScanner {
         tags: this.extractTags(frontmatter),
         cover: this.getCoverPath(frontmatter, id),
         highlights,
+        bookmarks,
+        pinned: getPinned(frontmatter, this.config.pinned_key),
+        readingStats: getReadingStats(frontmatter, this.config.reading_stats_key),
         frontmatter,
       };
 
@@ -222,6 +231,8 @@ export class LibraryScanner {
       lastRead: note.lastRead,
       dateCreated: note.dateCreated,
       cover: note.cover,
+      pinned: note.pinned,
+      readingStats: note.readingStats,
     }));
   }
 

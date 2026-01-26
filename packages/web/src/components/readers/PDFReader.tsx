@@ -4,6 +4,7 @@ import { TextLayer } from 'pdfjs-dist';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import type { LiteratureNote, PDFHighlight, TextSelection } from '@pulp/shared';
 import { useReaderStore, type ZoomMode, type SearchMatch } from '../../stores/reader';
+import { useReadingStatsStore } from '../../stores/readingStats';
 import { useProgress } from '../../hooks/useProgress';
 import { useHighlights } from '../../hooks/useNote';
 import { useMobile } from '../../hooks/useMobile';
@@ -13,6 +14,9 @@ import { HighlightPopup } from './shared/HighlightPopup';
 import { HighlightEditPopup } from './shared/HighlightEditPopup';
 import { PDFTableOfContents } from './shared/PDFTableOfContents';
 import { MarkdownEditorPanel } from './shared/MarkdownEditorPanel';
+import { KeyboardShortcutsPanel } from './shared/KeyboardShortcutsPanel';
+import { BookmarksPanel } from './shared/BookmarksPanel';
+import { ReadingStatsPanel } from './shared/ReadingStatsPanel';
 import { api } from '../../lib/api';
 import { PdfRenderQueue, type TextContentData } from '../../lib/pdf-render-queue';
 
@@ -79,6 +83,9 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     isSearchOpen,
     pdfViewMode,
     pdfColorMode,
+    shortcutsOpen,
+    bookmarksOpen,
+    statsOpen,
     setCurrentPage,
     setTotalPages,
     setPageLabels,
@@ -92,8 +99,33 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     toggleSearch,
     clearSearch,
     setPdfViewMode,
+    setShortcutsOpen,
+    toggleShortcuts,
+    setBookmarksOpen,
+    toggleBookmarks,
+    setStatsOpen,
+    toggleStats,
+    toggleToc,
+    togglePdfColorMode,
     reset,
   } = useReaderStore();
+
+  // Reading statistics tracking
+  const {
+    startSession,
+    updateCurrentPage: updateStatsCurrentPage,
+    endSession,
+    pauseSession,
+    resumeSession,
+    setBookStats,
+  } = useReadingStatsStore();
+
+  // Populate stats cache from note data
+  useEffect(() => {
+    if (note.readingStats) {
+      setBookStats(note.id, note.readingStats);
+    }
+  }, [note.id, note.readingStats, setBookStats]);
 
   const { updateProgress, saveImmediately } = useProgress(note.id);
   const { data: highlights } = useHighlights(note.id);
@@ -200,6 +232,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     return () => {
       // Cleanup on unmount
       saveImmediately();
+      endSession(); // End reading session when leaving
       textLayerTasksRef.current.forEach(task => task.cancel());
       if (idleCallbackRef.current !== null) {
         cancelIdleCallback(idleCallbackRef.current);
@@ -279,11 +312,36 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
       }
 
       setIsLoading(false);
+
+      // Start reading session after PDF is loaded
+      const startPage = targetPage || 1;
+      startSession(note.id, startPage, pdf.numPages);
     } catch (error) {
       console.error('Failed to load PDF:', error);
       setIsLoading(false);
     }
   };
+
+  // Track page changes for reading stats
+  useEffect(() => {
+    if (!isLoading && totalPages > 0) {
+      updateStatsCurrentPage(currentPage);
+    }
+  }, [currentPage, isLoading, totalPages, updateStatsCurrentPage]);
+
+  // Pause/resume session on visibility change (tab switching)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        pauseSession();
+      } else {
+        resumeSession();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [pauseSession, resumeSession]);
 
   // Get max page width for fit-width calculations
   const getMaxPageWidth = useCallback(() => {
@@ -1206,16 +1264,16 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
       searchLayerDiv.innerHTML = '';
 
       // Find matches for this page
-      const pageMatches = searchResults.filter((m) => m.pageNum === pageNum);
+      const pageMatches = searchResults.filter((m: SearchMatch) => m.pageNum === pageNum);
       if (pageMatches.length === 0) return;
 
       const spans = Array.from(textLayerDiv.querySelectorAll('span'));
       const layerRect = textLayerDiv.getBoundingClientRect();
 
       // For each match, find the corresponding text and highlight it
-      pageMatches.forEach((match) => {
+      pageMatches.forEach((match: SearchMatch) => {
         const globalIdx = searchResults.findIndex(
-          (m) => m.pageNum === match.pageNum && m.startOffset === match.startOffset
+          (m: SearchMatch) => m.pageNum === match.pageNum && m.startOffset === match.startOffset
         );
         const isCurrent = globalIdx === currentMatchIndex;
 
@@ -1462,6 +1520,84 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         return;
       }
 
+      // Keyboard shortcuts help: ?
+      if (e.key === '?') {
+        e.preventDefault();
+        toggleShortcuts();
+        return;
+      }
+
+      // Close shortcuts panel on Escape (if open)
+      if (e.key === 'Escape' && shortcutsOpen) {
+        setShortcutsOpen(false);
+        return;
+      }
+
+      // Close bookmarks panel on Escape (if open)
+      if (e.key === 'Escape' && bookmarksOpen) {
+        setBookmarksOpen(false);
+        return;
+      }
+
+      // Bookmarks: B
+      if (e.key === 'b' || e.key === 'B') {
+        e.preventDefault();
+        toggleBookmarks();
+        return;
+      }
+
+      // Table of contents: T
+      if (e.key === 't' || e.key === 'T') {
+        e.preventDefault();
+        toggleToc();
+        return;
+      }
+
+      // Go to page (focus input): G
+      if (e.key === 'g' || e.key === 'G') {
+        e.preventDefault();
+        const pageInput = document.getElementById('page-input');
+        if (pageInput) {
+          (pageInput as HTMLInputElement).focus();
+          (pageInput as HTMLInputElement).select();
+        }
+        return;
+      }
+
+      // Toggle dark mode: D
+      if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        togglePdfColorMode();
+        return;
+      }
+
+      // Reset zoom: 0
+      if (e.key === '0') {
+        e.preventDefault();
+        handleZoomModeChange('fit-width');
+        return;
+      }
+
+      // Fullscreen/presentation: F
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        enterPresentation();
+        return;
+      }
+
+      // Statistics: S
+      if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        toggleStats();
+        return;
+      }
+
+      // Close stats panel on Escape (if open)
+      if (e.key === 'Escape' && statsOpen) {
+        setStatsOpen(false);
+        return;
+      }
+
       // Normal navigation
       if (e.key === 'ArrowRight' || e.key === 'PageDown') {
         goToPage(currentPage + 1);
@@ -1482,7 +1618,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentPage, totalPages, zoom, goToPage, setZoom, toggleSearch, isSearchOpen, clearSearch, isPresentation, exitPresentation]);
+  }, [currentPage, totalPages, zoom, goToPage, setZoom, toggleSearch, isSearchOpen, clearSearch, isPresentation, exitPresentation, shortcutsOpen, bookmarksOpen, statsOpen, toggleShortcuts, setShortcutsOpen, toggleBookmarks, setBookmarksOpen, toggleStats, setStatsOpen, toggleToc, togglePdfColorMode, handleZoomModeChange, enterPresentation]);
 
   // Render a single page container - use debouncedZoom to match canvas size
   const renderPageContainer = (pageNum: number) => {
@@ -1663,6 +1799,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   return (
     <div className="flex-1 flex flex-col overflow-hidden min-w-0" ref={containerRef}>
       <ReaderControls
+        noteId={note.id}
         currentPage={currentPage}
         totalPages={totalPages}
         zoom={zoom}
@@ -1676,6 +1813,17 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
       />
 
       <div className="flex-1 flex overflow-hidden min-w-0">
+        {/* Bookmarks Panel */}
+        {bookmarksOpen && (
+          <BookmarksPanel
+            noteId={note.id}
+            currentPage={currentPage}
+            pageLabels={pageLabels}
+            onNavigate={(page) => page && goToPage(page)}
+            onClose={() => setBookmarksOpen(false)}
+          />
+        )}
+
         {/* TOC Sidebar */}
         {tocOpen && (
           <PDFTableOfContents pdfDoc={pdfDocRef.current} pageLabels={pageLabels} onClose={() => setTocOpen(false)} />
@@ -1778,6 +1926,16 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         {markdownPanelOpen && (
           <MarkdownEditorPanel noteId={note.id} onClose={() => setMarkdownPanelOpen(false)} />
         )}
+
+        {/* Reading Statistics Panel */}
+        {statsOpen && (
+          <ReadingStatsPanel
+            noteId={note.id}
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onClose={() => setStatsOpen(false)}
+          />
+        )}
       </div>
 
       {selection && (
@@ -1792,6 +1950,13 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
           onClose={() => setEditingHighlight(null)}
         />
       )}
+
+      {/* Keyboard Shortcuts Panel */}
+      <KeyboardShortcutsPanel
+        isOpen={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+        readerType="pdf"
+      />
     </div>
   );
 }
