@@ -238,6 +238,21 @@ export interface UpdateBookmarkRequest {
   notes?: string;      // Optional notes/context about this bookmark
 }
 
+// Progress milestone thresholds
+export const PROGRESS_MILESTONES = [10, 25, 50, 75, 100] as const;
+export type ProgressMilestone = (typeof PROGRESS_MILESTONES)[number];
+
+// Milestone record - when a progress threshold was reached
+export interface ProgressMilestoneRecord {
+  milestone: ProgressMilestone;
+  reachedAt: string;           // ISO timestamp when milestone was reached
+  daysFromStart: number | null; // Days since first read (null if first read date unknown)
+  totalReadingTimeMs: number;  // Total reading time when milestone was reached
+}
+
+// Reading momentum - how reading activity is trending
+export type ReadingMomentum = 'accelerating' | 'steady' | 'slowing' | 'inactive';
+
 // Reading statistics types - stored in frontmatter
 export interface ReadingStats {
   totalReadingTimeMs: number;
@@ -252,6 +267,11 @@ export interface ReadingStats {
   // Completion estimation (recalculated on each session)
   estimatedCompletionDate: string | null; // Predicted completion date based on reading pace
   averageDailyReadingMs: number | null;   // Average daily reading time (over last 14 days of activity)
+  // Progress milestones
+  milestones?: ProgressMilestoneRecord[]; // When each progress threshold was reached
+  // Reading momentum
+  momentum?: ReadingMomentum;             // Current reading momentum trend
+  momentumScore?: number;                 // Numeric momentum score (-100 to 100)
 }
 
 export interface ReadingStatsUpdate {
@@ -260,6 +280,9 @@ export interface ReadingStatsUpdate {
   startPage?: number;         // Page when session started
   endPage?: number;           // Page when session ended
   startTime?: string;         // ISO timestamp when session started
+  idlePauseCount?: number;    // Number of idle pauses during session
+  idlePauseTotalMs?: number;  // Total idle time during session
+  currentProgress?: number;   // Current progress percentage (for milestone tracking)
 }
 
 // Reading goals and streaks - stored globally (in a .pulp-goals file or config)
@@ -286,6 +309,9 @@ export interface DailyReadingEntry {
   pagesRead: number;         // Pages read that day
 }
 
+// Session quality rating based on focus metrics
+export type SessionQuality = 'deep' | 'focused' | 'normal' | 'distracted';
+
 // Individual reading session (stored in note frontmatter)
 export interface ReadingSession {
   startTime: string;         // ISO timestamp when session started
@@ -295,6 +321,9 @@ export interface ReadingSession {
   startPage: number;         // Page when session started
   endPage: number;           // Page when session ended
   hourOfDay?: number;        // Hour when session started (0-23), for time-of-day analysis
+  quality?: SessionQuality;  // Quality rating based on focus metrics
+  idlePauseCount?: number;   // Number of idle pauses during session
+  idlePauseTotalMs?: number; // Total idle time during session
 }
 
 // Time-of-day reading pattern analysis
@@ -322,6 +351,10 @@ export interface ReadingPaceTrends {
   totalSessions: number;            // Total sessions analyzed
   timeOfDayPatterns: TimeOfDayPattern[]; // Reading patterns by hour
   preferredReadingTime: PreferredReadingTime | null; // Best reading time analysis
+  momentum: ReadingMomentum | null; // Current reading momentum
+  momentumScore: number | null;     // Numeric momentum score (-100 to 100)
+  averageSessionQuality: SessionQuality | null; // Average session quality
+  focusScore: number | null;        // Overall focus score (0-100)
 }
 
 // Analysis of when user reads best

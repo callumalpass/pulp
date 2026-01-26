@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import type { ReadingStatsUpdate, ReadingStats } from '@pulp/shared';
+import type { ReadingStatsUpdate, ReadingStats, SessionQuality } from '@pulp/shared';
 import type { LibraryScanner } from '../services/library-scanner.js';
 import type { Config } from '../config/schema.js';
 import type { ReadingGoalsService } from '../services/reading-goals.js';
@@ -12,6 +12,10 @@ import {
   getReadingSessions,
   addReadingSession,
   createReadingSessionForFrontmatter,
+  calculateSessionQuality,
+  checkMilestones,
+  createMilestoneRecord,
+  calculateMomentum,
 } from '../services/frontmatter-parser.js';
 import { atomicFrontmatterUpdate } from '../services/file-lock.js';
 
@@ -46,6 +50,9 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
           startPage: { type: 'number', minimum: 0 },
           endPage: { type: 'number', minimum: 0 },
           startTime: { type: 'string' },
+          idlePauseCount: { type: 'number', minimum: 0 },
+          idlePauseTotalMs: { type: 'number', minimum: 0 },
+          currentProgress: { type: 'number', minimum: 0, maximum: 100 },
         },
       },
     },
@@ -62,6 +69,9 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
     const startPage = Math.max(0, request.body.startPage || 0);
     const endPage = Math.max(0, request.body.endPage || 0);
     const startTime = request.body.startTime || new Date(Date.now() - sessionDurationMs).toISOString();
+    const idlePauseCount = request.body.idlePauseCount;
+    const idlePauseTotalMs = request.body.idlePauseTotalMs;
+    const currentProgress = request.body.currentProgress;
 
     // Skip if no meaningful session data
     if (sessionDurationMs === 0) {
@@ -211,6 +221,31 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
           }
         }
 
+        // Calculate reading momentum from updated history
+        const { momentum, score: momentumScore } = calculateMomentum(updatedHistory);
+
+        // Calculate session quality
+        const sessionQuality = calculateSessionQuality(sessionDurationMs, idlePauseCount, idlePauseTotalMs);
+
+        // Check for milestone achievements
+        const existingMilestones = existingStats?.milestones || [];
+        const milestones = [...existingMilestones];
+
+        if (currentProgress !== undefined) {
+          const previousProgress = note.progress;
+          const newMilestone = checkMilestones(previousProgress, currentProgress, existingMilestones);
+          if (newMilestone !== null) {
+            const milestoneRecord = createMilestoneRecord(
+              newMilestone,
+              existingStats?.firstReadDate || now,
+              totalReadingTimeMs
+            );
+            milestones.push(milestoneRecord);
+            // Sort milestones by milestone value
+            milestones.sort((a, b) => a.milestone - b.milestone);
+          }
+        }
+
         newStats = {
           totalReadingTimeMs,
           totalSessions,
@@ -221,6 +256,9 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
           longestSessionMs,
           estimatedCompletionDate,
           averageDailyReadingMs,
+          ...(milestones.length > 0 ? { milestones } : {}),
+          ...(momentum ? { momentum } : {}),
+          ...(momentumScore !== undefined ? { momentumScore } : {}),
         };
 
         // Add individual session record with hour of day for time-of-day analysis
@@ -234,6 +272,9 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
           startPage,
           endPage,
           hourOfDay: startDate.getHours(),
+          quality: sessionQuality,
+          idlePauseCount,
+          idlePauseTotalMs,
         };
         const updatedSessions = addReadingSession(existingSessions, newSession);
 
@@ -488,6 +529,38 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
     const timeOfDayPatterns = calculateTimeOfDayPatterns(sessions);
     const preferredReadingTime = calculatePreferredReadingTime(timeOfDayPatterns);
 
+    // Get reading history for momentum calculation
+    const readingHistory = getDailyReadingHistory(note.frontmatter, config.reading_history_key);
+    const { momentum, score: momentumScore } = calculateMomentum(readingHistory);
+
+    // Calculate average session quality and focus score
+    const sessionsWithQuality = sessions.filter(s => s.quality !== undefined);
+    let averageSessionQuality: SessionQuality | null = null;
+    let focusScore: number | null = null;
+
+    if (sessionsWithQuality.length > 0) {
+      // Calculate quality distribution
+      const qualityCounts = {
+        deep: sessionsWithQuality.filter(s => s.quality === 'deep').length,
+        focused: sessionsWithQuality.filter(s => s.quality === 'focused').length,
+        normal: sessionsWithQuality.filter(s => s.quality === 'normal').length,
+        distracted: sessionsWithQuality.filter(s => s.quality === 'distracted').length,
+      };
+
+      // Determine average quality (most common)
+      const maxCount = Math.max(...Object.values(qualityCounts));
+      if (qualityCounts.deep === maxCount) averageSessionQuality = 'deep';
+      else if (qualityCounts.focused === maxCount) averageSessionQuality = 'focused';
+      else if (qualityCounts.normal === maxCount) averageSessionQuality = 'normal';
+      else averageSessionQuality = 'distracted';
+
+      // Calculate focus score (0-100)
+      // deep: 100, focused: 75, normal: 50, distracted: 25
+      const qualityScores: Record<SessionQuality, number> = { deep: 100, focused: 75, normal: 50, distracted: 25 };
+      const totalScore = sessionsWithQuality.reduce((sum, s) => sum + qualityScores[s.quality!], 0);
+      focusScore = Math.round(totalScore / sessionsWithQuality.length);
+    }
+
     return {
       paceData: paceData.reverse(), // Return chronologically (oldest first)
       trend,
@@ -496,6 +569,10 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
       totalSessions: sessions.length,
       timeOfDayPatterns,
       preferredReadingTime,
+      momentum,
+      momentumScore,
+      averageSessionQuality,
+      focusScore,
     };
   });
 };

@@ -21,6 +21,10 @@ import {
   getBookNotes,
   getReadingSessions,
   createReadingSessionForFrontmatter,
+  calculateSessionQuality,
+  checkMilestones,
+  createMilestoneRecord,
+  calculateMomentum,
 } from '../frontmatter-parser.js';
 
 describe('hasTag', () => {
@@ -422,6 +426,7 @@ describe('createReadingStatsForFrontmatter', () => {
       longestSessionMs: null,
       estimatedCompletionDate: null,
       averageDailyReadingMs: null,
+      // Optional fields not set - using type defaults
     });
 
     expect(result.total_time_ms).toBe(3600000);
@@ -445,6 +450,7 @@ describe('createReadingStatsForFrontmatter', () => {
       longestSessionMs: 1800000,
       estimatedCompletionDate: '2024-02-15',
       averageDailyReadingMs: 1800000,
+      // Optional fields not set - using type defaults
     });
 
     expect(result.pages_per_hour).toBe(30);
@@ -885,5 +891,440 @@ describe('createReadingSessionForFrontmatter', () => {
     });
 
     expect(result.hour_of_day).toBeUndefined();
+  });
+
+  it('includes quality metrics when provided', () => {
+    const result = createReadingSessionForFrontmatter({
+      startTime: '2024-01-15T10:00:00Z',
+      endTime: '2024-01-15T11:00:00Z',
+      durationMs: 3600000,
+      pagesRead: 30,
+      startPage: 0,
+      endPage: 30,
+      quality: 'focused',
+      idlePauseCount: 2,
+      idlePauseTotalMs: 120000,
+    });
+
+    expect(result.quality).toBe('focused');
+    expect(result.idle_pause_count).toBe(2);
+    expect(result.idle_pause_total_ms).toBe(120000);
+  });
+});
+
+describe('calculateSessionQuality', () => {
+  it('returns normal for sessions under 5 minutes', () => {
+    expect(calculateSessionQuality(4 * 60 * 1000, 0, 0)).toBe('normal');
+  });
+
+  it('returns deep for long sessions with no pauses', () => {
+    // 45 minute session with no pauses
+    expect(calculateSessionQuality(45 * 60 * 1000, 0, 0)).toBe('deep');
+  });
+
+  it('returns focused for sessions with minimal interruptions', () => {
+    // 30 minute session with 1 pause and <5% idle time
+    const durationMs = 30 * 60 * 1000;
+    const idlePauseTotalMs = durationMs * 0.03; // 3% idle
+    expect(calculateSessionQuality(durationMs, 1, idlePauseTotalMs)).toBe('focused');
+  });
+
+  it('returns normal for sessions with moderate interruptions', () => {
+    // 20 minute session with 3 pauses and ~10% idle time
+    const durationMs = 20 * 60 * 1000;
+    const idlePauseTotalMs = durationMs * 0.10; // 10% idle
+    expect(calculateSessionQuality(durationMs, 3, idlePauseTotalMs)).toBe('normal');
+  });
+
+  it('returns distracted for sessions with many interruptions', () => {
+    // 15 minute session with 6 pauses
+    expect(calculateSessionQuality(15 * 60 * 1000, 6, 0)).toBe('distracted');
+  });
+
+  it('returns distracted for sessions with high idle time percentage', () => {
+    // 30 minute session with 20% idle time
+    const durationMs = 30 * 60 * 1000;
+    const idlePauseTotalMs = durationMs * 0.20; // 20% idle
+    expect(calculateSessionQuality(durationMs, 2, idlePauseTotalMs)).toBe('distracted');
+  });
+
+  it('handles undefined pause values', () => {
+    expect(calculateSessionQuality(30 * 60 * 1000, undefined, undefined)).toBe('deep');
+  });
+});
+
+describe('checkMilestones', () => {
+  it('returns null when no milestone is crossed', () => {
+    expect(checkMilestones(5, 8, [])).toBeNull();
+    expect(checkMilestones(11, 15, [])).toBeNull();
+  });
+
+  it('detects 10% milestone crossing', () => {
+    expect(checkMilestones(5, 12, [])).toBe(10);
+  });
+
+  it('detects 25% milestone crossing', () => {
+    expect(checkMilestones(20, 30, [])).toBe(25);
+  });
+
+  it('detects 50% milestone crossing', () => {
+    expect(checkMilestones(45, 55, [])).toBe(50);
+  });
+
+  it('detects 75% milestone crossing', () => {
+    expect(checkMilestones(70, 80, [])).toBe(75);
+  });
+
+  it('detects 100% milestone crossing', () => {
+    expect(checkMilestones(95, 100, [])).toBe(100);
+  });
+
+  it('returns highest crossed milestone when multiple are crossed', () => {
+    // Going from 5% to 30% crosses both 10% and 25%
+    expect(checkMilestones(5, 30, [])).toBe(25);
+  });
+
+  it('does not return already recorded milestones', () => {
+    const existingMilestones = [
+      { milestone: 10 as const, reachedAt: '2024-01-15', daysFromStart: 0, totalReadingTimeMs: 10000 },
+    ];
+    // 10% already recorded, should not return it
+    expect(checkMilestones(5, 15, existingMilestones)).toBeNull();
+  });
+
+  it('skips recorded milestones but returns unrecorded ones', () => {
+    const existingMilestones = [
+      { milestone: 10 as const, reachedAt: '2024-01-15', daysFromStart: 0, totalReadingTimeMs: 10000 },
+    ];
+    // 10% already recorded, but 25% is new
+    expect(checkMilestones(20, 30, existingMilestones)).toBe(25);
+  });
+});
+
+describe('createMilestoneRecord', () => {
+  it('creates a milestone record with first read date', () => {
+    const record = createMilestoneRecord(50, '2024-01-01T00:00:00Z', 3600000);
+
+    expect(record.milestone).toBe(50);
+    expect(record.reachedAt).toBeDefined();
+    expect(record.totalReadingTimeMs).toBe(3600000);
+    expect(record.daysFromStart).toBeGreaterThanOrEqual(0);
+  });
+
+  it('sets daysFromStart to null when firstReadDate is null', () => {
+    const record = createMilestoneRecord(25, null, 1800000);
+
+    expect(record.milestone).toBe(25);
+    expect(record.daysFromStart).toBeNull();
+    expect(record.totalReadingTimeMs).toBe(1800000);
+  });
+});
+
+describe('calculateMomentum', () => {
+  it('returns inactive when no reading history', () => {
+    const { momentum, score } = calculateMomentum([]);
+    expect(momentum).toBe('inactive');
+    expect(score).toBe(0);
+  });
+
+  it('returns accelerating when recent reading is significantly higher', () => {
+    // Create history with more recent reading
+    const today = new Date();
+    const history = [];
+
+    // Last 7 days: 60 min/day
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      history.push({
+        date: date.toISOString().split('T')[0],
+        durationMs: 60 * 60 * 1000,
+        sessions: 1,
+        pagesRead: 30,
+      });
+    }
+
+    // Previous 7 days: 20 min/day
+    for (let i = 7; i < 14; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      history.push({
+        date: date.toISOString().split('T')[0],
+        durationMs: 20 * 60 * 1000,
+        sessions: 1,
+        pagesRead: 10,
+      });
+    }
+
+    const { momentum, score } = calculateMomentum(history);
+    expect(momentum).toBe('accelerating');
+    expect(score).toBeGreaterThan(20);
+  });
+
+  it('returns slowing when recent reading is significantly lower', () => {
+    const today = new Date();
+    const history = [];
+
+    // Last 7 days: 10 min/day
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      history.push({
+        date: date.toISOString().split('T')[0],
+        durationMs: 10 * 60 * 1000,
+        sessions: 1,
+        pagesRead: 5,
+      });
+    }
+
+    // Previous 7 days: 60 min/day
+    for (let i = 7; i < 14; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      history.push({
+        date: date.toISOString().split('T')[0],
+        durationMs: 60 * 60 * 1000,
+        sessions: 1,
+        pagesRead: 30,
+      });
+    }
+
+    const { momentum, score } = calculateMomentum(history);
+    expect(momentum).toBe('slowing');
+    expect(score).toBeLessThan(-20);
+  });
+
+  it('returns steady when reading is consistent', () => {
+    const today = new Date();
+    const history = [];
+
+    // Consistent 30 min/day for 14 days
+    for (let i = 0; i < 14; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      history.push({
+        date: date.toISOString().split('T')[0],
+        durationMs: 30 * 60 * 1000,
+        sessions: 1,
+        pagesRead: 15,
+      });
+    }
+
+    const { momentum, score } = calculateMomentum(history);
+    expect(momentum).toBe('steady');
+    expect(score).toBeGreaterThanOrEqual(-20);
+    expect(score).toBeLessThanOrEqual(20);
+  });
+
+  it('returns inactive when no recent reading', () => {
+    const today = new Date();
+    const history = [];
+
+    // Only old reading (previous 7 days), nothing recent
+    for (let i = 7; i < 14; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      history.push({
+        date: date.toISOString().split('T')[0],
+        durationMs: 30 * 60 * 1000,
+        sessions: 1,
+        pagesRead: 15,
+      });
+    }
+
+    const { momentum } = calculateMomentum(history);
+    expect(momentum).toBe('inactive');
+  });
+});
+
+describe('getReadingStats with milestones and momentum', () => {
+  it('parses milestones from frontmatter', () => {
+    const stats = getReadingStats({
+      reading_stats: {
+        total_time_ms: 3600000,
+        total_sessions: 5,
+        first_read: '2024-01-15T10:00:00Z',
+        milestones: [
+          { milestone: 10, reached_at: '2024-01-15T12:00:00Z', days_from_start: 0, total_time_ms: 600000 },
+          { milestone: 25, reached_at: '2024-01-16T10:00:00Z', days_from_start: 1, total_time_ms: 1800000 },
+        ],
+      },
+    }, 'reading_stats');
+
+    expect(stats).not.toBeNull();
+    expect(stats!.milestones).toHaveLength(2);
+    expect(stats!.milestones[0].milestone).toBe(10);
+    expect(stats!.milestones[1].milestone).toBe(25);
+    expect(stats!.milestones[0].daysFromStart).toBe(0);
+    expect(stats!.milestones[1].daysFromStart).toBe(1);
+  });
+
+  it('parses momentum from frontmatter', () => {
+    const stats = getReadingStats({
+      reading_stats: {
+        total_time_ms: 3600000,
+        total_sessions: 5,
+        first_read: '2024-01-15T10:00:00Z',
+        momentum: 'accelerating',
+        momentum_score: 45,
+      },
+    }, 'reading_stats');
+
+    expect(stats).not.toBeNull();
+    expect(stats!.momentum).toBe('accelerating');
+    expect(stats!.momentumScore).toBe(45);
+  });
+
+  it('returns undefined milestones when not present', () => {
+    const stats = getReadingStats({
+      reading_stats: {
+        total_time_ms: 3600000,
+        total_sessions: 5,
+        first_read: '2024-01-15T10:00:00Z',
+      },
+    }, 'reading_stats');
+
+    expect(stats).not.toBeNull();
+    expect(stats!.milestones).toBeUndefined();
+  });
+
+  it('clamps momentum score to -100 to 100', () => {
+    const stats = getReadingStats({
+      reading_stats: {
+        total_time_ms: 3600000,
+        total_sessions: 5,
+        momentum_score: 150, // Over max
+      },
+    }, 'reading_stats');
+
+    expect(stats!.momentumScore).toBe(100);
+  });
+
+  it('ignores invalid momentum values', () => {
+    const stats = getReadingStats({
+      reading_stats: {
+        total_time_ms: 3600000,
+        total_sessions: 5,
+        momentum: 'invalid_value',
+      },
+    }, 'reading_stats');
+
+    expect(stats!.momentum).toBeUndefined();
+  });
+});
+
+describe('createReadingStatsForFrontmatter with milestones and momentum', () => {
+  it('includes milestones in output', () => {
+    const stats = {
+      totalReadingTimeMs: 3600000,
+      totalSessions: 5,
+      averageSessionMs: 720000,
+      firstReadDate: '2024-01-15T10:00:00Z',
+      pagesPerHour: 45,
+      totalPagesRead: 150,
+      longestSessionMs: 1800000,
+      estimatedCompletionDate: '2024-02-15',
+      averageDailyReadingMs: 1800000,
+      milestones: [
+        { milestone: 10 as const, reachedAt: '2024-01-15T12:00:00Z', daysFromStart: 0, totalReadingTimeMs: 600000 },
+      ],
+      momentum: 'accelerating' as const,
+      momentumScore: 35,
+    };
+
+    const result = createReadingStatsForFrontmatter(stats);
+
+    expect(result.milestones).toHaveLength(1);
+    expect((result.milestones as any[])[0].milestone).toBe(10);
+    expect((result.milestones as any[])[0].reached_at).toBe('2024-01-15T12:00:00Z');
+    expect(result.momentum).toBe('accelerating');
+    expect(result.momentum_score).toBe(35);
+  });
+
+  it('omits milestones when empty', () => {
+    const stats = {
+      totalReadingTimeMs: 3600000,
+      totalSessions: 5,
+      averageSessionMs: 720000,
+      firstReadDate: '2024-01-15T10:00:00Z',
+      pagesPerHour: 45,
+      totalPagesRead: 150,
+      longestSessionMs: 1800000,
+      estimatedCompletionDate: '2024-02-15',
+      averageDailyReadingMs: 1800000,
+      milestones: [],
+      momentum: undefined,
+      momentumScore: undefined,
+    };
+
+    const result = createReadingStatsForFrontmatter(stats);
+
+    expect(result.milestones).toBeUndefined();
+    expect(result.momentum).toBeUndefined();
+    expect(result.momentum_score).toBeUndefined();
+  });
+});
+
+describe('getReadingSessions with quality metrics', () => {
+  it('parses sessions with quality metrics', () => {
+    const sessions = getReadingSessions({
+      reading_sessions: [
+        {
+          start: '2024-01-15T10:00:00Z',
+          end: '2024-01-15T11:00:00Z',
+          duration_ms: 3600000,
+          pages: 30,
+          start_page: 0,
+          end_page: 30,
+          quality: 'focused',
+          idle_pause_count: 2,
+          idle_pause_total_ms: 120000,
+        },
+      ],
+    }, 'reading_sessions');
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].quality).toBe('focused');
+    expect(sessions[0].idlePauseCount).toBe(2);
+    expect(sessions[0].idlePauseTotalMs).toBe(120000);
+  });
+
+  it('ignores invalid quality values', () => {
+    const sessions = getReadingSessions({
+      reading_sessions: [
+        {
+          start: '2024-01-15T10:00:00Z',
+          end: '2024-01-15T11:00:00Z',
+          duration_ms: 3600000,
+          pages: 30,
+          start_page: 0,
+          end_page: 30,
+          quality: 'invalid_quality',
+        },
+      ],
+    }, 'reading_sessions');
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].quality).toBeUndefined();
+  });
+
+  it('handles sessions without quality metrics (backward compatibility)', () => {
+    const sessions = getReadingSessions({
+      reading_sessions: [
+        {
+          start: '2024-01-15T10:00:00Z',
+          end: '2024-01-15T11:00:00Z',
+          duration_ms: 3600000,
+          pages: 30,
+          start_page: 0,
+          end_page: 30,
+        },
+      ],
+    }, 'reading_sessions');
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].quality).toBeUndefined();
+    expect(sessions[0].idlePauseCount).toBeUndefined();
+    expect(sessions[0].idlePauseTotalMs).toBeUndefined();
   });
 });

@@ -26,6 +26,9 @@ interface PendingSessionData {
   startTime: string;  // When the session started
   timestamp: string;  // When the session ended (for deduplication)
   retryCount: number;
+  idlePauseCount?: number;     // Number of idle pauses during session
+  idlePauseTotalMs?: number;   // Total idle time during session
+  currentProgress?: number;    // Current progress percentage
 }
 
 // Active session tracking (local only, for real-time UI)
@@ -41,6 +44,9 @@ interface ActiveSession {
   totalPausedMs: number;
   lastActivityTime: number;    // Performance.now() of last user interaction
   isIdlePaused: boolean;       // True if paused due to inactivity (not manual pause)
+  idlePauseCount: number;      // Number of times session was idle-paused
+  idlePauseTotalMs: number;    // Total ms spent in idle pause state
+  currentProgress: number;     // Current progress percentage for milestone tracking
 }
 
 const MIN_SESSION_DURATION_MS = 10000;  // 10 seconds minimum to count
@@ -67,6 +73,7 @@ function calculateIdleResumeState(
     isIdlePaused: false,
     pausedAt: null,
     totalPausedMs: session.totalPausedMs + pausedDuration,
+    idlePauseTotalMs: session.idlePauseTotalMs + pausedDuration,
     lastActivityTime: now,
   };
 }
@@ -117,7 +124,10 @@ async function saveSessionWithRetry(
   startPage: number,
   endPage: number,
   startTime: string,
-  maxRetries: number = MAX_RETRY_ATTEMPTS
+  maxRetries: number = MAX_RETRY_ATTEMPTS,
+  idlePauseCount?: number,
+  idlePauseTotalMs?: number,
+  currentProgress?: number
 ): Promise<{ success: boolean; stats?: ReadingStats; error?: string }> {
   let lastError: string | null = null;
 
@@ -129,6 +139,9 @@ async function saveSessionWithRetry(
         startPage,
         endPage,
         startTime,
+        idlePauseCount,
+        idlePauseTotalMs,
+        currentProgress,
       });
 
       return { success: true, stats: result.readingStats };
@@ -171,6 +184,9 @@ export const useReadingStatsStore = create<ReadingStatsState>()(
       get().endSession();
     }
 
+    // Calculate initial progress
+    const currentProgress = totalPages > 0 ? (currentPage / totalPages) * 100 : 0;
+
     set({
       activeSession: {
         noteId,
@@ -184,6 +200,9 @@ export const useReadingStatsStore = create<ReadingStatsState>()(
         totalPausedMs: 0,
         lastActivityTime: now,
         isIdlePaused: false,
+        idlePauseCount: 0,
+        idlePauseTotalMs: 0,
+        currentProgress,
       },
     });
   },
@@ -193,11 +212,17 @@ export const useReadingStatsStore = create<ReadingStatsState>()(
     set((state) => {
       if (!state.activeSession) return state;
 
+      // Calculate updated progress
+      const currentProgress = state.activeSession.totalPages > 0
+        ? (page / state.activeSession.totalPages) * 100
+        : 0;
+
       // Page change counts as activity
       const session: ActiveSession = {
         ...state.activeSession,
         currentPage: page,
         lastActivityTime: now,
+        currentProgress,
       };
 
       // If was idle-paused, auto-resume on page change
@@ -278,13 +303,14 @@ export const useReadingStatsStore = create<ReadingStatsState>()(
     const idleTime = now - activeSession.lastActivityTime;
 
     if (idleTime >= IDLE_TIMEOUT_MS) {
-      // Pause due to inactivity
+      // Pause due to inactivity - increment idle pause count
       set({
         activeSession: {
           ...activeSession,
           isPaused: true,
           pausedAt: now,
           isIdlePaused: true,
+          idlePauseCount: activeSession.idlePauseCount + 1,
         },
       });
     }
@@ -299,12 +325,19 @@ export const useReadingStatsStore = create<ReadingStatsState>()(
 
     // Calculate actual reading time (excluding paused time)
     let totalPausedMs = activeSession.totalPausedMs;
+    let idlePauseTotalMs = activeSession.idlePauseTotalMs;
     if (activeSession.isPaused && activeSession.pausedAt) {
-      totalPausedMs += now - activeSession.pausedAt;
+      const currentPauseDuration = now - activeSession.pausedAt;
+      totalPausedMs += currentPauseDuration;
+      if (activeSession.isIdlePaused) {
+        idlePauseTotalMs += currentPauseDuration;
+      }
     }
 
     const durationMs = Math.max(0, (now - activeSession.startTime) - totalPausedMs);
     const pagesRead = Math.abs(activeSession.currentPage - activeSession.startPage);
+    const idlePauseCount = activeSession.idlePauseCount;
+    const currentProgress = activeSession.currentProgress;
 
     // Clear active session immediately
     set({ activeSession: null });
@@ -325,7 +358,7 @@ export const useReadingStatsStore = create<ReadingStatsState>()(
       pagesRead,
     };
 
-    // Try to save with retry logic
+    // Try to save with retry logic - now including idle pause data
     const result = await saveSessionWithRetry(
       activeSession.noteId,
       durationMs,
@@ -333,7 +366,10 @@ export const useReadingStatsStore = create<ReadingStatsState>()(
       activeSession.startPage,
       activeSession.currentPage,
       activeSession.startTimestamp,
-      3  // Use fewer retries for immediate saves
+      3,  // Use fewer retries for immediate saves
+      idlePauseCount,
+      idlePauseTotalMs,
+      currentProgress
     );
 
     if (result.success && result.stats) {
@@ -358,6 +394,9 @@ export const useReadingStatsStore = create<ReadingStatsState>()(
         startTime: activeSession.startTimestamp,
         timestamp: endTimestamp,
         retryCount: 0,
+        idlePauseCount,
+        idlePauseTotalMs,
+        currentProgress,
       };
 
       // Add to pending queue (with size limit)
@@ -407,7 +446,10 @@ export const useReadingStatsStore = create<ReadingStatsState>()(
         session.startPage,
         session.endPage,
         session.startTime,
-        MAX_RETRY_ATTEMPTS
+        MAX_RETRY_ATTEMPTS,
+        session.idlePauseCount,
+        session.idlePauseTotalMs,
+        session.currentProgress
       );
 
       if (result.success && result.stats) {

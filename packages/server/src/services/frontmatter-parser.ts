@@ -439,17 +439,11 @@ export function bookmarkToFrontmatter(
   return wikilink;
 }
 
-export interface ParsedReadingStats {
-  totalReadingTimeMs: number;
-  totalSessions: number;
-  averageSessionMs: number;
-  firstReadDate: string | null;
-  pagesPerHour: number | null;
-  totalPagesRead: number;
-  longestSessionMs: number | null;
-  estimatedCompletionDate: string | null;
-  averageDailyReadingMs: number | null;
-}
+import type { ProgressMilestone, ReadingMomentum, ProgressMilestoneRecord, ReadingStats } from '@pulp/shared';
+
+// Re-export ReadingStats as ParsedReadingStats for backward compatibility
+// Uses the shared type which has optional milestones, momentum, momentumScore
+export type ParsedReadingStats = ReadingStats;
 
 /**
  * Parse reading statistics from frontmatter.
@@ -521,7 +515,36 @@ export function getReadingStats(
     ? statsObj.avg_daily_reading_ms
     : null;
 
-  return {
+  // Parse milestones
+  const milestones: ProgressMilestoneRecord[] = [];
+  if (Array.isArray(statsObj.milestones)) {
+    for (const m of statsObj.milestones) {
+      if (m && typeof m === 'object') {
+        const mObj = m as Record<string, unknown>;
+        const milestone = mObj.milestone;
+        if (typeof milestone === 'number' && [10, 25, 50, 75, 100].includes(milestone)) {
+          milestones.push({
+            milestone: milestone as ProgressMilestone,
+            reachedAt: typeof mObj.reached_at === 'string' ? mObj.reached_at : new Date().toISOString(),
+            daysFromStart: typeof mObj.days_from_start === 'number' ? mObj.days_from_start : null,
+            totalReadingTimeMs: typeof mObj.total_time_ms === 'number' ? mObj.total_time_ms : 0,
+          });
+        }
+      }
+    }
+  }
+
+  // Parse momentum
+  const validMomentumValues: ReadingMomentum[] = ['accelerating', 'steady', 'slowing', 'inactive'];
+  const momentum = typeof statsObj.momentum === 'string' && validMomentumValues.includes(statsObj.momentum as ReadingMomentum)
+    ? statsObj.momentum as ReadingMomentum
+    : undefined;
+
+  const momentumScore = typeof statsObj.momentum_score === 'number'
+    ? Math.max(-100, Math.min(100, statsObj.momentum_score))
+    : undefined;
+
+  const result: ParsedReadingStats = {
     totalReadingTimeMs,
     totalSessions,
     averageSessionMs: totalSessions > 0 ? totalReadingTimeMs / totalSessions : 0,
@@ -532,6 +555,19 @@ export function getReadingStats(
     estimatedCompletionDate,
     averageDailyReadingMs,
   };
+
+  // Only add optional fields if they have values
+  if (milestones.length > 0) {
+    result.milestones = milestones;
+  }
+  if (momentum !== undefined) {
+    result.momentum = momentum;
+  }
+  if (momentumScore !== undefined) {
+    result.momentumScore = momentumScore;
+  }
+
+  return result;
 }
 
 /**
@@ -561,6 +597,22 @@ export function createReadingStatsForFrontmatter(
   }
   if (stats.averageDailyReadingMs !== null) {
     result.avg_daily_reading_ms = stats.averageDailyReadingMs;
+  }
+  // Save milestones if any
+  if (stats.milestones && stats.milestones.length > 0) {
+    result.milestones = stats.milestones.map(m => ({
+      milestone: m.milestone,
+      reached_at: m.reachedAt,
+      days_from_start: m.daysFromStart,
+      total_time_ms: m.totalReadingTimeMs,
+    }));
+  }
+  // Save momentum if available
+  if (stats.momentum !== undefined) {
+    result.momentum = stats.momentum;
+  }
+  if (stats.momentumScore !== undefined) {
+    result.momentum_score = stats.momentumScore;
   }
 
   return result;
@@ -694,6 +746,8 @@ export interface ParsedReaderPreferences {
 /** Maximum number of reading sessions to retain per book */
 const READING_SESSIONS_MAX_COUNT = 100;
 
+import type { SessionQuality } from '@pulp/shared';
+
 export interface ParsedReadingSession {
   startTime: string;
   endTime: string;
@@ -702,6 +756,9 @@ export interface ParsedReadingSession {
   startPage: number;
   endPage: number;
   hourOfDay?: number;  // Hour when session started (0-23)
+  quality?: SessionQuality; // Session quality based on focus metrics
+  idlePauseCount?: number;  // Number of idle pauses during session
+  idlePauseTotalMs?: number; // Total idle time during session
 }
 
 /**
@@ -880,6 +937,20 @@ export function getReadingSessions(
       hourOfDay = startDate.getHours();
     }
 
+    // Parse quality metrics
+    const validQualities: SessionQuality[] = ['deep', 'focused', 'normal', 'distracted'];
+    const quality = typeof sessionObj.quality === 'string' && validQualities.includes(sessionObj.quality as SessionQuality)
+      ? sessionObj.quality as SessionQuality
+      : undefined;
+
+    const idlePauseCount = typeof sessionObj.idle_pause_count === 'number' && sessionObj.idle_pause_count >= 0
+      ? sessionObj.idle_pause_count
+      : undefined;
+
+    const idlePauseTotalMs = typeof sessionObj.idle_pause_total_ms === 'number' && sessionObj.idle_pause_total_ms >= 0
+      ? sessionObj.idle_pause_total_ms
+      : undefined;
+
     entries.push({
       startTime,
       endTime,
@@ -888,6 +959,9 @@ export function getReadingSessions(
       startPage: typeof sessionObj.start_page === 'number' ? sessionObj.start_page : 0,
       endPage: typeof sessionObj.end_page === 'number' ? sessionObj.end_page : 0,
       hourOfDay,
+      quality,
+      idlePauseCount,
+      idlePauseTotalMs,
     });
   }
 
@@ -915,6 +989,17 @@ export function createReadingSessionForFrontmatter(
     result.hour_of_day = session.hourOfDay;
   }
 
+  // Include quality metrics if available
+  if (session.quality !== undefined) {
+    result.quality = session.quality;
+  }
+  if (session.idlePauseCount !== undefined) {
+    result.idle_pause_count = session.idlePauseCount;
+  }
+  if (session.idlePauseTotalMs !== undefined) {
+    result.idle_pause_total_ms = session.idlePauseTotalMs;
+  }
+
   return result;
 }
 
@@ -932,4 +1017,170 @@ export function addReadingSession(
   return updated
     .sort((a, b) => b.startTime.localeCompare(a.startTime))
     .slice(0, READING_SESSIONS_MAX_COUNT);
+}
+
+/**
+ * Calculate session quality based on idle pause metrics.
+ * - deep: No idle pauses, long sessions (30+ min)
+ * - focused: 0-1 idle pauses, or short idle time (<5% of session)
+ * - normal: 2-4 idle pauses, or moderate idle time (5-15% of session)
+ * - distracted: 5+ idle pauses, or high idle time (>15% of session)
+ */
+export function calculateSessionQuality(
+  durationMs: number,
+  idlePauseCount: number | undefined,
+  idlePauseTotalMs: number | undefined
+): SessionQuality {
+  // Minimum session duration for meaningful quality assessment (5 minutes)
+  if (durationMs < 5 * 60 * 1000) {
+    return 'normal';
+  }
+
+  const pauseCount = idlePauseCount ?? 0;
+  const pauseTotalMs = idlePauseTotalMs ?? 0;
+  const idlePercentage = durationMs > 0 ? (pauseTotalMs / durationMs) * 100 : 0;
+
+  // Deep focus: no pauses and long session (30+ min)
+  if (pauseCount === 0 && durationMs >= 30 * 60 * 1000) {
+    return 'deep';
+  }
+
+  // Focused: minimal interruptions
+  if (pauseCount <= 1 && idlePercentage < 5) {
+    return 'focused';
+  }
+
+  // Distracted: many interruptions or lots of idle time
+  if (pauseCount >= 5 || idlePercentage > 15) {
+    return 'distracted';
+  }
+
+  // Normal: moderate interruptions
+  return 'normal';
+}
+
+/**
+ * Check if a progress milestone has been crossed.
+ * Returns the highest milestone crossed that hasn't been recorded yet.
+ */
+export function checkMilestones(
+  previousProgress: number,
+  currentProgress: number,
+  existingMilestones: ProgressMilestoneRecord[]
+): ProgressMilestone | null {
+  const milestones: ProgressMilestone[] = [10, 25, 50, 75, 100];
+  const recordedMilestones = new Set(existingMilestones.map(m => m.milestone));
+
+  // Find the highest milestone that was crossed and not yet recorded
+  for (let i = milestones.length - 1; i >= 0; i--) {
+    const milestone = milestones[i];
+    if (currentProgress >= milestone && previousProgress < milestone && !recordedMilestones.has(milestone)) {
+      return milestone;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Calculate days between two dates.
+ */
+function daysBetweenDates(date1: string, date2: string): number {
+  const d1 = new Date(date1);
+  const d2 = new Date(date2);
+  const diffTime = Math.abs(d2.getTime() - d1.getTime());
+  return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+}
+
+/**
+ * Create a milestone record.
+ */
+export function createMilestoneRecord(
+  milestone: ProgressMilestone,
+  firstReadDate: string | null,
+  totalReadingTimeMs: number
+): ProgressMilestoneRecord {
+  const now = new Date().toISOString();
+  return {
+    milestone,
+    reachedAt: now,
+    daysFromStart: firstReadDate ? daysBetweenDates(firstReadDate, now) : null,
+    totalReadingTimeMs,
+  };
+}
+
+/**
+ * Calculate reading momentum based on recent activity.
+ * Compares reading activity in the last 7 days vs the previous 7 days.
+ * Returns a momentum classification and a numeric score from -100 to 100.
+ */
+export function calculateMomentum(
+  readingHistory: ParsedDailyReadingEntry[]
+): { momentum: ReadingMomentum; score: number } {
+  const today = new Date();
+
+  // Get data for the last 14 days
+  const last7Days: number[] = [];
+  const previous7Days: number[] = [];
+
+  for (let i = 0; i < 14; i++) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    const dateStr = date.toISOString().split('T')[0];
+
+    const entry = readingHistory.find(h => h.date === dateStr);
+    const durationMs = entry?.durationMs ?? 0;
+
+    if (i < 7) {
+      last7Days.push(durationMs);
+    } else {
+      previous7Days.push(durationMs);
+    }
+  }
+
+  const recentTotal = last7Days.reduce((sum, d) => sum + d, 0);
+  const previousTotal = previous7Days.reduce((sum, d) => sum + d, 0);
+
+  // Count active days
+  const recentActiveDays = last7Days.filter(d => d > 0).length;
+  const previousActiveDays = previous7Days.filter(d => d > 0).length;
+
+  // No reading in either period
+  if (recentTotal === 0 && previousTotal === 0) {
+    return { momentum: 'inactive', score: 0 };
+  }
+
+  // Calculate momentum score
+  // Based on both total reading time and active days
+  let score = 0;
+
+  if (previousTotal > 0) {
+    // Percentage change in reading time, weighted
+    const timeChange = ((recentTotal - previousTotal) / previousTotal) * 50;
+    score += Math.max(-50, Math.min(50, timeChange));
+  } else if (recentTotal > 0) {
+    // Coming back from inactivity - positive momentum
+    score += 25;
+  }
+
+  // Active days change
+  const daysDiff = recentActiveDays - previousActiveDays;
+  score += daysDiff * 10; // Each additional active day adds 10 points
+
+  // Clamp score to -100 to 100
+  score = Math.max(-100, Math.min(100, Math.round(score)));
+
+  // Classify momentum
+  let momentum: ReadingMomentum;
+  if (recentTotal === 0 && recentActiveDays === 0) {
+    momentum = 'inactive';
+  } else if (score >= 20) {
+    momentum = 'accelerating';
+  } else if (score <= -20) {
+    momentum = 'slowing';
+  } else {
+    momentum = 'steady';
+  }
+
+  return { momentum, score };
 }
