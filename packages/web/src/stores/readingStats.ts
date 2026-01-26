@@ -46,6 +46,28 @@ const MAX_RETRY_ATTEMPTS = 5;
 const RETRY_DELAY_MS = 2000;
 const MAX_PENDING_SESSIONS = 50;  // Limit stored pending sessions
 
+/**
+ * Helper to calculate resumed session state after an idle pause.
+ * Returns updated session fields to merge with existing session.
+ */
+function calculateIdleResumeState(
+  session: ActiveSession,
+  now: number
+): Partial<ActiveSession> | null {
+  if (!session.isIdlePaused || !session.pausedAt) {
+    return null;
+  }
+
+  const pausedDuration = now - session.pausedAt;
+  return {
+    isPaused: false,
+    isIdlePaused: false,
+    pausedAt: null,
+    totalPausedMs: session.totalPausedMs + pausedDuration,
+    lastActivityTime: now,
+  };
+}
+
 interface ReadingStatsState {
   // Current active reading session (local only)
   activeSession: ActiveSession | null;
@@ -163,22 +185,16 @@ export const useReadingStatsStore = create<ReadingStatsState>()(
       if (!state.activeSession) return state;
 
       // Page change counts as activity
-      let session = {
+      const session: ActiveSession = {
         ...state.activeSession,
         currentPage: page,
         lastActivityTime: now,
       };
 
       // If was idle-paused, auto-resume on page change
-      if (state.activeSession.isIdlePaused && state.activeSession.pausedAt) {
-        const pausedDuration = now - state.activeSession.pausedAt;
-        session = {
-          ...session,
-          isPaused: false,
-          isIdlePaused: false,
-          pausedAt: null,
-          totalPausedMs: state.activeSession.totalPausedMs + pausedDuration,
-        };
+      const resumeState = calculateIdleResumeState(state.activeSession, now);
+      if (resumeState) {
+        Object.assign(session, resumeState);
       }
 
       return { activeSession: session };
@@ -225,16 +241,12 @@ export const useReadingStatsStore = create<ReadingStatsState>()(
       if (!state.activeSession) return state;
 
       // If session was idle-paused, auto-resume on activity
-      if (state.activeSession.isIdlePaused && state.activeSession.pausedAt) {
-        const pausedDuration = now - state.activeSession.pausedAt;
+      const resumeState = calculateIdleResumeState(state.activeSession, now);
+      if (resumeState) {
         return {
           activeSession: {
             ...state.activeSession,
-            lastActivityTime: now,
-            isPaused: false,
-            isIdlePaused: false,
-            pausedAt: null,
-            totalPausedMs: state.activeSession.totalPausedMs + pausedDuration,
+            ...resumeState,
           },
         };
       }
