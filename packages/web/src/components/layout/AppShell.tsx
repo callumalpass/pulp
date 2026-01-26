@@ -16,7 +16,7 @@ export function AppShell({ children }: AppShellProps) {
       {/* Sidebar - hidden on mobile */}
       {!isMobile && <Sidebar />}
 
-      <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex-1 flex flex-col min-h-0 min-w-0">
         <Header />
         <main className={`flex-1 min-h-0 overflow-auto ${isMobile ? 'pb-16' : ''}`}>
           {children}

@@ -1539,7 +1539,7 @@ export function PDFReader({ note }: PDFReaderProps) {
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden" ref={containerRef}>
+    <div className="flex-1 flex flex-col overflow-hidden min-w-0" ref={containerRef}>
       <ReaderControls
         currentPage={currentPage}
         totalPages={totalPages}
@@ -1553,7 +1553,7 @@ export function PDFReader({ note }: PDFReaderProps) {
         hasToc={hasToc}
       />
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-w-0">
         {/* TOC Sidebar */}
         {tocOpen && (
           <PDFTableOfContents pdfDoc={pdfDocRef.current} pageLabels={pageLabels} onClose={() => setTocOpen(false)} />

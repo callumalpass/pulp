@@ -4,7 +4,7 @@ export function MobileBottomNav() {
   const location = useLocation();
 
   // Don't show bottom nav on reader pages
-  if (location.pathname.startsWith('/reader/')) {
+  if (location.pathname.startsWith('/read/')) {
     return null;
   }
 
