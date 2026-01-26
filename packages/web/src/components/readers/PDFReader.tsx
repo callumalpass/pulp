@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { TextLayer } from 'pdfjs-dist';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
@@ -24,6 +24,7 @@ interface PDFReaderProps {
 interface Selection {
   text: string;
   page: number;
+  pageLabel?: string;
   selection: TextSelection;
   position: { x: number; y: number };
 }
@@ -60,6 +61,7 @@ export function PDFReader({ note }: PDFReaderProps) {
     markdownPanelOpen,
     scrollToPage,
     isLoading,
+    pageLabels,
     searchQuery,
     searchResults,
     currentMatchIndex,
@@ -68,6 +70,7 @@ export function PDFReader({ note }: PDFReaderProps) {
     pdfColorMode,
     setCurrentPage,
     setTotalPages,
+    setPageLabels,
     setZoom,
     setZoomMode,
     setTocOpen,
@@ -115,6 +118,44 @@ export function PDFReader({ note }: PDFReaderProps) {
     }, ZOOM_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [zoom]);
+
+  // Memoized cumulative page heights for O(1) scroll offset lookups
+  // pageHeights[i] = cumulative height from start to top of page i (1-indexed)
+  // pageHeights[totalPages + 1] = total document height
+  const pageHeights = useMemo(() => {
+    const heights: number[] = [0]; // heights[0] unused (1-indexed)
+    let accumulated = 16; // Initial padding
+
+    for (let i = 1; i <= totalPages; i++) {
+      heights.push(accumulated);
+      const dims = pageDimensions.get(i);
+      if (dims) {
+        accumulated += dims.height * debouncedZoom + 16; // page height + gap
+      }
+    }
+    heights.push(accumulated); // Total document height at index totalPages + 1
+
+    return heights;
+  }, [pageDimensions, debouncedZoom, totalPages]);
+
+  // Binary search to find page at a given scroll position - O(log n)
+  const findPageAtScrollPosition = useCallback((scrollTop: number): number => {
+    if (totalPages === 0) return 1;
+
+    let low = 1;
+    let high = totalPages;
+
+    while (low < high) {
+      const mid = Math.floor((low + high + 1) / 2);
+      if (pageHeights[mid] <= scrollTop) {
+        low = mid;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    return low;
+  }, [pageHeights, totalPages]);
 
   // Calculate fit-width zoom
   const calculateFitWidthZoom = useCallback((containerWidth: number, pageWidth: number) => {
@@ -182,6 +223,10 @@ export function PDFReader({ note }: PDFReaderProps) {
       // Check if PDF has table of contents
       const outline = await pdf.getOutline();
       setHasToc(outline !== null && outline.length > 0);
+
+      // Load page labels (logical page numbers like "iv", "12", "A-3")
+      const labels = await pdf.getPageLabels();
+      setPageLabels(labels);
 
       // Calculate initial zoom based on container and widest page
       if (scrollContainerRef.current && zoomMode === 'fit-width') {
@@ -308,75 +353,43 @@ export function PDFReader({ note }: PDFReaderProps) {
     });
   }, [visiblePages, renderedPages, debouncedZoom, isLoading]);
 
-  // Calculate cumulative scroll offset to a page (accounts for variable page heights)
+  // Calculate cumulative scroll offset to a page - O(1) lookup
   const getScrollOffsetToPage = useCallback((targetPage: number) => {
-    let offset = 16; // Initial padding
-    for (let i = 1; i < targetPage; i++) {
-      const dims = pageDimensions.get(i);
-      if (dims) {
-        offset += dims.height * debouncedZoom + 16; // page height + gap
-      }
-    }
-    return offset;
-  }, [pageDimensions, debouncedZoom]);
+    return pageHeights[targetPage] ?? 16;
+  }, [pageHeights]);
 
-  // Calculate height for a range of pages (for virtualization spacers)
+  // Calculate height for a range of pages - O(1) lookup
   const getHeightForPageRange = useCallback((startPage: number, endPage: number) => {
-    let height = 0;
-    for (let i = startPage; i <= endPage; i++) {
-      const dims = pageDimensions.get(i);
-      if (dims) {
-        height += dims.height * debouncedZoom + 16; // page height + gap
-      }
-    }
-    return height;
-  }, [pageDimensions, debouncedZoom]);
+    // Height from start of startPage to end of endPage
+    const startOffset = pageHeights[startPage] ?? 0;
+    const endOffset = pageHeights[endPage + 1] ?? pageHeights[totalPages + 1] ?? 0;
+    return endOffset - startOffset;
+  }, [pageHeights, totalPages]);
 
-  // Calculate which pages should be in the DOM based on scroll position
+  // Calculate which pages should be in the DOM based on scroll position - O(log n)
   const calculateVirtualizedRange = useCallback((scrollTop: number, viewportHeight: number) => {
-    if (pageDimensions.size === 0) return { start: 1, end: Math.min(10, totalPages) };
-
-    let accumulatedHeight = 16; // Initial padding
-    let startPage = 1;
-    let endPage = totalPages;
-
-    // Find the first visible page
-    for (let i = 1; i <= totalPages; i++) {
-      const dims = pageDimensions.get(i);
-      if (!dims) continue;
-
-      const pageBottom = accumulatedHeight + dims.height * debouncedZoom;
-
-      if (pageBottom >= scrollTop - viewportHeight) {
-        startPage = i;
-        break;
-      }
-      accumulatedHeight = pageBottom + 16; // Add gap
+    if (pageDimensions.size === 0 || totalPages === 0) {
+      return { start: 1, end: Math.min(10, totalPages) };
     }
 
-    // Find the last visible page
-    accumulatedHeight = 16;
-    for (let i = 1; i <= totalPages; i++) {
-      const dims = pageDimensions.get(i);
-      if (!dims) continue;
+    // Find the first page that could be visible (using binary search)
+    // We want pages where bottom edge >= scrollTop - viewportHeight (buffer above)
+    const bufferTop = Math.max(0, scrollTop - viewportHeight);
+    const startPage = findPageAtScrollPosition(bufferTop);
 
-      const pageTop = accumulatedHeight;
-      accumulatedHeight += dims.height * debouncedZoom + 16;
+    // Find the last page that could be visible
+    // We want pages where top edge <= scrollTop + viewportHeight * 2 (buffer below)
+    const bufferBottom = scrollTop + viewportHeight * 2;
+    const endPage = findPageAtScrollPosition(bufferBottom);
 
-      if (pageTop > scrollTop + viewportHeight * 2) {
-        endPage = i;
-        break;
-      }
-    }
-
-    // Add buffer
+    // Add virtualization buffer
     return {
       start: Math.max(1, startPage - VIRTUALIZATION_BUFFER),
       end: Math.min(totalPages, endPage + VIRTUALIZATION_BUFFER),
     };
-  }, [pageDimensions, debouncedZoom, totalPages]);
+  }, [pageDimensions, totalPages, findPageAtScrollPosition]);
 
-  // Update current page based on scroll position
+  // Update current page based on scroll position - O(log n) using binary search
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer || pageDimensions.size === 0) return;
@@ -392,21 +405,19 @@ export function PDFReader({ note }: PDFReaderProps) {
       }
       lastScrollTopRef.current = scrollTop;
 
-      // Find which page we're on by accumulating heights
-      let accumulatedHeight = 16; // Initial padding
-      let newCurrentPage = 1;
+      // Find which page we're on using binary search
+      // Consider page "current" when its top half is visible
+      const page = findPageAtScrollPosition(scrollTop);
+      const dims = pageDimensions.get(page);
+      let newCurrentPage = page;
 
-      for (let i = 1; i <= totalPages; i++) {
-        const dims = pageDimensions.get(i);
-        if (!dims) continue;
-
-        const pageBottom = accumulatedHeight + dims.height * debouncedZoom;
-        if (scrollTop < pageBottom - dims.height * debouncedZoom * 0.5) {
-          newCurrentPage = i;
-          break;
+      // Adjust for the "50% rule" - if we've scrolled past half the page, go to next
+      if (dims && page < totalPages) {
+        const pageTop = pageHeights[page];
+        const pageMiddle = pageTop + (dims.height * debouncedZoom) / 2;
+        if (scrollTop > pageMiddle) {
+          newCurrentPage = page + 1;
         }
-        accumulatedHeight = pageBottom + 16; // Add gap
-        newCurrentPage = i;
       }
 
       if (newCurrentPage !== currentPage) {
@@ -430,7 +441,7 @@ export function PDFReader({ note }: PDFReaderProps) {
 
     scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
     return () => scrollContainer.removeEventListener('scroll', handleScroll);
-  }, [pageDimensions, debouncedZoom, totalPages, currentPage, setCurrentPage, updateProgress, calculateVirtualizedRange]);
+  }, [pageDimensions, debouncedZoom, totalPages, currentPage, setCurrentPage, updateProgress, calculateVirtualizedRange, findPageAtScrollPosition, pageHeights]);
 
   // Handle programmatic scroll to page
   useEffect(() => {
@@ -1194,13 +1205,14 @@ export function PDFReader({ note }: PDFReaderProps) {
     setSelection({
       text,
       page: pageNum,
+      pageLabel: pageLabels?.[pageNum - 1],
       selection: textSelection,
       position: {
         x: rect.left + rect.width / 2 - containerRect.left,
         y: rect.bottom - containerRect.top + 10,
       },
     });
-  }, [currentPage]);
+  }, [currentPage, pageLabels]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -1343,7 +1355,7 @@ export function PDFReader({ note }: PDFReaderProps) {
 
         {/* Page number indicator */}
         <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/50 text-white text-xs rounded">
-          {pageNum}
+          {pageLabels?.[pageNum - 1] ?? pageNum}
         </div>
       </div>
     );
@@ -1404,7 +1416,7 @@ export function PDFReader({ note }: PDFReaderProps) {
             </svg>
           </button>
           <span className="px-4 py-2 text-white">
-            {presentationPage} / {totalPages}
+            {pageLabels?.[presentationPage - 1] ?? presentationPage} / {totalPages}
           </span>
           <button
             onClick={() => setPresentationPage((p) => Math.min(totalPages, p + 1))}
@@ -1433,6 +1445,7 @@ export function PDFReader({ note }: PDFReaderProps) {
         currentPage={currentPage}
         totalPages={totalPages}
         zoom={zoom}
+        pageLabels={pageLabels}
         onPageChange={goToPage}
         onZoomChange={setZoom}
         onZoomModeChange={handleZoomModeChange}
@@ -1444,7 +1457,7 @@ export function PDFReader({ note }: PDFReaderProps) {
       <div className="flex-1 flex overflow-hidden">
         {/* TOC Sidebar */}
         {tocOpen && (
-          <PDFTableOfContents pdfDoc={pdfDocRef.current} onClose={() => setTocOpen(false)} />
+          <PDFTableOfContents pdfDoc={pdfDocRef.current} pageLabels={pageLabels} onClose={() => setTocOpen(false)} />
         )}
 
         {/* PDF Pages Container */}
