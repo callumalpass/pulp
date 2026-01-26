@@ -26,7 +26,7 @@ export const usePreferencesStore = create<PreferencesState>()(
         set({ theme });
       },
       setReaderTheme: (readerTheme) => set({ readerTheme }),
-      setFontSize: (fontSize) => set({ fontSize: Math.max(12, Math.min(24, fontSize)) }),
+      setFontSize: (fontSize) => set({ fontSize: Math.max(14, Math.min(28, fontSize)) }),
       setLineHeight: (lineHeight) => set({ lineHeight: Math.max(1.2, Math.min(2, lineHeight)) }),
     }),
     {
