@@ -253,12 +253,12 @@ export class LibraryScanner {
           else comparison = aAuthor.localeCompare(bAuthor);
           break;
         case 'rating':
-          // Sort by rating, with unrated items at the end
+          // Sort by rating, with unrated items always at the end (regardless of order)
           const aRating = a.rating ?? 0;
           const bRating = b.rating ?? 0;
-          if (aRating === 0 && bRating > 0) comparison = 1;
-          else if (aRating > 0 && bRating === 0) comparison = -1;
-          else comparison = aRating - bRating;
+          if (aRating === 0 && bRating > 0) return 1;  // null always at end
+          if (aRating > 0 && bRating === 0) return -1; // null always at end
+          comparison = aRating - bRating;
           break;
       }
 
