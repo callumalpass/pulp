@@ -114,6 +114,24 @@ export function ReadingStatsPanel({ noteId, currentPage, totalPages, onClose }: 
                 label="Avg. session"
                 value={getFormattedReadingTime(bookStats.averageSessionMs)}
               />
+              {bookStats.pagesPerHour !== null && bookStats.pagesPerHour > 0 && (
+                <StatCard
+                  label="Reading speed"
+                  value={`${bookStats.pagesPerHour} pg/hr`}
+                />
+              )}
+              {bookStats.longestSessionMs !== null && bookStats.longestSessionMs > 0 && (
+                <StatCard
+                  label="Longest session"
+                  value={getFormattedReadingTime(bookStats.longestSessionMs)}
+                />
+              )}
+              {bookStats.totalPagesRead > 0 && (
+                <StatCard
+                  label="Pages read"
+                  value={String(bookStats.totalPagesRead)}
+                />
+              )}
               {bookStats.firstReadDate && (
                 <StatCard
                   label="First read"

@@ -246,6 +246,9 @@ export interface ParsedReadingStats {
   totalSessions: number;
   averageSessionMs: number;
   firstReadDate: string | null;
+  pagesPerHour: number | null;
+  totalPagesRead: number;
+  longestSessionMs: number | null;
 }
 
 /**
@@ -286,11 +289,27 @@ export function getReadingStats(
     }
   }
 
+  // Parse reading speed metrics
+  const pagesPerHour = typeof statsObj.pages_per_hour === 'number'
+    ? statsObj.pages_per_hour
+    : null;
+
+  const totalPagesRead = typeof statsObj.total_pages === 'number'
+    ? statsObj.total_pages
+    : 0;
+
+  const longestSessionMs = typeof statsObj.longest_session_ms === 'number'
+    ? statsObj.longest_session_ms
+    : null;
+
   return {
     totalReadingTimeMs,
     totalSessions,
     averageSessionMs: totalSessions > 0 ? totalReadingTimeMs / totalSessions : 0,
     firstReadDate,
+    pagesPerHour,
+    totalPagesRead,
+    longestSessionMs,
   };
 }
 
@@ -300,11 +319,24 @@ export function getReadingStats(
 export function createReadingStatsForFrontmatter(
   stats: ParsedReadingStats
 ): Record<string, unknown> {
-  return {
+  const result: Record<string, unknown> = {
     total_time_ms: stats.totalReadingTimeMs,
     total_sessions: stats.totalSessions,
     first_read: stats.firstReadDate,
   };
+
+  // Only include new fields if they have values (backward compatibility)
+  if (stats.pagesPerHour !== null) {
+    result.pages_per_hour = stats.pagesPerHour;
+  }
+  if (stats.totalPagesRead > 0) {
+    result.total_pages = stats.totalPagesRead;
+  }
+  if (stats.longestSessionMs !== null) {
+    result.longest_session_ms = stats.longestSessionMs;
+  }
+
+  return result;
 }
 
 export interface ParsedDailyReadingEntry {

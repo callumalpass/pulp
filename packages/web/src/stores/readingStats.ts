@@ -281,7 +281,16 @@ export const useReadingStatsStore = create<ReadingStatsState>()((set, get) => ({
     const stats = get().bookStatsCache[noteId];
     if (!stats || stats.totalReadingTimeMs === 0 || stats.totalSessions === 0) return null;
 
-    // Estimate remaining time based on current progress
+    const pagesRemaining = totalPages - currentPage;
+    if (pagesRemaining <= 0) return null;
+
+    // If we have reading speed data, use it for more accurate estimate
+    if (stats.pagesPerHour && stats.pagesPerHour > 0) {
+      const hoursRemaining = pagesRemaining / stats.pagesPerHour;
+      return Math.max(0, Math.round(hoursRemaining * 60 * 60 * 1000)); // Convert hours to ms
+    }
+
+    // Fallback: estimate remaining time based on progress
     const progress = currentPage / totalPages;
     if (progress <= 0) return null;
 
