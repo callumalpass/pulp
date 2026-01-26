@@ -36,8 +36,8 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
     },
     {
-      command: 'npm run dev:web',
-      url: 'http://localhost:5173',
+      command: 'cd packages/web && npx vite --host --port 5175',
+      url: 'http://localhost:5175',
       reuseExistingServer: !process.env.CI,
     },
   ],
