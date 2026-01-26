@@ -32,7 +32,7 @@ export function parseHighlightsFromNote(notePath: string, sourceRelative: string
   }
 }
 
-function parseHighlights(content: string, sourceRelative: string): Highlight[] {
+export function parseHighlights(content: string, sourceRelative: string): Highlight[] {
   const highlights: Highlight[] = [];
 
   // Match PDF highlights with selection format (PDF++ style):
@@ -100,7 +100,7 @@ function parseHighlights(content: string, sourceRelative: string): Highlight[] {
  * Extract the highlighted text and note from context around the link.
  * Looks for blockquote content before the link.
  */
-function extractHighlightContext(content: string, linkIndex: number): { text: string | undefined; note: string | undefined } {
+export function extractHighlightContext(content: string, linkIndex: number): { text: string | undefined; note: string | undefined } {
   // Look backwards from the link to find blockquote content
   const beforeLink = content.slice(Math.max(0, linkIndex - 2000), linkIndex);
   const lines = beforeLink.split('\n').reverse();
