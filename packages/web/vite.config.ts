@@ -118,4 +118,8 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: true,
   },
+  worker: {
+    format: 'es',
+    plugins: () => [react()],
+  },
 });

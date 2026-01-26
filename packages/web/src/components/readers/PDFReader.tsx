@@ -32,7 +32,9 @@ interface PageDimensions {
   height: number;
 }
 
-const PAGE_BUFFER = 2; // Number of pages to pre-render above/below viewport
+const PAGE_BUFFER = 3; // Number of pages to pre-render above/below viewport
+const VIRTUALIZATION_BUFFER = 8; // Number of pages above/below to keep in DOM
+const ZOOM_DEBOUNCE_MS = 150; // Debounce delay for zoom changes
 
 export function PDFReader({ note }: PDFReaderProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -42,9 +44,7 @@ export function PDFReader({ note }: PDFReaderProps) {
   const textLayerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const highlightLayerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const pageContainerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
-  const renderTasksRef = useRef<Map<number, { cancel: () => void }>>(new Map());
   const textLayerTasksRef = useRef<Map<number, TextLayer>>(new Map());
-  const observerRef = useRef<IntersectionObserver | null>(null);
 
   const {
     currentPage,
@@ -88,9 +88,23 @@ export function PDFReader({ note }: PDFReaderProps) {
   const [isPresentation, setIsPresentation] = useState(false);
   const [presentationPage, setPresentationPage] = useState(1);
 
+  // Virtualization: track which pages should have DOM elements
+  const [virtualizedRange, setVirtualizedRange] = useState<{ start: number; end: number }>({ start: 1, end: 10 });
+
+  // Debounced zoom state for triggering re-renders
+  const [debouncedZoom, setDebouncedZoom] = useState(zoom);
+
   // Text content cache for search
   const textContentCache = useRef<Map<number, string>>(new Map());
   const searchLayerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+
+  // Debounce zoom changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedZoom(zoom);
+    }, ZOOM_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [zoom]);
 
   // Calculate fit-width zoom
   const calculateFitWidthZoom = useCallback((containerWidth: number, pageWidth: number) => {
@@ -115,9 +129,7 @@ export function PDFReader({ note }: PDFReaderProps) {
     return () => {
       // Cleanup on unmount
       saveImmediately();
-      renderTasksRef.current.forEach(task => task.cancel());
       textLayerTasksRef.current.forEach(task => task.cancel());
-      observerRef.current?.disconnect();
       pdfDocRef.current?.destroy();
     };
   }, [note.id]);
@@ -125,7 +137,8 @@ export function PDFReader({ note }: PDFReaderProps) {
   const loadPDF = async () => {
     try {
       setIsLoading(true);
-      const loadingTask = pdfjsLib.getDocument(api.files.getUrl(note.id));
+      const pdfUrl = api.files.getUrl(note.id);
+      const loadingTask = pdfjsLib.getDocument(pdfUrl);
       const pdf = await loadingTask.promise;
       pdfDocRef.current = pdf;
       setTotalPages(pdf.numPages);
@@ -229,41 +242,32 @@ export function PDFReader({ note }: PDFReaderProps) {
     return () => window.removeEventListener('resize', handleResize);
   }, [pageDimensions, zoomMode, getMaxPageWidth, calculateFitWidthZoom, calculateFitPageZoom, setZoom, setZoomMode]);
 
-  // Setup intersection observer for lazy loading
+  // Update visible pages based on virtualized range
+  // This replaces the IntersectionObserver approach for better performance
   useEffect(() => {
     if (!pdfDocRef.current || isLoading) return;
 
-    observerRef.current?.disconnect();
+    // Set visible pages to the virtualized range
+    const newVisiblePages = new Set<number>();
+    for (let i = virtualizedRange.start; i <= virtualizedRange.end; i++) {
+      newVisiblePages.add(i);
+    }
+    setVisiblePages(newVisiblePages);
 
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        setVisiblePages((prev) => {
-          const updated = new Set(prev);
-          entries.forEach((entry) => {
-            const pageNum = parseInt(entry.target.getAttribute('data-page') || '1', 10);
-            if (entry.isIntersecting) {
-              updated.add(pageNum);
-            } else {
-              updated.delete(pageNum);
-            }
-          });
-          return updated;
-        });
-      },
-      {
-        root: scrollContainerRef.current,
-        rootMargin: '200px 0px',
-        threshold: 0.1,
-      }
-    );
-
-    // Observe all page containers
-    pageContainerRefs.current.forEach((container) => {
-      observerRef.current?.observe(container);
+    // Clear rendered state for pages that left the DOM
+    // This ensures they get re-rendered when they come back into view
+    setRenderedPages((prev) => {
+      const updated = new Set<number>();
+      prev.forEach((pageNum) => {
+        if (pageNum >= virtualizedRange.start && pageNum <= virtualizedRange.end) {
+          updated.add(pageNum);
+        }
+      });
+      // Also clear refs for pages no longer in range
+      renderedPagesRef.current = updated;
+      return updated;
     });
-
-    return () => observerRef.current?.disconnect();
-  }, [totalPages, isLoading]);
+  }, [virtualizedRange, isLoading]);
 
   // Calculate cumulative scroll offset to a page (accounts for variable page heights)
   const getScrollOffsetToPage = useCallback((targetPage: number) => {
@@ -271,11 +275,67 @@ export function PDFReader({ note }: PDFReaderProps) {
     for (let i = 1; i < targetPage; i++) {
       const dims = pageDimensions.get(i);
       if (dims) {
-        offset += dims.height * zoom + 16; // page height + gap
+        offset += dims.height * debouncedZoom + 16; // page height + gap
       }
     }
     return offset;
-  }, [pageDimensions, zoom]);
+  }, [pageDimensions, debouncedZoom]);
+
+  // Calculate height for a range of pages (for virtualization spacers)
+  const getHeightForPageRange = useCallback((startPage: number, endPage: number) => {
+    let height = 0;
+    for (let i = startPage; i <= endPage; i++) {
+      const dims = pageDimensions.get(i);
+      if (dims) {
+        height += dims.height * debouncedZoom + 16; // page height + gap
+      }
+    }
+    return height;
+  }, [pageDimensions, debouncedZoom]);
+
+  // Calculate which pages should be in the DOM based on scroll position
+  const calculateVirtualizedRange = useCallback((scrollTop: number, viewportHeight: number) => {
+    if (pageDimensions.size === 0) return { start: 1, end: Math.min(10, totalPages) };
+
+    let accumulatedHeight = 16; // Initial padding
+    let startPage = 1;
+    let endPage = totalPages;
+
+    // Find the first visible page
+    for (let i = 1; i <= totalPages; i++) {
+      const dims = pageDimensions.get(i);
+      if (!dims) continue;
+
+      const pageBottom = accumulatedHeight + dims.height * debouncedZoom;
+
+      if (pageBottom >= scrollTop - viewportHeight) {
+        startPage = i;
+        break;
+      }
+      accumulatedHeight = pageBottom + 16; // Add gap
+    }
+
+    // Find the last visible page
+    accumulatedHeight = 16;
+    for (let i = 1; i <= totalPages; i++) {
+      const dims = pageDimensions.get(i);
+      if (!dims) continue;
+
+      const pageTop = accumulatedHeight;
+      accumulatedHeight += dims.height * debouncedZoom + 16;
+
+      if (pageTop > scrollTop + viewportHeight * 2) {
+        endPage = i;
+        break;
+      }
+    }
+
+    // Add buffer
+    return {
+      start: Math.max(1, startPage - VIRTUALIZATION_BUFFER),
+      end: Math.min(totalPages, endPage + VIRTUALIZATION_BUFFER),
+    };
+  }, [pageDimensions, debouncedZoom, totalPages]);
 
   // Update current page based on scroll position
   useEffect(() => {
@@ -284,6 +344,7 @@ export function PDFReader({ note }: PDFReaderProps) {
 
     const handleScroll = () => {
       const scrollTop = scrollContainer.scrollTop;
+      const viewportHeight = scrollContainer.clientHeight;
 
       // Find which page we're on by accumulating heights
       let accumulatedHeight = 16; // Initial padding
@@ -293,8 +354,8 @@ export function PDFReader({ note }: PDFReaderProps) {
         const dims = pageDimensions.get(i);
         if (!dims) continue;
 
-        const pageBottom = accumulatedHeight + dims.height * zoom;
-        if (scrollTop < pageBottom - dims.height * zoom * 0.5) {
+        const pageBottom = accumulatedHeight + dims.height * debouncedZoom;
+        if (scrollTop < pageBottom - dims.height * debouncedZoom * 0.5) {
           newCurrentPage = i;
           break;
         }
@@ -307,11 +368,23 @@ export function PDFReader({ note }: PDFReaderProps) {
         const progress = (newCurrentPage / totalPages) * 100;
         updateProgress(progress);
       }
+
+      // Update virtualized range
+      const newRange = calculateVirtualizedRange(scrollTop, viewportHeight);
+      setVirtualizedRange((prev) => {
+        if (prev.start !== newRange.start || prev.end !== newRange.end) {
+          return newRange;
+        }
+        return prev;
+      });
     };
+
+    // Initial calculation
+    handleScroll();
 
     scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
     return () => scrollContainer.removeEventListener('scroll', handleScroll);
-  }, [pageDimensions, zoom, totalPages, currentPage, setCurrentPage, updateProgress]);
+  }, [pageDimensions, debouncedZoom, totalPages, currentPage, setCurrentPage, updateProgress, calculateVirtualizedRange]);
 
   // Handle programmatic scroll to page
   useEffect(() => {
@@ -327,14 +400,30 @@ export function PDFReader({ note }: PDFReaderProps) {
     setScrollToPage(null);
   }, [scrollToPage, pageDimensions, zoom, setScrollToPage, getScrollOffsetToPage]);
 
-  // Version counter to trigger re-renders when zoom changes
+  // Version counter to trigger re-renders when debounced zoom changes
   const [renderVersion, setRenderVersion] = useState(0);
 
-  // Clear rendered pages and bump version when zoom changes
+  // Track pages currently being rendered to avoid duplicates
+  const renderingRef = useRef<Set<number>>(new Set());
+  // Track rendered pages in a ref to avoid stale closures
+  const renderedPagesRef = useRef<Set<number>>(new Set());
+  // Track the zoom level each page was rendered at
+  const pageZoomRef = useRef<Map<number, number>>(new Map());
+
+  // Clear rendered pages and bump version when debounced zoom changes
   useEffect(() => {
+    // Clear both state and refs immediately to ensure re-renders
     setRenderedPages(new Set());
+    renderedPagesRef.current = new Set();
+    renderingRef.current = new Set();
+    pageZoomRef.current = new Map();
     setRenderVersion((v) => v + 1);
-  }, [zoom]);
+  }, [debouncedZoom]);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    renderedPagesRef.current = renderedPages;
+  }, [renderedPages]);
 
   // Render visible pages and buffer
   useEffect(() => {
@@ -342,8 +431,8 @@ export function PDFReader({ note }: PDFReaderProps) {
 
     const pagesToRender = new Set<number>();
 
+    // Add visible pages
     visiblePages.forEach((pageNum) => {
-      // Add visible page
       pagesToRender.add(pageNum);
       // Add buffer pages
       for (let i = 1; i <= PAGE_BUFFER; i++) {
@@ -352,14 +441,22 @@ export function PDFReader({ note }: PDFReaderProps) {
       }
     });
 
+    // Render pages that aren't already rendered or being rendered
+    // Also re-render if zoom level changed
     pagesToRender.forEach((pageNum) => {
-      if (!renderedPages.has(pageNum)) {
-        renderPage(pageNum);
+      const wasRenderedAtZoom = pageZoomRef.current.get(pageNum);
+      const needsRender = !renderedPagesRef.current.has(pageNum) || wasRenderedAtZoom !== debouncedZoom;
+
+      if (needsRender && !renderingRef.current.has(pageNum)) {
+        renderingRef.current.add(pageNum);
+        renderPage(pageNum).finally(() => {
+          renderingRef.current.delete(pageNum);
+        });
       }
     });
 
     // Cleanup pages far from viewport (memory optimization)
-    renderedPages.forEach((pageNum) => {
+    renderedPagesRef.current.forEach((pageNum) => {
       let shouldKeep = false;
       visiblePages.forEach((visiblePage) => {
         if (Math.abs(pageNum - visiblePage) <= PAGE_BUFFER + 1) {
@@ -389,7 +486,7 @@ export function PDFReader({ note }: PDFReaderProps) {
         });
       }
     });
-  }, [visiblePages, totalPages, isLoading, renderVersion]);
+  }, [visiblePages, totalPages, isLoading, renderVersion, debouncedZoom]);
 
   // Render highlights when pages are ready
   useEffect(() => {
@@ -416,71 +513,87 @@ export function PDFReader({ note }: PDFReaderProps) {
   }, [highlights, renderedPages]);
 
   const renderPage = async (pageNum: number) => {
-    if (!pdfDocRef.current || renderedPages.has(pageNum)) return;
+    if (!pdfDocRef.current) return;
 
-    // Cancel existing render task for this page
-    renderTasksRef.current.get(pageNum)?.cancel();
+    // Skip if already rendered at current zoom level
+    const renderedAtZoom = pageZoomRef.current.get(pageNum);
+    if (renderedPages.has(pageNum) && renderedAtZoom === debouncedZoom) return;
+
+    // Check if page is still in virtualized range (might have scrolled away during async wait)
+    if (pageNum < virtualizedRange.start || pageNum > virtualizedRange.end) return;
+
+    // Cancel existing text layer task for this page
     textLayerTasksRef.current.get(pageNum)?.cancel();
 
     try {
       const page: PDFPageProxy = await pdfDocRef.current.getPage(pageNum);
+
+      // Re-check if page is still in range after async operation
+      if (pageNum < virtualizedRange.start || pageNum > virtualizedRange.end) return;
+
       const canvas = pageCanvasRefs.current.get(pageNum);
       const textLayerDiv = textLayerRefs.current.get(pageNum);
       if (!canvas) return;
 
-      const scale = zoom;
-      const viewport = page.getViewport({ scale: scale * window.devicePixelRatio });
+      const scale = debouncedZoom;
+      const devicePixelRatio = window.devicePixelRatio || 1;
       const displayViewport = page.getViewport({ scale });
+      const renderViewport = page.getViewport({ scale: scale * devicePixelRatio });
 
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
+      canvas.width = renderViewport.width;
+      canvas.height = renderViewport.height;
       canvas.style.width = `${displayViewport.width}px`;
       canvas.style.height = `${displayViewport.height}px`;
 
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
+      // Render the page
       const renderTask = page.render({
         canvasContext: ctx,
-        viewport,
+        viewport: renderViewport,
       });
 
-      renderTasksRef.current.set(pageNum, renderTask);
       await renderTask.promise;
 
-      // Render text layer for selection
+      // Mark page as rendered immediately after canvas is ready
+      // Track both the state and the zoom level used
+      pageZoomRef.current.set(pageNum, debouncedZoom);
+      setRenderedPages((prev) => new Set(prev).add(pageNum));
+
+      // Render text layer in next frame to not block canvas display
       if (textLayerDiv) {
-        // Clear existing text layer content
-        textLayerDiv.innerHTML = '';
-        textLayerDiv.style.width = `${displayViewport.width}px`;
-        textLayerDiv.style.height = `${displayViewport.height}px`;
+        requestAnimationFrame(() => {
+          // Clear existing text layer content
+          textLayerDiv.innerHTML = '';
+          textLayerDiv.style.width = `${displayViewport.width}px`;
+          textLayerDiv.style.height = `${displayViewport.height}px`;
 
-        const textContent = await page.getTextContent();
+          page.getTextContent().then((textContent) => {
+            // Cache text content for search
+            const pageText = textContent.items
+              .map((item) => ('str' in item ? item.str : ''))
+              .join(' ');
+            textContentCache.current.set(pageNum, pageText);
 
-        // Cache text content for search
-        const pageText = textContent.items
-          .map((item) => ('str' in item ? item.str : ''))
-          .join(' ');
-        textContentCache.current.set(pageNum, pageText);
+            const textLayer = new TextLayer({
+              textContentSource: textContent,
+              container: textLayerDiv,
+              viewport: displayViewport,
+            });
 
-        const textLayer = new TextLayer({
-          textContentSource: textContent,
-          container: textLayerDiv,
-          viewport: displayViewport,
-        });
-
-        textLayerTasksRef.current.set(pageNum, textLayer);
-        await textLayer.render();
-
-        // Add data-idx attributes to spans for PDF++ compatibility
-        const spans = textLayerDiv.querySelectorAll('span');
-        spans.forEach((span, idx) => {
-          span.setAttribute('data-idx', String(idx));
-          span.classList.add('textLayerNode');
+            textLayerTasksRef.current.set(pageNum, textLayer);
+            textLayer.render().then(() => {
+              // Add data-idx attributes to spans for PDF++ compatibility
+              const spans = textLayerDiv.querySelectorAll('span');
+              spans.forEach((span, idx) => {
+                span.setAttribute('data-idx', String(idx));
+                span.classList.add('textLayerNode');
+              });
+            });
+          });
         });
       }
-
-      setRenderedPages((prev) => new Set(prev).add(pageNum));
     } catch (error) {
       if ((error as Error).name !== 'RenderingCancelledException') {
         console.error(`Failed to render page ${pageNum}:`, error);
@@ -963,10 +1076,12 @@ export function PDFReader({ note }: PDFReaderProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentPage, totalPages, zoom, goToPage, setZoom, toggleSearch, isSearchOpen, clearSearch, isPresentation, exitPresentation]);
 
-  // Render a single page container
+  // Render a single page container - use debouncedZoom to match canvas size
   const renderPageContainer = (pageNum: number) => {
     const dims = pageDimensions.get(pageNum);
     const isRendered = renderedPages.has(pageNum);
+    // Use debouncedZoom for container to match canvas rendering
+    const containerZoom = debouncedZoom;
 
     return (
       <div
@@ -975,13 +1090,14 @@ export function PDFReader({ note }: PDFReaderProps) {
         ref={(el) => {
           if (el) {
             pageContainerRefs.current.set(pageNum, el);
-            observerRef.current?.observe(el);
+          } else {
+            pageContainerRefs.current.delete(pageNum);
           }
         }}
         className="pdf-page-container relative bg-white shadow-lg"
         style={{
-          width: dims ? `${dims.width * zoom}px` : 'auto',
-          height: dims ? `${dims.height * zoom}px` : 'auto',
+          width: dims ? `${dims.width * containerZoom}px` : 'auto',
+          height: dims ? `${dims.height * containerZoom}px` : 'auto',
         }}
       >
         {/* Skeleton loading placeholder */}
@@ -995,7 +1111,18 @@ export function PDFReader({ note }: PDFReaderProps) {
 
         <canvas
           ref={(el) => {
-            if (el) pageCanvasRefs.current.set(pageNum, el);
+            if (el) {
+              pageCanvasRefs.current.set(pageNum, el);
+              // Trigger render for this page when canvas mounts
+              if (!renderedPagesRef.current.has(pageNum) && !renderingRef.current.has(pageNum)) {
+                renderingRef.current.add(pageNum);
+                renderPage(pageNum).finally(() => {
+                  renderingRef.current.delete(pageNum);
+                });
+              }
+            } else {
+              pageCanvasRefs.current.delete(pageNum);
+            }
           }}
           className="block"
         />
@@ -1003,7 +1130,11 @@ export function PDFReader({ note }: PDFReaderProps) {
         {/* Text layer for selection */}
         <div
           ref={(el) => {
-            if (el) textLayerRefs.current.set(pageNum, el);
+            if (el) {
+              textLayerRefs.current.set(pageNum, el);
+            } else {
+              textLayerRefs.current.delete(pageNum);
+            }
           }}
           className="textLayer absolute top-0 left-0"
           style={{ zIndex: 1 }}
@@ -1012,7 +1143,11 @@ export function PDFReader({ note }: PDFReaderProps) {
         {/* Search highlight layer */}
         <div
           ref={(el) => {
-            if (el) searchLayerRefs.current.set(pageNum, el);
+            if (el) {
+              searchLayerRefs.current.set(pageNum, el);
+            } else {
+              searchLayerRefs.current.delete(pageNum);
+            }
           }}
           className="absolute top-0 left-0"
           style={{ width: '100%', height: '100%', zIndex: 2, pointerEvents: 'none' }}
@@ -1021,7 +1156,11 @@ export function PDFReader({ note }: PDFReaderProps) {
         {/* Highlight layer - above text layer for clickable highlights */}
         <div
           ref={(el) => {
-            if (el) highlightLayerRefs.current.set(pageNum, el);
+            if (el) {
+              highlightLayerRefs.current.set(pageNum, el);
+            } else {
+              highlightLayerRefs.current.delete(pageNum);
+            }
           }}
           className="absolute top-0 left-0"
           style={{ width: '100%', height: '100%', zIndex: 3, pointerEvents: 'none' }}
@@ -1140,9 +1279,9 @@ export function PDFReader({ note }: PDFReaderProps) {
           onMouseUp={handleMouseUp}
         >
           <div className={`pdf-pages-container flex flex-col items-center py-4 gap-4 ${pdfViewMode === 'spread' ? 'pdf-spread-layout' : ''}`}>
-            {/* Render all pages */}
+            {/* Virtualization: only render pages within range, use spacers for the rest */}
             {pdfViewMode === 'spread' ? (
-              // Spread mode: pair pages side by side
+              // Spread mode: pair pages side by side (no virtualization for simplicity)
               <>
                 {/* First page alone */}
                 {totalPages > 0 && (
@@ -1163,10 +1302,36 @@ export function PDFReader({ note }: PDFReaderProps) {
                 })}
               </>
             ) : (
-              // Single page mode
-              Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) =>
-                renderPageContainer(pageNum)
-              )
+              // Single page mode with virtualization
+              <>
+                {/* Top spacer for pages before virtualized range */}
+                {virtualizedRange.start > 1 && (
+                  <div
+                    key="top-spacer"
+                    style={{
+                      height: `${getHeightForPageRange(1, virtualizedRange.start - 1)}px`,
+                      width: '100%',
+                    }}
+                  />
+                )}
+
+                {/* Render only pages within virtualized range */}
+                {Array.from(
+                  { length: virtualizedRange.end - virtualizedRange.start + 1 },
+                  (_, i) => virtualizedRange.start + i
+                ).map((pageNum) => renderPageContainer(pageNum))}
+
+                {/* Bottom spacer for pages after virtualized range */}
+                {virtualizedRange.end < totalPages && (
+                  <div
+                    key="bottom-spacer"
+                    style={{
+                      height: `${getHeightForPageRange(virtualizedRange.end + 1, totalPages)}px`,
+                      width: '100%',
+                    }}
+                  />
+                )}
+              </>
             )}
           </div>
         </div>
