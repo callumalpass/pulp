@@ -596,6 +596,19 @@ export interface ParsedReaderPreferences {
   theme?: 'light' | 'dark' | 'sepia' | 'eink';
   fontSize?: number;
   lineHeight?: number;
+  dailyGoalMinutes?: number;
+}
+
+/** Maximum number of reading sessions to retain per book */
+const READING_SESSIONS_MAX_COUNT = 100;
+
+export interface ParsedReadingSession {
+  startTime: string;
+  endTime: string;
+  durationMs: number;
+  pagesRead: number;
+  startPage: number;
+  endPage: number;
 }
 
 /**
@@ -644,6 +657,11 @@ export function getReaderPreferences(
     result.lineHeight = Math.max(1, Math.min(3, prefsObj.line_height));
   }
 
+  // Parse daily goal minutes override (1 - 1440)
+  if (typeof prefsObj.daily_goal_minutes === 'number') {
+    result.dailyGoalMinutes = Math.max(1, Math.min(1440, Math.round(prefsObj.daily_goal_minutes)));
+  }
+
   // Return null if no valid preferences found
   if (Object.keys(result).length === 0) return null;
 
@@ -673,6 +691,9 @@ export function createReaderPreferencesForFrontmatter(
   if (prefs.lineHeight !== undefined) {
     result.line_height = Math.round(prefs.lineHeight * 10) / 10; // Round to 1 decimal
   }
+  if (prefs.dailyGoalMinutes !== undefined) {
+    result.daily_goal_minutes = prefs.dailyGoalMinutes;
+  }
 
   return result;
 }
@@ -689,4 +710,100 @@ export function getCurrentChapter(
     return chapter.trim();
   }
   return null;
+}
+
+/**
+ * Parse reading sessions from frontmatter.
+ * Sessions are stored as an array of objects:
+ * reading_sessions:
+ *   - start: "2024-01-15T10:30:00Z"
+ *     end: "2024-01-15T11:00:00Z"
+ *     duration_ms: 1800000
+ *     pages: 15
+ *     start_page: 10
+ *     end_page: 25
+ */
+export function getReadingSessions(
+  frontmatter: Record<string, unknown>,
+  sessionsKey: string
+): ParsedReadingSession[] {
+  const sessions = frontmatter[sessionsKey];
+
+  if (!sessions || !Array.isArray(sessions)) return [];
+
+  const entries: ParsedReadingSession[] = [];
+
+  for (const session of sessions) {
+    if (!session || typeof session !== 'object') continue;
+
+    const sessionObj = session as Record<string, unknown>;
+
+    // Parse start time
+    let startTime: string | null = null;
+    if (sessionObj.start instanceof Date) {
+      startTime = sessionObj.start.toISOString();
+    } else if (typeof sessionObj.start === 'string') {
+      const date = new Date(sessionObj.start);
+      if (!isNaN(date.getTime())) {
+        startTime = date.toISOString();
+      }
+    }
+
+    // Parse end time
+    let endTime: string | null = null;
+    if (sessionObj.end instanceof Date) {
+      endTime = sessionObj.end.toISOString();
+    } else if (typeof sessionObj.end === 'string') {
+      const date = new Date(sessionObj.end);
+      if (!isNaN(date.getTime())) {
+        endTime = date.toISOString();
+      }
+    }
+
+    if (!startTime || !endTime) continue;
+
+    entries.push({
+      startTime,
+      endTime,
+      durationMs: typeof sessionObj.duration_ms === 'number' ? sessionObj.duration_ms : 0,
+      pagesRead: typeof sessionObj.pages === 'number' ? sessionObj.pages : 0,
+      startPage: typeof sessionObj.start_page === 'number' ? sessionObj.start_page : 0,
+      endPage: typeof sessionObj.end_page === 'number' ? sessionObj.end_page : 0,
+    });
+  }
+
+  // Sort by start time descending (most recent first)
+  return entries.sort((a, b) => b.startTime.localeCompare(a.startTime));
+}
+
+/**
+ * Create reading session entry for frontmatter storage.
+ */
+export function createReadingSessionForFrontmatter(
+  session: ParsedReadingSession
+): Record<string, unknown> {
+  return {
+    start: session.startTime,
+    end: session.endTime,
+    duration_ms: session.durationMs,
+    pages: session.pagesRead,
+    start_page: session.startPage,
+    end_page: session.endPage,
+  };
+}
+
+/**
+ * Add a new reading session to the sessions array.
+ * Keeps only the most recent sessions to avoid bloating frontmatter.
+ */
+export function addReadingSession(
+  existingSessions: ParsedReadingSession[],
+  newSession: ParsedReadingSession
+): ParsedReadingSession[] {
+  const updated = [newSession, ...existingSessions];
+
+  // Sort by start time descending and keep only recent sessions
+  return updated
+    .sort((a, b) => b.startTime.localeCompare(a.startTime))
+    .slice(0, READING_SESSIONS_MAX_COUNT);
 }

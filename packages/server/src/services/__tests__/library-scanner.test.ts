@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { readdirSync, statSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import type { Config } from '../../config/schema.js';
 
 // Mock fs module
 vi.mock('node:fs', () => ({
@@ -64,7 +64,7 @@ const mockGetCurrentChapter = vi.mocked(frontmatterParser.getCurrentChapter);
 const mockParseHighlightsFromNote = vi.mocked(highlightParser.parseHighlightsFromNote);
 
 // Helper to create mock config
-function createMockConfig(overrides: Partial<ReturnType<typeof createMockConfig>> = {}) {
+function createMockConfig(overrides: Partial<Config> = {}): Config {
   return {
     library_path: '/test/vault',
     literature_note_tag: 'literature-note',
@@ -97,6 +97,7 @@ function createMockConfig(overrides: Partial<ReturnType<typeof createMockConfig>
     default_daily_goal_minutes: 30,
     default_grace_period_days: 1,
     reading_history_key: 'reading_history',
+    reading_sessions_key: 'reading_sessions',
     ...overrides,
   };
 }

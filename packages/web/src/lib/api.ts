@@ -22,6 +22,8 @@ import type {
   LibraryStatistics,
   ReaderPreferences,
   ReaderPreferencesUpdate,
+  HighlightExportFormat,
+  HighlightExportResponse,
 } from '@pulp/shared';
 
 const API_BASE = '/api';
@@ -156,6 +158,24 @@ export const api = {
         { method: 'DELETE' }
       );
     },
+
+    export(
+      noteId: string,
+      format: HighlightExportFormat,
+      options?: {
+        includeNotes?: boolean;
+        includeCategories?: boolean;
+        includeTimestamps?: boolean;
+        groupByCategory?: boolean;
+      }
+    ) {
+      const params = new URLSearchParams({ format });
+      if (options?.includeNotes !== undefined) params.set('includeNotes', String(options.includeNotes));
+      if (options?.includeCategories !== undefined) params.set('includeCategories', String(options.includeCategories));
+      if (options?.includeTimestamps !== undefined) params.set('includeTimestamps', String(options.includeTimestamps));
+      if (options?.groupByCategory !== undefined) params.set('groupByCategory', String(options.groupByCategory));
+      return fetchJSON<HighlightExportResponse>(`/library/${noteId}/highlights/export?${params.toString()}`);
+    },
   },
 
   bookmarks: {
@@ -253,6 +273,21 @@ export const api = {
         history: Array<{ date: string; durationMs: number; sessions: number; pagesRead: number }>;
         daysRequested: number;
       }>(`/library/${noteId}/reading-history${params}`);
+    },
+
+    getSessions(noteId: string, limit?: number) {
+      const params = limit ? `?limit=${limit}` : '';
+      return fetchJSON<{
+        sessions: Array<{
+          startTime: string;
+          endTime: string;
+          durationMs: number;
+          pagesRead: number;
+          startPage: number;
+          endPage: number;
+        }>;
+        totalSessions: number;
+      }>(`/library/${noteId}/reading-sessions${params}`);
     },
   },
 

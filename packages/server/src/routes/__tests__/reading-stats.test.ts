@@ -33,6 +33,7 @@ const testConfig: Config = {
   pinned_key: 'pinned',
   reading_stats_key: 'reading_stats',
   reading_history_key: 'reading_history',
+  reading_sessions_key: 'reading_sessions',
   date_finished_key: 'date_finished',
   collections_key: 'collections',
   reader_preferences_key: 'reader_preferences',
@@ -430,6 +431,103 @@ reading_stats:
 
       // First read date should be preserved
       expect(body.readingStats.firstReadDate).toContain('2024-01-01');
+    });
+
+    it('stores individual reading session data', async () => {
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 1800000,
+          pagesRead: 10,
+          startPage: 5,
+          endPage: 15,
+          startTime: '2024-01-15T10:00:00Z',
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+
+      // Check that reading sessions were written
+      expect(mockWriteFileSync).toHaveBeenCalled();
+      const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
+      expect(writtenContent).toContain('reading_sessions');
+    });
+  });
+
+  describe('GET /api/library/:id/reading-sessions', () => {
+    it('returns reading sessions for a note', async () => {
+      testNotes.get('test-note')!.frontmatter = {
+        reading_sessions: [
+          {
+            start: '2024-01-15T10:00:00Z',
+            end: '2024-01-15T10:30:00Z',
+            duration_ms: 1800000,
+            pages: 10,
+            start_page: 5,
+            end_page: 15,
+          },
+          {
+            start: '2024-01-14T14:00:00Z',
+            end: '2024-01-14T14:45:00Z',
+            duration_ms: 2700000,
+            pages: 15,
+            start_page: 20,
+            end_page: 35,
+          },
+        ],
+      };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-sessions',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.sessions).toHaveLength(2);
+      expect(body.totalSessions).toBe(2);
+    });
+
+    it('respects limit parameter', async () => {
+      testNotes.get('test-note')!.frontmatter = {
+        reading_sessions: [
+          { start: '2024-01-15T10:00:00Z', end: '2024-01-15T10:30:00Z', duration_ms: 1800000, pages: 10, start_page: 5, end_page: 15 },
+          { start: '2024-01-14T14:00:00Z', end: '2024-01-14T14:45:00Z', duration_ms: 2700000, pages: 15, start_page: 20, end_page: 35 },
+          { start: '2024-01-13T09:00:00Z', end: '2024-01-13T10:00:00Z', duration_ms: 3600000, pages: 20, start_page: 35, end_page: 55 },
+        ],
+      };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-sessions?limit=2',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.sessions).toHaveLength(2);
+      expect(body.totalSessions).toBe(3);
+    });
+
+    it('returns empty array for note without sessions', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-sessions',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.sessions).toHaveLength(0);
+      expect(body.totalSessions).toBe(0);
+    });
+
+    it('returns 404 for non-existent note', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/nonexistent/reading-sessions',
+      });
+
+      expect(response.statusCode).toBe(404);
     });
   });
 });

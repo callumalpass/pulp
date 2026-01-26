@@ -16,6 +16,7 @@ export const configSchema = z.object({
   pinned_key: z.string().default('pinned'),
   reading_stats_key: z.string().default('reading_stats'),
   reading_history_key: z.string().default('reading_history'),
+  reading_sessions_key: z.string().default('reading_sessions'),
   date_finished_key: z.string().default('date_finished'),
   collections_key: z.string().default('collections'),
   reader_preferences_key: z.string().default('reader_preferences'),

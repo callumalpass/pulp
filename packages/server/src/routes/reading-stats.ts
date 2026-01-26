@@ -11,6 +11,9 @@ import {
   getDailyReadingHistory,
   updateDailyReadingHistory,
   createDailyReadingEntryForFrontmatter,
+  getReadingSessions,
+  addReadingSession,
+  createReadingSessionForFrontmatter,
 } from '../services/frontmatter-parser.js';
 
 interface ReadingStatsRouteOptions {
@@ -41,6 +44,9 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
         properties: {
           sessionDurationMs: { type: 'number', minimum: 0 },
           pagesRead: { type: 'number', minimum: 0 },
+          startPage: { type: 'number', minimum: 0 },
+          endPage: { type: 'number', minimum: 0 },
+          startTime: { type: 'string' },
         },
       },
     },
@@ -54,6 +60,9 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
     // Ensure non-negative values (defensive - schema should already enforce this)
     const sessionDurationMs = Math.max(0, request.body.sessionDurationMs || 0);
     const pagesRead = Math.max(0, request.body.pagesRead || 0);
+    const startPage = Math.max(0, request.body.startPage || 0);
+    const endPage = Math.max(0, request.body.endPage || 0);
+    const startTime = request.body.startTime || new Date(Date.now() - sessionDurationMs).toISOString();
 
     // Skip if no meaningful session data
     if (sessionDurationMs === 0) {
@@ -115,9 +124,22 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
         pagesRead
       );
 
+      // Add individual session record
+      const existingSessions = getReadingSessions(frontmatter, config.reading_sessions_key);
+      const newSession = {
+        startTime,
+        endTime: now,
+        durationMs: sessionDurationMs,
+        pagesRead,
+        startPage,
+        endPage,
+      };
+      const updatedSessions = addReadingSession(existingSessions, newSession);
+
       // Update frontmatter
       frontmatter[config.reading_stats_key] = createReadingStatsForFrontmatter(newStats);
       frontmatter[config.reading_history_key] = updatedHistory.map(createDailyReadingEntryForFrontmatter);
+      frontmatter[config.reading_sessions_key] = updatedSessions.map(createReadingSessionForFrontmatter);
       frontmatter[config.last_read_key] = now;
 
       // Write back
@@ -228,6 +250,45 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
     return {
       history: result,
       daysRequested: daysLimit,
+    };
+  });
+
+  // GET /api/library/:id/reading-sessions - Get individual reading sessions
+  fastify.get<{
+    Params: { id: string };
+    Querystring: { limit?: string };
+  }>('/api/library/:id/reading-sessions', {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string' },
+        },
+      },
+      querystring: {
+        type: 'object',
+        properties: {
+          limit: { type: 'string' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const note = scanner.getById(request.params.id);
+
+    if (!note) {
+      return reply.code(404).send({ error: 'Note not found' });
+    }
+
+    // Parse limit from query (default 20 sessions)
+    const limit = Math.min(100, parseInt(request.query.limit || '20', 10) || 20);
+
+    // Get reading sessions from frontmatter
+    const sessions = getReadingSessions(note.frontmatter, config.reading_sessions_key);
+
+    return {
+      sessions: sessions.slice(0, limit),
+      totalSessions: sessions.length,
     };
   });
 };

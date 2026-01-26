@@ -32,6 +32,7 @@ const testConfig: Config = {
   pinned_key: 'pinned',
   reading_stats_key: 'reading_stats',
   reading_history_key: 'reading_history',
+  reading_sessions_key: 'reading_sessions',
   date_finished_key: 'date_finished',
   collections_key: 'collections',
   reader_preferences_key: 'reader_preferences',

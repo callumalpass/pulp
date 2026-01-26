@@ -169,6 +169,7 @@ export interface ReaderPreferences {
   theme?: 'light' | 'dark' | 'sepia' | 'eink';   // Reader theme
   fontSize?: number;           // Font size for EPUB
   lineHeight?: number;         // Line height for EPUB (1.2 - 2.0)
+  dailyGoalMinutes?: number;   // Override global daily reading goal for this book
 }
 
 export interface ReaderPreferencesUpdate {
@@ -177,6 +178,7 @@ export interface ReaderPreferencesUpdate {
   theme?: 'light' | 'dark' | 'sepia' | 'eink';
   fontSize?: number;
   lineHeight?: number;
+  dailyGoalMinutes?: number;   // Override global daily reading goal for this book
 }
 
 export interface CollectionsUpdate {
@@ -234,6 +236,9 @@ export interface ReadingStats {
 export interface ReadingStatsUpdate {
   sessionDurationMs: number;  // Duration of the session that just ended
   pagesRead?: number;         // Pages read in this session
+  startPage?: number;         // Page when session started
+  endPage?: number;           // Page when session ended
+  startTime?: string;         // ISO timestamp when session started
 }
 
 // Reading goals and streaks - stored globally (in a .pulp-goals file or config)
@@ -256,6 +261,16 @@ export interface DailyReadingEntry {
   durationMs: number;        // Total reading time that day
   sessions: number;          // Number of sessions that day
   pagesRead: number;         // Pages read that day
+}
+
+// Individual reading session (stored in note frontmatter)
+export interface ReadingSession {
+  startTime: string;         // ISO timestamp when session started
+  endTime: string;           // ISO timestamp when session ended
+  durationMs: number;        // Duration in milliseconds
+  pagesRead: number;         // Pages read in this session
+  startPage: number;         // Page when session started
+  endPage: number;           // Page when session ended
 }
 
 // Global reading streak data (stored in .pulp-goals file)
@@ -369,6 +384,23 @@ export interface SubscribeNoteEvent {
 export interface UnsubscribeNoteEvent {
   type: 'unsubscribe:note';
   noteId: string;
+}
+
+// Highlight export types
+export type HighlightExportFormat = 'markdown' | 'json' | 'csv' | 'plaintext';
+
+export interface HighlightExportRequest {
+  format: HighlightExportFormat;
+  includeNotes?: boolean;        // Include note annotations (default true)
+  includeCategories?: boolean;   // Include category information (default true)
+  includeTimestamps?: boolean;   // Include created/updated timestamps (default true)
+  groupByCategory?: boolean;     // Group highlights by category (default false)
+}
+
+export interface HighlightExportResponse {
+  content: string;               // The exported content
+  filename: string;              // Suggested filename
+  mimeType: string;              // MIME type for download
 }
 
 // Search API types

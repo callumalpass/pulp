@@ -21,6 +21,9 @@ interface PendingSessionData {
   noteId: string;
   sessionDurationMs: number;
   pagesRead: number;
+  startPage: number;
+  endPage: number;
+  startTime: string;  // When the session started
   timestamp: string;  // When the session ended (for deduplication)
   retryCount: number;
 }
@@ -111,6 +114,9 @@ async function saveSessionWithRetry(
   noteId: string,
   sessionDurationMs: number,
   pagesRead: number,
+  startPage: number,
+  endPage: number,
+  startTime: string,
   maxRetries: number = MAX_RETRY_ATTEMPTS
 ): Promise<{ success: boolean; stats?: ReadingStats; error?: string }> {
   let lastError: string | null = null;
@@ -120,6 +126,9 @@ async function saveSessionWithRetry(
       const result = await api.readingStats.update(noteId, {
         sessionDurationMs,
         pagesRead,
+        startPage,
+        endPage,
+        startTime,
       });
 
       return { success: true, stats: result.readingStats };
@@ -321,6 +330,9 @@ export const useReadingStatsStore = create<ReadingStatsState>()(
       activeSession.noteId,
       durationMs,
       pagesRead,
+      activeSession.startPage,
+      activeSession.currentPage,
+      activeSession.startTimestamp,
       3  // Use fewer retries for immediate saves
     );
 
@@ -341,6 +353,9 @@ export const useReadingStatsStore = create<ReadingStatsState>()(
         noteId: activeSession.noteId,
         sessionDurationMs: durationMs,
         pagesRead,
+        startPage: activeSession.startPage,
+        endPage: activeSession.currentPage,
+        startTime: activeSession.startTimestamp,
         timestamp: endTimestamp,
         retryCount: 0,
       };
@@ -389,6 +404,9 @@ export const useReadingStatsStore = create<ReadingStatsState>()(
         session.noteId,
         session.sessionDurationMs,
         session.pagesRead,
+        session.startPage,
+        session.endPage,
+        session.startTime,
         MAX_RETRY_ATTEMPTS
       );
 
