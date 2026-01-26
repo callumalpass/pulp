@@ -387,6 +387,22 @@ export function PDFReader({ note }: PDFReaderProps) {
     }
   }, [pdfColorMode]);
 
+  // E-ink mode: preload adjacent pages for instant navigation
+  useEffect(() => {
+    if (pdfColorMode !== 'eink' || !renderQueueRef.current || totalPages === 0) return;
+
+    // Preload next and previous pages
+    const pagesToPreload: number[] = [];
+    if (currentPage > 1) pagesToPreload.push(currentPage - 1);
+    if (currentPage < totalPages) pagesToPreload.push(currentPage + 1);
+    // Also preload 2 pages ahead for faster forward navigation
+    if (currentPage < totalPages - 1) pagesToPreload.push(currentPage + 2);
+
+    if (pagesToPreload.length > 0) {
+      renderQueueRef.current.renderBuffer(pagesToPreload, debouncedZoom);
+    }
+  }, [pdfColorMode, currentPage, totalPages, debouncedZoom]);
+
   // Render text layers for visible pages that have canvas but no text layer
   // This handles pages that were pre-rendered as buffer pages
   useEffect(() => {
@@ -1348,19 +1364,28 @@ export function PDFReader({ note }: PDFReaderProps) {
     checkTextSelection();
   }, [checkTextSelection]);
 
-  // Listen for selection changes on mobile - shows popup immediately when text is selected
+  // Listen for selection changes on mobile - debounced to wait until selection is complete
   useEffect(() => {
     if (!isMobile) return;
 
+    let timeoutId: ReturnType<typeof setTimeout>;
+
     const handleSelectionChange = () => {
+      clearTimeout(timeoutId);
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed && sel.toString().trim()) {
-        checkTextSelection();
+        // Wait for selection to stabilize before showing popup
+        timeoutId = setTimeout(() => {
+          checkTextSelection();
+        }, 300);
       }
     };
 
     document.addEventListener('selectionchange', handleSelectionChange);
-    return () => document.removeEventListener('selectionchange', handleSelectionChange);
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+      clearTimeout(timeoutId);
+    };
   }, [isMobile, checkTextSelection]);
 
   // Prevent native context menu when there's a text selection
