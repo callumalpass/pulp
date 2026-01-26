@@ -246,7 +246,13 @@ export class HighlightWriter {
       if (trimmed.startsWith('>')) {
         // This is part of the blockquote, include it
         blockStart -= line.length + 1; // +1 for newline
-      } else if (trimmed === '') {
+      } else if (trimmed === '' || trimmed === '-') {
+        // Empty line or list marker line (the part before [[) - check if we should continue
+        // If this is a list marker, include it and continue looking for blockquotes
+        if (trimmed === '-') {
+          blockStart -= line.length + 1;
+          continue;
+        }
         // Empty line - stop here (don't include it in deletion)
         break;
       } else {
