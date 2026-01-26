@@ -18,13 +18,28 @@ interface MarkdownEditorPanelProps {
 type SaveStatus = 'saved' | 'unsaved' | 'saving';
 type ViewMode = 'edit' | 'preview' | 'split';
 
+// Sanitize URL to prevent XSS via javascript: protocol
+function sanitizeUrl(url: string): string {
+  const trimmed = url.trim().toLowerCase();
+  // Block dangerous protocols
+  if (
+    trimmed.startsWith('javascript:') ||
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('vbscript:')
+  ) {
+    return '#blocked';
+  }
+  return url;
+}
+
 // Simple markdown to HTML converter for preview
 function markdownToHtml(md: string): string {
   let html = md
-    // Escape HTML
+    // Escape HTML first to prevent XSS
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
     // Headers
     .replace(/^### (.+)$/gm, '<h3>$1</h3>')
     .replace(/^## (.+)$/gm, '<h2>$1</h2>')
@@ -42,10 +57,16 @@ function markdownToHtml(md: string): string {
     .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>')
     // Inline code
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    // Links
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-    // Images
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" />')
+    // Links - sanitize URLs to prevent javascript: XSS
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, text, url) => {
+      const safeUrl = sanitizeUrl(url);
+      return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+    })
+    // Images - sanitize URLs
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_match, alt, url) => {
+      const safeUrl = sanitizeUrl(url);
+      return `<img src="${safeUrl}" alt="${alt}" />`;
+    })
     // Blockquotes
     .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
     // Unordered lists
