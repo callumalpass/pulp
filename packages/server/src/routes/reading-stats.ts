@@ -63,15 +63,37 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
       // Get existing stats or create new
       const existingStats = getReadingStats(frontmatter, config.reading_stats_key);
 
-      const newStats = {
-        totalReadingTimeMs: (existingStats?.totalReadingTimeMs || 0) + sessionDurationMs,
-        totalSessions: (existingStats?.totalSessions || 0) + 1,
-        averageSessionMs: 0, // Will be calculated
-        firstReadDate: existingStats?.firstReadDate || now,
-      };
+      // Calculate new totals
+      const totalReadingTimeMs = (existingStats?.totalReadingTimeMs || 0) + sessionDurationMs;
+      const totalSessions = (existingStats?.totalSessions || 0) + 1;
+      const totalPagesRead = (existingStats?.totalPagesRead || 0) + pagesRead;
 
-      // Calculate average
-      newStats.averageSessionMs = newStats.totalReadingTimeMs / newStats.totalSessions;
+      // Calculate average session
+      const averageSessionMs = totalReadingTimeMs / totalSessions;
+
+      // Calculate reading speed (pages per hour)
+      // Only calculate if we have meaningful data (at least 1 page and 1 minute of reading)
+      let pagesPerHour: number | null = existingStats?.pagesPerHour || null;
+      if (totalPagesRead > 0 && totalReadingTimeMs >= 60000) {
+        const hoursRead = totalReadingTimeMs / (1000 * 60 * 60);
+        pagesPerHour = Math.round((totalPagesRead / hoursRead) * 10) / 10; // Round to 1 decimal
+      }
+
+      // Track longest session
+      const longestSessionMs = Math.max(
+        existingStats?.longestSessionMs || 0,
+        sessionDurationMs
+      );
+
+      const newStats = {
+        totalReadingTimeMs,
+        totalSessions,
+        averageSessionMs,
+        firstReadDate: existingStats?.firstReadDate || now,
+        pagesPerHour,
+        totalPagesRead,
+        longestSessionMs,
+      };
 
       // Update daily reading history
       const existingHistory = getDailyReadingHistory(frontmatter, config.reading_history_key);
