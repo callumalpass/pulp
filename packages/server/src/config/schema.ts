@@ -6,6 +6,7 @@ export const configSchema = z.object({
   source_key: z.string().default('source'),
   progress_key: z.string().default('reading_progress'),
   last_read_key: z.string().default('last_read'),
+  date_created_key: z.string().default('dateCreated'),
   highlight_template: z.string().default(
     '- [[{{source}}#page={{page}}&rect={{rect}}|"{{text}}"]]{{#if note}} — {{note}}{{/if}}'
   ),

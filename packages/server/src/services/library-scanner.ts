@@ -9,6 +9,7 @@ import {
   getSourcePath,
   getProgress,
   getLastRead,
+  getDateCreated,
   getTitle,
 } from './frontmatter-parser.js';
 import { parseHighlightsFromNote } from './highlight-parser.js';
@@ -102,6 +103,7 @@ export class LibraryScanner {
         notePath,
         progress: getProgress(frontmatter, this.config.progress_key),
         lastRead: getLastRead(frontmatter, this.config.last_read_key),
+        dateCreated: getDateCreated(frontmatter, this.config.date_created_key),
         tags: this.extractTags(frontmatter),
         cover: this.getCoverPath(frontmatter, id),
         highlights,
@@ -184,7 +186,7 @@ export class LibraryScanner {
     return Array.from(this.notes.values());
   }
 
-  getSummaries(sort: 'lastRead' | 'title' | 'progress' = 'lastRead', order: 'asc' | 'desc' = 'desc'): LiteratureNoteSummary[] {
+  getSummaries(sort: 'lastRead' | 'title' | 'progress' | 'dateCreated' = 'lastRead', order: 'asc' | 'desc' = 'desc'): LiteratureNoteSummary[] {
     const notes = this.getAll();
 
     const sorted = notes.sort((a, b) => {
@@ -192,9 +194,14 @@ export class LibraryScanner {
 
       switch (sort) {
         case 'lastRead':
-          const aDate = a.lastRead ? new Date(a.lastRead).getTime() : 0;
-          const bDate = b.lastRead ? new Date(b.lastRead).getTime() : 0;
-          comparison = aDate - bDate;
+          const aLastRead = a.lastRead ? new Date(a.lastRead).getTime() : 0;
+          const bLastRead = b.lastRead ? new Date(b.lastRead).getTime() : 0;
+          comparison = aLastRead - bLastRead;
+          break;
+        case 'dateCreated':
+          const aCreated = a.dateCreated ? new Date(a.dateCreated).getTime() : 0;
+          const bCreated = b.dateCreated ? new Date(b.dateCreated).getTime() : 0;
+          comparison = aCreated - bCreated;
           break;
         case 'title':
           comparison = a.title.localeCompare(b.title);
@@ -213,6 +220,7 @@ export class LibraryScanner {
       sourceType: note.sourceType,
       progress: note.progress,
       lastRead: note.lastRead,
+      dateCreated: note.dateCreated,
       cover: note.cover,
     }));
   }

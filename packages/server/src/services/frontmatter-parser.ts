@@ -116,6 +116,28 @@ export function getLastRead(
   return null;
 }
 
+export function getDateCreated(
+  frontmatter: Record<string, unknown>,
+  dateCreatedKey: string
+): string | null {
+  const dateCreated = frontmatter[dateCreatedKey];
+
+  if (!dateCreated) return null;
+
+  if (dateCreated instanceof Date) {
+    return dateCreated.toISOString();
+  }
+
+  if (typeof dateCreated === 'string') {
+    const date = new Date(dateCreated);
+    if (!isNaN(date.getTime())) {
+      return date.toISOString();
+    }
+  }
+
+  return null;
+}
+
 export function getTitle(frontmatter: Record<string, unknown>, fileName: string): string {
   if (typeof frontmatter.title === 'string' && frontmatter.title.trim()) {
     return frontmatter.title.trim();

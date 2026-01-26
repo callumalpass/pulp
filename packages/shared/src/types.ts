@@ -5,6 +5,7 @@ export interface PulpConfig {
   source_key: string;
   progress_key: string;
   last_read_key: string;
+  date_created_key: string;
   highlight_template: string;
   highlight_template_epub: string;
   progress_debounce_ms: number;
@@ -21,6 +22,7 @@ export interface LiteratureNote {
   notePath: string;
   progress: number;
   lastRead: string | null;
+  dateCreated: string | null;
   tags: string[];
   cover: string | null;
   highlights: Highlight[];
@@ -33,6 +35,7 @@ export interface LiteratureNoteSummary {
   sourceType: 'pdf' | 'epub';
   progress: number;
   lastRead: string | null;
+  dateCreated: string | null;
   cover: string | null;
 }
 
@@ -43,6 +46,7 @@ export interface PDFHighlight {
   id: string;
   type: 'pdf';
   page: number;
+  pageLabel?: string; // Logical page label (e.g., "iv", "12", "A-3")
   selection: TextSelection; // Text layer indices for Obsidian-compatible links
   text: string;
   note?: string;
@@ -69,7 +73,7 @@ export interface EPUBHighlight {
 
 // API request/response types
 export interface LibraryQuery {
-  sort?: 'lastRead' | 'title' | 'progress';
+  sort?: 'lastRead' | 'title' | 'progress' | 'dateCreated';
   order?: 'asc' | 'desc';
 }
 
@@ -80,6 +84,7 @@ export interface ProgressUpdate {
 export interface CreateHighlightRequest {
   type: 'pdf' | 'epub';
   page?: number;
+  pageLabel?: string; // Logical page label (e.g., "iv", "12", "A-3")
   selection?: TextSelection;
   cfi?: string;
   text: string;
@@ -126,4 +131,27 @@ export interface SubscribeNoteEvent {
 export interface UnsubscribeNoteEvent {
   type: 'unsubscribe:note';
   noteId: string;
+}
+
+// Dictionary API types (Free Dictionary API)
+export interface DictionaryEntry {
+  word: string;
+  phonetic?: string;
+  phonetics: DictionaryPhonetic[];
+  meanings: DictionaryMeaning[];
+}
+
+export interface DictionaryPhonetic {
+  text?: string;
+  audio?: string;
+}
+
+export interface DictionaryMeaning {
+  partOfSpeech: string;
+  definitions: DictionaryDefinition[];
+}
+
+export interface DictionaryDefinition {
+  definition: string;
+  example?: string;
 }

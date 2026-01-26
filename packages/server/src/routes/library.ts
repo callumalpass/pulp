@@ -18,7 +18,7 @@ export const libraryRoutes: FastifyPluginAsync<LibraryRouteOptions> = async (fas
       querystring: {
         type: 'object',
         properties: {
-          sort: { type: 'string', enum: ['lastRead', 'title', 'progress'] },
+          sort: { type: 'string', enum: ['lastRead', 'title', 'progress', 'dateCreated'] },
           order: { type: 'string', enum: ['asc', 'desc'] },
         },
       },
