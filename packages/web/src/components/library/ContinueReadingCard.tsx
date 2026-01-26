@@ -4,6 +4,7 @@ import type { LiteratureNoteSummary } from '@pulp/shared';
 import { useReadingStatsStore } from '../../stores/readingStats';
 import { api } from '../../lib/api';
 import { formatLastRead, getEstimatedTimeRemaining } from '../../lib/format';
+import { ProgressIndicator } from './ProgressIndicator';
 
 interface ContinueReadingCardProps {
   note: LiteratureNoteSummary;
@@ -62,12 +63,7 @@ export function ContinueReadingCard({ note }: ContinueReadingCardProps) {
                 </span>
               )}
             </div>
-            <div className="w-full h-1.5 bg-bg-deep rounded-full overflow-hidden">
-              <div
-                className="h-full bg-accent-primary transition-all duration-300"
-                style={{ width: `${note.progress}%` }}
-              />
-            </div>
+            <ProgressIndicator progress={note.progress} height="h-1.5" />
           </div>
 
           {/* Stats row */}
