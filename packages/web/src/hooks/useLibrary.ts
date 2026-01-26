@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 
 export function useLibrary(
-  sort: 'lastRead' | 'title' | 'progress' = 'lastRead',
+  sort: 'lastRead' | 'title' | 'progress' | 'dateCreated' = 'lastRead',
   order: 'asc' | 'desc' = 'desc'
 ) {
   return useQuery({

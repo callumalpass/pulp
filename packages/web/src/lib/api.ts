@@ -5,12 +5,15 @@ import type {
   ProgressUpdate,
   CreateHighlightRequest,
   UpdateHighlightRequest,
+  DictionaryEntry,
 } from '@pulp/shared';
 
 const API_BASE = '/api';
 
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
-  const headers: HeadersInit = { ...options?.headers };
+  const headers: Record<string, string> = {
+    ...(options?.headers as Record<string, string>),
+  };
   if (options?.body) {
     headers['Content-Type'] = 'application/json';
   }
@@ -30,7 +33,7 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   library: {
-    list(sort?: 'lastRead' | 'title' | 'progress', order?: 'asc' | 'desc') {
+    list(sort?: 'lastRead' | 'title' | 'progress' | 'dateCreated', order?: 'asc' | 'desc') {
       const params = new URLSearchParams();
       if (sort) params.set('sort', sort);
       if (order) params.set('order', order);
@@ -108,6 +111,21 @@ export const api = {
   covers: {
     getUrl(id: string) {
       return `${API_BASE}/covers/${id}`;
+    },
+  },
+
+  dictionary: {
+    async lookup(word: string): Promise<DictionaryEntry | null> {
+      try {
+        const response = await fetch(
+          `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word.toLowerCase())}`
+        );
+        if (!response.ok) return null;
+        const data = await response.json();
+        return data[0] ?? null;
+      } catch {
+        return null;
+      }
     },
   },
 };
