@@ -387,6 +387,15 @@ export function PDFReader({ note }: PDFReaderProps) {
     }
   }, [pdfColorMode]);
 
+  // E-ink mode: update virtualized range to match current page
+  // Without this, pages beyond the initial range (1-10) won't render
+  // because renderPage checks virtualizedRange before rendering
+  useEffect(() => {
+    if (pdfColorMode === 'eink') {
+      setVirtualizedRange({ start: currentPage, end: currentPage });
+    }
+  }, [pdfColorMode, currentPage]);
+
   // E-ink mode: preload adjacent pages for instant navigation
   useEffect(() => {
     if (pdfColorMode !== 'eink' || !renderQueueRef.current || totalPages === 0) return;
@@ -728,10 +737,14 @@ export function PDFReader({ note }: PDFReaderProps) {
           const width = bitmap.width;
           const height = bitmap.height;
 
+          // Calculate CSS dimensions - these must match the text layer exactly
+          const cssWidth = width / devicePixelRatio;
+          const cssHeight = height / devicePixelRatio;
+
           canvas.width = width;
           canvas.height = height;
-          canvas.style.width = `${width / devicePixelRatio}px`;
-          canvas.style.height = `${height / devicePixelRatio}px`;
+          canvas.style.width = `${cssWidth}px`;
+          canvas.style.height = `${cssHeight}px`;
 
           const ctx = canvas.getContext('2d');
           if (ctx) {
@@ -744,8 +757,9 @@ export function PDFReader({ note }: PDFReaderProps) {
 
           // Only render text layer for visible pages (not buffer pages)
           // Text layer is expensive and only needed for selection
+          // Pass canvas CSS dimensions to ensure exact alignment
           if (visiblePages.has(pageNum)) {
-            renderTextLayer(pageNum, textLayerDiv, scale);
+            renderTextLayer(pageNum, textLayerDiv, scale, cssWidth, cssHeight);
           }
           return;
         }
@@ -838,8 +852,16 @@ export function PDFReader({ note }: PDFReaderProps) {
 
   /**
    * Render text layer for a page (used with worker rendering)
+   * @param canvasWidth - Optional canvas CSS width to match exactly (avoids floating-point mismatch)
+   * @param canvasHeight - Optional canvas CSS height to match exactly (avoids floating-point mismatch)
    */
-  const renderTextLayer = async (pageNum: number, textLayerDiv: HTMLDivElement | undefined, scale: number) => {
+  const renderTextLayer = async (
+    pageNum: number,
+    textLayerDiv: HTMLDivElement | undefined,
+    scale: number,
+    canvasWidth?: number,
+    canvasHeight?: number,
+  ) => {
     if (!textLayerDiv || !pdfDocRef.current) return;
 
     // Skip if already rendering or already rendered at this scale
@@ -851,12 +873,32 @@ export function PDFReader({ note }: PDFReaderProps) {
 
     try {
       const page = await pdfDocRef.current.getPage(pageNum);
-      const displayViewport = page.getViewport({ scale });
+
+      // When canvas dimensions are provided (worker rendering), compute the exact scale
+      // that produces those dimensions to avoid floating-point mismatches.
+      // The bitmap dimensions are integers (truncated), so we need to match exactly.
+      let textLayerViewport;
+      let layerWidth: number;
+      let layerHeight: number;
+
+      if (canvasWidth !== undefined && canvasHeight !== undefined) {
+        // Compute the actual scale from canvas dimensions
+        const baseViewport = page.getViewport({ scale: 1 });
+        const actualScale = canvasWidth / baseViewport.width;
+        textLayerViewport = page.getViewport({ scale: actualScale });
+        layerWidth = canvasWidth;
+        layerHeight = canvasHeight;
+      } else {
+        // Use the requested scale directly
+        textLayerViewport = page.getViewport({ scale });
+        layerWidth = textLayerViewport.width;
+        layerHeight = textLayerViewport.height;
+      }
 
       // Clear and size the text layer
       textLayerDiv.innerHTML = '';
-      textLayerDiv.style.width = `${displayViewport.width}px`;
-      textLayerDiv.style.height = `${displayViewport.height}px`;
+      textLayerDiv.style.width = `${layerWidth}px`;
+      textLayerDiv.style.height = `${layerHeight}px`;
 
       // Prefer worker cached text content (avoids main-thread extraction)
       let textContentData = renderQueueRef.current?.getTextContent(pageNum) ?? null;
@@ -896,7 +938,7 @@ export function PDFReader({ note }: PDFReaderProps) {
       const textLayer = new TextLayer({
         textContentSource: textContentData,
         container: textLayerDiv,
-        viewport: displayViewport,
+        viewport: textLayerViewport,
       });
 
       textLayerTasksRef.current.set(pageNum, textLayer);
