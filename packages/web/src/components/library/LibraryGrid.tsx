@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { LiteratureNoteSummary } from '@pulp/shared';
 import { BookCard } from './BookCard';
 
@@ -5,7 +6,22 @@ interface LibraryGridProps {
   notes: LiteratureNoteSummary[];
 }
 
+const gridClasses = 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4';
+
 export function LibraryGrid({ notes }: LibraryGridProps) {
+  const { pinned, unpinned } = useMemo(() => {
+    const pinned: LiteratureNoteSummary[] = [];
+    const unpinned: LiteratureNoteSummary[] = [];
+    for (const note of notes) {
+      if (note.pinned) {
+        pinned.push(note);
+      } else {
+        unpinned.push(note);
+      }
+    }
+    return { pinned, unpinned };
+  }, [notes]);
+
   if (notes.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-text-secondary">
@@ -28,10 +44,34 @@ export function LibraryGrid({ notes }: LibraryGridProps) {
   }
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-      {notes.map((note) => (
-        <BookCard key={note.id} note={note} />
-      ))}
+    <div className="space-y-8">
+      {pinned.length > 0 && (
+        <section>
+          <h2 className="text-sm font-medium text-text-secondary uppercase tracking-wide mb-4">
+            Pinned
+          </h2>
+          <div className={gridClasses}>
+            {pinned.map((note) => (
+              <BookCard key={note.id} note={note} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {unpinned.length > 0 && (
+        <section>
+          {pinned.length > 0 && (
+            <h2 className="text-sm font-medium text-text-secondary uppercase tracking-wide mb-4">
+              Library
+            </h2>
+          )}
+          <div className={gridClasses}>
+            {unpinned.map((note) => (
+              <BookCard key={note.id} note={note} />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
