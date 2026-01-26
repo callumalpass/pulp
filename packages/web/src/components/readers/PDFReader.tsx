@@ -9,6 +9,8 @@ import { useProgress } from '../../hooks/useProgress';
 import { useHighlights } from '../../hooks/useNote';
 import { useMobile } from '../../hooks/useMobile';
 import { useSwipeGesture } from '../../hooks/useSwipeGesture';
+import { usePinchZoom } from '../../hooks/usePinchZoom';
+import { useDoubleTapZoom } from '../../hooks/useDoubleTapZoom';
 import { useIdleDetection } from '../../hooks/useIdleDetection';
 import { ReaderControls } from './shared/ReaderControls';
 import { HighlightPopup } from './shared/HighlightPopup';
@@ -1371,6 +1373,64 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     threshold: 50,
   });
 
+  // Pinch zoom for mobile
+  const pinchHandlers = usePinchZoom({
+    onZoomChange: setZoom,
+    minZoom: 0.5,
+    maxZoom: 3.0,
+    enabled: isMobile,
+  });
+
+  // Double-tap zoom for mobile (toggle between fit-width and 150%)
+  const doubleTapHandlers = useDoubleTapZoom({
+    onDoubleTap: (zoomedIn) => {
+      if (zoomedIn) {
+        // Zoom to 150%
+        setZoom(1.5);
+      } else {
+        // Reset to fit-width
+        handleZoomModeChange('fit-width');
+      }
+    },
+    enabled: isMobile,
+  });
+
+  // Combined touch handlers for mobile
+  const handleMobileTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      if (e.touches.length === 2) {
+        // Two fingers: pinch zoom
+        pinchHandlers.handlePinchStart(e, zoom);
+      } else if (e.touches.length === 1) {
+        // One finger: swipe
+        swipeHandlers.handleTouchStart(e);
+      }
+    },
+    [pinchHandlers, swipeHandlers, zoom]
+  );
+
+  const handleMobileTouchMove = useCallback(
+    (e: React.TouchEvent) => {
+      if (e.touches.length === 2) {
+        pinchHandlers.handlePinchMove(e);
+      }
+    },
+    [pinchHandlers]
+  );
+
+  const handleMobileTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      if (e.touches.length < 2) {
+        pinchHandlers.handlePinchEnd(e);
+      }
+      if (e.touches.length === 0) {
+        swipeHandlers.handleTouchEnd(e);
+        doubleTapHandlers.handleDoubleTapEnd(e);
+      }
+    },
+    [pinchHandlers, swipeHandlers, doubleTapHandlers]
+  );
+
   /**
    * Get text selection in PDF++ format
    */
@@ -1677,15 +1737,6 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
           height: dims ? `${dims.height * containerZoom}px` : 'auto',
         }}
       >
-        {/* Skeleton loading placeholder */}
-        {!isRendered && (
-          <div className="pdf-page-skeleton">
-            {Array.from({ length: 20 }, (_, i) => (
-              <div key={i} className="skeleton-line" style={{ animationDelay: `${i * 50}ms` }} />
-            ))}
-          </div>
-        )}
-
         <canvas
           ref={(el) => {
             if (el) {
@@ -1865,10 +1916,11 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         {/* PDF Pages Container */}
         <div
           ref={scrollContainerRef}
-          className={`flex-1 bg-bg-deep ${pdfColorMode === 'dark' ? 'pdf-dark-mode' : ''} ${pdfColorMode === 'eink' ? 'pdf-eink-mode overflow-hidden' : 'overflow-auto'} ${isMobile ? 'hide-scrollbar-mobile' : ''}`}
+          className={`flex-1 bg-bg-deep ${pdfColorMode === 'dark' ? 'pdf-dark-mode' : ''} ${pdfColorMode === 'eink' ? 'pdf-eink-mode overflow-hidden' : 'overflow-auto'} ${isMobile ? 'hide-scrollbar-mobile touch-manipulation' : ''}`}
           onMouseUp={handleMouseUp}
-          onTouchStart={swipeHandlers.handleTouchStart}
-          onTouchEnd={swipeHandlers.handleTouchEnd}
+          onTouchStart={isMobile ? handleMobileTouchStart : undefined}
+          onTouchMove={isMobile ? handleMobileTouchMove : undefined}
+          onTouchEnd={isMobile ? handleMobileTouchEnd : undefined}
           onContextMenu={handleContextMenu}
         >
           <div className={`pdf-pages-container flex flex-col items-center py-4 gap-4 ${pdfViewMode === 'spread' ? 'pdf-spread-layout' : ''} ${pdfColorMode === 'eink' ? 'eink-single-page' : ''}`}>

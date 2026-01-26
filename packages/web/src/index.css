@@ -71,7 +71,7 @@ body {
 
 /* Utility classes */
 @layer utilities {
-  .transition-stoody {
+  .transition-smooth {
     transition: all var(--transition-base);
   }
 }
@@ -227,17 +227,6 @@ body {
   display: none;
 }
 
-/* E-ink skeleton placeholder - static gray instead of animated */
-.pdf-eink-mode .pdf-page-skeleton {
-  animation: none;
-  background: #f5f5f5;
-}
-
-.pdf-eink-mode .pdf-page-skeleton > div {
-  animation: none;
-  background: #e0e0e0;
-}
-
 /* E-ink single page layout */
 .pdf-eink-mode .eink-single-page {
   height: 100%;
@@ -261,46 +250,6 @@ body {
 /* In e-ink mode, center the page vertically */
 .pdf-eink-mode .pdf-page-container {
   margin: auto;
-}
-
-/* Skeleton Loading Animation */
-@keyframes skeleton-pulse {
-  0%, 100% {
-    opacity: 0.4;
-  }
-  50% {
-    opacity: 0.7;
-  }
-}
-
-.pdf-page-skeleton {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 24px;
-  gap: 12px;
-  background: white;
-}
-
-.pdf-page-skeleton .skeleton-line {
-  height: 12px;
-  background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
-  background-size: 200% 100%;
-  border-radius: 4px;
-  animation: skeleton-pulse 1.5s ease-in-out infinite;
-}
-
-.pdf-page-skeleton .skeleton-line:nth-child(odd) {
-  width: 100%;
-}
-
-.pdf-page-skeleton .skeleton-line:nth-child(even) {
-  width: 85%;
-}
-
-.pdf-page-skeleton .skeleton-line:nth-child(3n) {
-  width: 70%;
 }
 
 /* Popup Entry Animations */
@@ -719,4 +668,14 @@ body {
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
+}
+
+/* Touch manipulation for gesture handling */
+.touch-manipulation {
+  touch-action: manipulation;
+}
+
+/* Disable browser pinch-zoom to allow custom handling */
+.touch-none {
+  touch-action: none;
 }
