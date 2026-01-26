@@ -147,8 +147,9 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   // Mobile support
   const isMobile = useMobile();
 
-  // Idle detection for reading stats
-  const { isIdlePaused } = useIdleDetection();
+  // Idle detection for reading stats (the hook sets up activity listeners)
+  // isIdlePaused is shown in the ReadingStatsPanel when open
+  useIdleDetection();
 
   // Virtualization: track which pages should have DOM elements
   const [virtualizedRange, setVirtualizedRange] = useState<{ start: number; end: number }>({ start: 1, end: 10 });

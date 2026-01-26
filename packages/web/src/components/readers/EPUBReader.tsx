@@ -102,11 +102,13 @@ export function EPUBReader({ note }: EPUBReaderProps) {
   const [showClickZones, setShowClickZones] = useState(true);
   const [headerVisible, setHeaderVisible] = useState(true);
 
-  const isMobile = useMobile();
+  // useMobile is available for future use
+  useMobile();
   const theme = (readerTheme || 'dark') as EPUBTheme;
 
-  // Idle detection for reading stats
-  const { isIdlePaused } = useIdleDetection();
+  // Idle detection for reading stats (the hook sets up activity listeners)
+  // isIdlePaused is shown in the ReadingStatsPanel when open
+  useIdleDetection();
 
   // Load EPUB
   useEffect(() => {
