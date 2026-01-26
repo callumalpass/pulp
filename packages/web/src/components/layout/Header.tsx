@@ -1,8 +1,10 @@
 import { useLocation } from 'react-router-dom';
 import { ConnectionStatus } from '../ui/ConnectionStatus';
+import { LibraryStats } from '../library/LibraryStats';
 
 export function Header() {
   const location = useLocation();
+  const isLibrary = location.pathname === '/';
 
   const getTitle = () => {
     if (location.pathname === '/') return 'Library';
@@ -13,6 +15,13 @@ export function Header() {
   return (
     <header className="h-14 bg-bg-surface border-b border-text-secondary/10 flex items-center px-6">
       <h1 className="text-lg font-semibold text-text-primary">{getTitle()}</h1>
+
+      {/* Reading stats - only shown on library page */}
+      {isLibrary && (
+        <div className="ml-6 hidden md:block">
+          <LibraryStats />
+        </div>
+      )}
 
       <div className="ml-auto flex items-center gap-4">
         <ConnectionStatus />

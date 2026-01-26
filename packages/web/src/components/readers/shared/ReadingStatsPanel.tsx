@@ -117,7 +117,7 @@ export function ReadingStatsPanel({ noteId, currentPage, totalPages, onClose }: 
               {bookStats.pagesPerHour !== null && bookStats.pagesPerHour > 0 && (
                 <StatCard
                   label="Reading speed"
-                  value={`${bookStats.pagesPerHour} pg/hr`}
+                  value={`${bookStats.pagesPerHour.toFixed(1)} pg/hr`}
                 />
               )}
               {bookStats.longestSessionMs !== null && bookStats.longestSessionMs > 0 && (

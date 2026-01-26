@@ -12,6 +12,7 @@ import { useSwipeGesture } from '../../hooks/useSwipeGesture';
 import { usePinchZoom } from '../../hooks/usePinchZoom';
 import { useDoubleTapZoom } from '../../hooks/useDoubleTapZoom';
 import { useIdleDetection } from '../../hooks/useIdleDetection';
+import { useBeforeUnload, useSaveShortcut } from '../../hooks/useBeforeUnload';
 import { ReaderControls } from './shared/ReaderControls';
 import { HighlightPopup } from './shared/HighlightPopup';
 import { HighlightEditPopup } from './shared/HighlightEditPopup';
@@ -135,8 +136,17 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     }
   }, [note.id, note.readingStats, setBookStats]);
 
-  const { updateProgress, saveImmediately, saveStatus } = useProgress(note.id);
+  const { updateProgress, saveImmediately, hasPendingChanges, saveStatus } = useProgress(note.id);
   const { data: highlights } = useHighlights(note.id);
+
+  // Save progress before the tab is closed or navigated away
+  useBeforeUnload({
+    onBeforeUnload: saveImmediately,
+    hasUnsavedChanges: hasPendingChanges,
+  });
+
+  // Ctrl+S / Cmd+S to save immediately
+  useSaveShortcut(saveImmediately);
 
   const [selection, setSelection] = useState<Selection | null>(null);
   const [editingHighlight, setEditingHighlight] = useState<{ highlight: PDFHighlight; position: { x: number; y: number } } | null>(null);

@@ -9,6 +9,7 @@ import { useHighlights } from '../../hooks/useNote';
 import { useMobile } from '../../hooks/useMobile';
 import { useIdleDetection } from '../../hooks/useIdleDetection';
 import { useSwipeGesture } from '../../hooks/useSwipeGesture';
+import { useBeforeUnload, useSaveShortcut } from '../../hooks/useBeforeUnload';
 import { HighlightPopup } from './shared/HighlightPopup';
 import { HighlightEditPopup } from './shared/HighlightEditPopup';
 import { KeyboardShortcutsPanel } from './shared/KeyboardShortcutsPanel';
@@ -89,8 +90,17 @@ export function EPUBReader({ note }: EPUBReaderProps) {
   }, [note.id, note.readingStats, setBookStats]);
 
   const { readerTheme, fontSize, lineHeight, setFontSize, setLineHeight, setReaderTheme } = usePreferencesStore();
-  const { updateProgress, saveImmediately, saveStatus } = useProgress(note.id);
+  const { updateProgress, saveImmediately, hasPendingChanges, saveStatus } = useProgress(note.id);
   const { data: highlights } = useHighlights(note.id);
+
+  // Save progress before the tab is closed or navigated away
+  useBeforeUnload({
+    onBeforeUnload: saveImmediately,
+    hasUnsavedChanges: hasPendingChanges,
+  });
+
+  // Ctrl+S / Cmd+S to save immediately
+  useSaveShortcut(saveImmediately);
 
   const [selection, setSelection] = useState<Selection | null>(null);
   const [editingHighlight, setEditingHighlight] = useState<{ highlight: EPUBHighlight; position: { x: number; y: number } } | null>(null);
