@@ -858,6 +858,7 @@ export function EPUBReader({ note }: EPUBReaderProps) {
             noteId={note.id}
             currentPage={currentPage}
             totalPages={totalPages}
+            dateFinished={note.dateFinished}
             onClose={() => setStatsOpen(false)}
           />
         )}

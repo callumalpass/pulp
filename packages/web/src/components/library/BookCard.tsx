@@ -143,6 +143,16 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
             <PinIcon filled={note.pinned} />
           </button>
 
+          {/* Completed badge */}
+          {note.progress === 100 && note.dateFinished && (
+            <div
+              className="absolute bottom-2 right-2 p-1 rounded-full bg-green-600/90 backdrop-blur-sm"
+              title={`Completed ${formatDateFinished(note.dateFinished)}`}
+            >
+              <CheckIcon />
+            </div>
+          )}
+
           {/* Estimated time remaining badge - visible on mobile, hover-only on desktop */}
           {estimatedTime && (
             <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-bg-surface/80 backdrop-blur-sm text-xs text-text-primary md:opacity-0 md:group-hover:opacity-100 transition-opacity">
@@ -342,4 +352,21 @@ function HighlightIcon() {
       <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
     </svg>
   );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+function formatDateFinished(isoDate: string): string {
+  const date = new Date(isoDate);
+  return date.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
 }

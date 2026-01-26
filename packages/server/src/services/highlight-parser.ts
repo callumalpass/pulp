@@ -38,6 +38,31 @@ export function parseHighlightsFromNote(notePath: string, sourceRelative: string
   }
 }
 
+/**
+ * Extract page label from the link display text.
+ * Common patterns:
+ * - |"text"|p. 42]] or |p. 42]]
+ * - |"text"|p. iv]] or |p. iv]]
+ * - |"text"|page 42]] or |page 42]]
+ *
+ * Returns undefined if no page label is found or if it matches the page number.
+ */
+export function extractPageLabel(linkText: string, physicalPage: number): string | undefined {
+  // Look for patterns like "p. 42", "p. iv", "page 42" at the end of the link
+  // The label could be after quoted text or be the only display text
+  // Match: |p. X]] or |"text"|p. X]] or |page X]]
+  // Important: match "page" before "p" to avoid partial match
+  const pageLabelMatch = linkText.match(/\|(?:"[^"]*"\|)?(?:page\s+|p\.?\s*)([^|\]]+)\]\]$/i);
+  if (pageLabelMatch) {
+    const label = pageLabelMatch[1].trim();
+    // Only return if it's different from the physical page number
+    if (label && label !== String(physicalPage)) {
+      return label;
+    }
+  }
+  return undefined;
+}
+
 export function parseHighlights(content: string, sourceRelative: string): Highlight[] {
   const highlights: Highlight[] = [];
 
@@ -69,10 +94,13 @@ export function parseHighlights(content: string, sourceRelative: string): Highli
         endOffset: selectionParts[3],
       };
 
+      // Extract page label from the link display text
+      const pageLabel = extractPageLabel(match[0], page);
+
       // Extract the quoted text from the blockquote before this link
       const { text, note } = extractHighlightContext(content, match.index);
 
-      highlights.push({
+      const highlight: PDFHighlight = {
         id: generatePDFHighlightId(page, selection),
         type: 'pdf',
         page,
@@ -80,7 +108,14 @@ export function parseHighlights(content: string, sourceRelative: string): Highli
         text: text || 'Highlight',
         note,
         createdAt: new Date().toISOString(),
-      } satisfies PDFHighlight);
+      };
+
+      // Add pageLabel if present and different from physical page
+      if (pageLabel) {
+        highlight.pageLabel = pageLabel;
+      }
+
+      highlights.push(highlight);
     }
   }
 

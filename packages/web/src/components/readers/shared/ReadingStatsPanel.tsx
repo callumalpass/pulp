@@ -6,10 +6,11 @@ interface ReadingStatsPanelProps {
   noteId: string;
   currentPage: number;
   totalPages: number;
+  dateFinished?: string | null;
   onClose: () => void;
 }
 
-export function ReadingStatsPanel({ noteId, currentPage, totalPages, onClose }: ReadingStatsPanelProps) {
+export function ReadingStatsPanel({ noteId, currentPage, totalPages, dateFinished, onClose }: ReadingStatsPanelProps) {
   const {
     getBookStats,
     getEstimatedTimeRemaining,
@@ -138,6 +139,13 @@ export function ReadingStatsPanel({ noteId, currentPage, totalPages, onClose }: 
                   value={formatDate(bookStats.firstReadDate)}
                 />
               )}
+              {dateFinished && (
+                <StatCard
+                  label="Completed"
+                  value={formatDate(dateFinished)}
+                  highlight
+                />
+              )}
             </div>
           </section>
         )}
@@ -160,10 +168,10 @@ export function ReadingStatsPanel({ noteId, currentPage, totalPages, onClose }: 
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
-    <div className="bg-bg-deep rounded-lg p-3">
-      <div className="text-lg font-semibold text-text-primary">{value}</div>
+    <div className={`rounded-lg p-3 ${highlight ? 'bg-green-600/20' : 'bg-bg-deep'}`}>
+      <div className={`text-lg font-semibold ${highlight ? 'text-green-500' : 'text-text-primary'}`}>{value}</div>
       <div className="text-xs text-text-secondary">{label}</div>
     </div>
   );

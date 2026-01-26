@@ -4,6 +4,7 @@ import {
   generateEPUBHighlightId,
   parseHighlights,
   extractHighlightContext,
+  extractPageLabel,
 } from '../highlight-parser.js';
 
 describe('generatePDFHighlightId', () => {
@@ -182,6 +183,54 @@ describe('parseHighlights', () => {
     });
   });
 
+  describe('pageLabel extraction', () => {
+    it('extracts pageLabel from PDF highlight link', () => {
+      const content = `> This is the highlighted text.
+[[books/test.pdf#page=5&selection=0,10,2,25|p. iv]]`;
+
+      const highlights = parseHighlights(content, 'books/test.pdf');
+      expect(highlights).toHaveLength(1);
+      expect(highlights[0].type).toBe('pdf');
+      if (highlights[0].type === 'pdf') {
+        expect(highlights[0].page).toBe(5);
+        expect(highlights[0].pageLabel).toBe('iv');
+      }
+    });
+
+    it('extracts pageLabel from highlight with quoted text', () => {
+      const content = `> Quote text.
+[[books/test.pdf#page=10&selection=0,0,1,10|"Quote text"|p. xii]]`;
+
+      const highlights = parseHighlights(content, 'books/test.pdf');
+      expect(highlights).toHaveLength(1);
+      if (highlights[0].type === 'pdf') {
+        expect(highlights[0].pageLabel).toBe('xii');
+      }
+    });
+
+    it('does not set pageLabel when it matches physical page', () => {
+      const content = `> Quote text.
+[[books/test.pdf#page=42&selection=0,0,1,10|p. 42]]`;
+
+      const highlights = parseHighlights(content, 'books/test.pdf');
+      expect(highlights).toHaveLength(1);
+      if (highlights[0].type === 'pdf') {
+        expect(highlights[0].pageLabel).toBeUndefined();
+      }
+    });
+
+    it('handles complex page labels', () => {
+      const content = `> Quote text.
+[[books/test.pdf#page=5&selection=0,0,1,10|p. A-3]]`;
+
+      const highlights = parseHighlights(content, 'books/test.pdf');
+      expect(highlights).toHaveLength(1);
+      if (highlights[0].type === 'pdf') {
+        expect(highlights[0].pageLabel).toBe('A-3');
+      }
+    });
+  });
+
   describe('special characters in source path', () => {
     it('handles source paths with parentheses', () => {
       const content = `> Highlighted text.
@@ -243,6 +292,48 @@ Just some regular text without any highlights.`;
       expect(highlights[0].createdAt).toBeDefined();
       expect(() => new Date(highlights[0].createdAt)).not.toThrow();
     });
+  });
+});
+
+describe('extractPageLabel', () => {
+  it('extracts page label with "p. " prefix', () => {
+    const linkText = '[[books/test.pdf#page=5&selection=0,0,1,10|p. iv]]';
+    expect(extractPageLabel(linkText, 5)).toBe('iv');
+  });
+
+  it('extracts page label with "p." prefix (no space)', () => {
+    const linkText = '[[books/test.pdf#page=5&selection=0,0,1,10|p.iv]]';
+    expect(extractPageLabel(linkText, 5)).toBe('iv');
+  });
+
+  it('extracts page label with "page" prefix', () => {
+    const linkText = '[[books/test.pdf#page=10&selection=0,0,1,10|page xii]]';
+    expect(extractPageLabel(linkText, 10)).toBe('xii');
+  });
+
+  it('extracts page label after quoted text', () => {
+    const linkText = '[[books/test.pdf#page=5&selection=0,0,1,10|"Some quote"|p. iv]]';
+    expect(extractPageLabel(linkText, 5)).toBe('iv');
+  });
+
+  it('returns undefined when page label matches physical page', () => {
+    const linkText = '[[books/test.pdf#page=42&selection=0,0,1,10|p. 42]]';
+    expect(extractPageLabel(linkText, 42)).toBeUndefined();
+  });
+
+  it('returns undefined when no page label pattern found', () => {
+    const linkText = '[[books/test.pdf#page=5&selection=0,0,1,10|"Just a quote"]]';
+    expect(extractPageLabel(linkText, 5)).toBeUndefined();
+  });
+
+  it('handles complex page labels like "A-3"', () => {
+    const linkText = '[[books/test.pdf#page=5&selection=0,0,1,10|p. A-3]]';
+    expect(extractPageLabel(linkText, 5)).toBe('A-3');
+  });
+
+  it('is case insensitive for prefix', () => {
+    const linkText = '[[books/test.pdf#page=5&selection=0,0,1,10|P. iv]]';
+    expect(extractPageLabel(linkText, 5)).toBe('iv');
   });
 });
 

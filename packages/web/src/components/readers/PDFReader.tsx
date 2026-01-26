@@ -2059,6 +2059,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
             noteId={note.id}
             currentPage={currentPage}
             totalPages={totalPages}
+            dateFinished={note.dateFinished}
             onClose={() => setStatsOpen(false)}
           />
         )}
