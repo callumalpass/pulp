@@ -98,6 +98,8 @@ export function EPUBReader({ note }: EPUBReaderProps) {
   const [currentChapter, setCurrentChapter] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [currentCfi, setCurrentCfi] = useState<string | null>(null);
+  const [showClickZones, setShowClickZones] = useState(true);
+  const [headerVisible, setHeaderVisible] = useState(true);
 
   const isMobile = useMobile();
   const theme = (readerTheme || 'dark') as EPUBTheme;
@@ -140,6 +142,16 @@ export function EPUBReader({ note }: EPUBReaderProps) {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [pauseSession, resumeSession]);
+
+  // Auto-hide click zone hints after initial display
+  useEffect(() => {
+    if (!isLoading && showClickZones) {
+      const timer = setTimeout(() => {
+        setShowClickZones(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoading, showClickZones]);
 
   const loadEPUB = async () => {
     if (!containerRef.current) {
@@ -294,7 +306,7 @@ export function EPUBReader({ note }: EPUBReaderProps) {
         });
       });
 
-      // Click to navigate (left/right thirds)
+      // Click to navigate (left/right thirds) or toggle UI (center)
       rendition.on('click', (e: MouseEvent) => {
         const target = e.target as HTMLElement;
         if (target.tagName === 'A') return; // Don't navigate on links
@@ -303,14 +315,28 @@ export function EPUBReader({ note }: EPUBReaderProps) {
         const sel = (e.view as Window)?.getSelection();
         if (sel && !sel.isCollapsed) return;
 
-        const x = e.clientX;
-        const containerWidth = containerRef.current?.offsetWidth || 0;
+        // Use screen coordinates for reliable cross-iframe calculation
+        const containerRect = containerRef.current?.getBoundingClientRect();
+        if (!containerRect) return;
+
+        // Convert container bounds to screen coordinates
+        const containerScreenLeft = containerRect.left + window.screenX + (window.outerWidth - window.innerWidth);
+        const containerWidth = containerRect.width;
         const third = containerWidth / 3;
 
-        if (x < third) {
+        // e.screenX is the click position in screen coordinates
+        const relativeX = e.screenX - containerScreenLeft;
+
+        if (relativeX < third) {
           rendition.prev();
-        } else if (x > containerWidth - third) {
+        } else if (relativeX > containerWidth - third) {
           rendition.next();
+        } else {
+          // Center tap toggles header visibility
+          setHeaderVisible(prev => {
+            if (!prev) setShowClickZones(true);
+            return !prev;
+          });
         }
       });
 
@@ -450,8 +476,11 @@ export function EPUBReader({ note }: EPUBReaderProps) {
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't handle shortcuts if typing in an input
+      // Don't handle shortcuts if typing in an input or contenteditable (CodeMirror)
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      if (e.target instanceof HTMLElement && (e.target.isContentEditable || e.target.closest('.cm-editor'))) {
         return;
       }
 
@@ -550,6 +579,16 @@ export function EPUBReader({ note }: EPUBReaderProps) {
         return;
       }
 
+      // Toggle header/UI visibility: H
+      if (e.key === 'h' || e.key === 'H') {
+        e.preventDefault();
+        setHeaderVisible(prev => {
+          if (!prev) setShowClickZones(true);
+          return !prev;
+        });
+        return;
+      }
+
       if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
         e.preventDefault();
         renditionRef.current?.next();
@@ -590,10 +629,13 @@ export function EPUBReader({ note }: EPUBReaderProps) {
     >
       {/* Header */}
       <header
-        className="h-12 flex items-center px-4 gap-3 border-b border-current/10"
+        className={`h-12 flex items-center px-4 gap-3 border-b border-current/10 transition-opacity duration-200 ${
+          headerVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
         style={{ color: colors.text }}
         role="toolbar"
         aria-label="Reader controls"
+        aria-hidden={!headerVisible}
       >
         <Link
           to="/"
@@ -748,12 +790,15 @@ export function EPUBReader({ note }: EPUBReaderProps) {
 
       {/* Progress bar */}
       <div
-        className="h-1 bg-current/10"
+        className={`h-1 bg-current/10 transition-opacity duration-200 ${
+          headerVisible ? 'opacity-100' : 'opacity-0'
+        }`}
         role="progressbar"
         aria-valuenow={Math.round(progress)}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-label={`Reading progress: ${Math.round(progress)}%`}
+        aria-hidden={!headerVisible}
       >
         <div
           className="h-full bg-current/40 transition-all duration-300"
@@ -827,14 +872,46 @@ export function EPUBReader({ note }: EPUBReaderProps) {
             </div>
           )}
 
-          {/* Click zones indicator (shown briefly on mobile) */}
-          {!isLoading && isMobile && (
-            <div className="absolute inset-0 pointer-events-none flex opacity-0">
-              <div className="w-1/3 h-full border-r border-dashed border-current/20" />
-              <div className="w-1/3 h-full" />
-              <div className="w-1/3 h-full border-l border-dashed border-current/20" />
+          {/* Click zones indicator (shown briefly on load) */}
+          {!isLoading && (
+            <div
+              className={`absolute inset-0 pointer-events-none flex transition-opacity duration-1000 ${
+                showClickZones ? 'opacity-100' : 'opacity-0'
+              }`}
+              style={{ color: colors.text }}
+              aria-hidden="true"
+            >
+              {/* Left zone - previous page */}
+              <div className="w-1/3 h-full flex items-center justify-center bg-current/5">
+                <div className="flex flex-col items-center gap-2 opacity-60">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M15 18l-6-6 6-6" />
+                  </svg>
+                  <span className="text-xs font-medium">Previous</span>
+                </div>
+              </div>
+              {/* Center zone - toggle UI */}
+              <div className="w-1/3 h-full flex items-center justify-center border-x border-dashed border-current/20">
+                <div className="flex flex-col items-center gap-2 opacity-60">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <path d="M3 9h18" />
+                  </svg>
+                  <span className="text-xs font-medium">Toggle UI</span>
+                </div>
+              </div>
+              {/* Right zone - next page */}
+              <div className="w-1/3 h-full flex items-center justify-center bg-current/5">
+                <div className="flex flex-col items-center gap-2 opacity-60">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M9 18l6-6-6-6" />
+                  </svg>
+                  <span className="text-xs font-medium">Next</span>
+                </div>
+              </div>
             </div>
           )}
+
         </div>
 
         {/* Settings panel */}

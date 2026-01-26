@@ -99,6 +99,7 @@ const EPUB_SHORTCUTS: ShortcutGroup[] = [
     title: 'View',
     shortcuts: [
       { keys: ['D'], description: 'Toggle dark mode' },
+      { keys: ['H'], description: 'Toggle header/UI visibility' },
     ],
   },
 ];
