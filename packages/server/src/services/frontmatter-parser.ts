@@ -486,7 +486,7 @@ export function bookmarkToFrontmatter(
   return wikilink;
 }
 
-import type { ProgressMilestone, ReadingMomentum, ProgressMilestoneRecord, ReadingStats } from '@pulp/shared';
+import type { ProgressMilestone, ReadingMomentum, ProgressMilestoneRecord, ReadingStats, CSLMetadata } from '@pulp/shared';
 
 // Re-export ReadingStats as ParsedReadingStats for backward compatibility
 // Uses the shared type which has optional milestones, momentum, momentumScore
@@ -921,6 +921,140 @@ export function getBookNotes(
   if (typeof notes === 'string' && notes.trim()) {
     return notes.trim();
   }
+  return null;
+}
+
+/**
+ * Parse CSL (Citation Style Language) metadata from frontmatter.
+ * Handles standard CSL-JSON field names used by citation managers like Zotero.
+ */
+export function getCSLMetadata(frontmatter: Record<string, unknown>): CSLMetadata | null {
+  const csl: CSLMetadata = {
+    type: getCSLString(frontmatter, 'type'),
+    containerTitle: getCSLString(frontmatter, 'container-title'),
+    publisher: getCSLString(frontmatter, 'publisher'),
+    publisherPlace: getCSLString(frontmatter, 'publisher-place') || getCSLString(frontmatter, 'event-place'),
+    issued: getCSLIssued(frontmatter),
+    isbn: getCSLString(frontmatter, 'ISBN'),
+    doi: getCSLDoi(frontmatter),
+    url: getCSLString(frontmatter, 'URL'),
+    edition: getCSLString(frontmatter, 'edition'),
+    volume: getCSLString(frontmatter, 'volume'),
+    issue: getCSLString(frontmatter, 'issue'),
+    page: getCSLString(frontmatter, 'page'),
+    collectionTitle: getCSLString(frontmatter, 'collection-title'),
+    translator: getCSLPersons(frontmatter, 'translator'),
+  };
+
+  // Return null if no CSL metadata found
+  const hasAnyValue = Object.values(csl).some(v => v !== null);
+  return hasAnyValue ? csl : null;
+}
+
+/**
+ * Get a string value from frontmatter, handling various formats.
+ */
+function getCSLString(frontmatter: Record<string, unknown>, key: string): string | null {
+  const value = frontmatter[key];
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim();
+  }
+  if (typeof value === 'number') {
+    return String(value);
+  }
+  return null;
+}
+
+/**
+ * Parse CSL issued date from frontmatter.
+ * Handles both CSL date-parts format and simple year field.
+ */
+function getCSLIssued(frontmatter: Record<string, unknown>): string | null {
+  // Try CSL issued format first: { date-parts: [[2023, 1, 15]] }
+  const issued = frontmatter.issued;
+  if (issued && typeof issued === 'object') {
+    const issuedObj = issued as Record<string, unknown>;
+    const dateParts = issuedObj['date-parts'];
+    if (Array.isArray(dateParts) && dateParts.length > 0) {
+      const parts = dateParts[0];
+      if (Array.isArray(parts) && parts.length > 0) {
+        // Extract year, month, day
+        const year = parts[0];
+        const month = parts[1];
+        const day = parts[2];
+
+        if (typeof year === 'number' || typeof year === 'string') {
+          const yearStr = String(year);
+          if (month) {
+            const monthStr = String(month).padStart(2, '0');
+            if (day) {
+              const dayStr = String(day).padStart(2, '0');
+              return `${yearStr}-${monthStr}-${dayStr}`;
+            }
+            return `${yearStr}-${monthStr}`;
+          }
+          return yearStr;
+        }
+      }
+    }
+  }
+
+  // Fallback to year field
+  const year = frontmatter.year;
+  if (typeof year === 'number') {
+    return String(year);
+  }
+  if (typeof year === 'string' && year.trim()) {
+    return year.trim();
+  }
+
+  return null;
+}
+
+/**
+ * Parse DOI from frontmatter.
+ * Handles both direct DOI field and note field with DOI.
+ */
+function getCSLDoi(frontmatter: Record<string, unknown>): string | null {
+  // Direct DOI field
+  const doi = frontmatter.DOI || frontmatter.doi;
+  if (typeof doi === 'string' && doi.trim()) {
+    return doi.trim();
+  }
+
+  // Check note field for DOI (common in Zotero exports)
+  const note = frontmatter.note;
+  if (typeof note === 'string') {
+    const doiMatch = note.match(/DOI:\s*(\S+)/i);
+    if (doiMatch) {
+      return doiMatch[1];
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Format CSL person array (authors, translators, etc.) to a string.
+ */
+function getCSLPersons(frontmatter: Record<string, unknown>, key: string): string | null {
+  const persons = frontmatter[key];
+
+  if (!persons) return null;
+
+  if (typeof persons === 'string' && persons.trim()) {
+    return persons.trim();
+  }
+
+  if (Array.isArray(persons) && persons.length > 0) {
+    const formatted = persons.map(p => formatAuthorValue(p)).filter(Boolean);
+    return formatted.length > 0 ? formatted.join(', ') : null;
+  }
+
+  if (typeof persons === 'object') {
+    return formatAuthorValue(persons);
+  }
+
   return null;
 }
 

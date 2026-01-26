@@ -184,6 +184,9 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
   const [previewContent, setPreviewContent] = useState('');
   const contentRef = useRef<string>('');
   const [isResizing, setIsResizing] = useState(false);
+  const previewUpdateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [toolbarScrollState, setToolbarScrollState] = useState<'start' | 'middle' | 'end' | 'none'>('none');
 
   const { pdfColorMode } = useReaderStore();
   const {
@@ -197,6 +200,10 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
   } = usePreferencesStore();
   // Check both PDF color mode and EPUB reader theme for e-ink
   const isEink = pdfColorMode === 'eink' || readerTheme === 'eink';
+
+  // Minimum width for split mode (px) - at 400px, each pane is 200px
+  const MIN_SPLIT_WIDTH = 400;
+  const isSplitAvailable = markdownPanelWidth >= MIN_SPLIT_WIDTH;
 
   const { data: content, isLoading } = useNoteContent(noteId);
   const { saveDebounced, saveImmediately, isPending, hasPendingDebounce } = useUpdateNoteContent(noteId);
@@ -414,9 +421,14 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
             contentRef.current = newContent;
             setSaveStatus('unsaved');
             saveDebounced(newContent);
-            // Update preview if in split view
+            // Debounce preview update in split view for better typing performance
             if (viewMode === 'split') {
-              setPreviewContent(markdownToHtml(newContent));
+              if (previewUpdateTimer.current) {
+                clearTimeout(previewUpdateTimer.current);
+              }
+              previewUpdateTimer.current = setTimeout(() => {
+                setPreviewContent(markdownToHtml(newContent));
+              }, 100);
             }
           }
         }),
@@ -434,6 +446,9 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
     return () => {
       view.destroy();
       viewRef.current = null;
+      if (previewUpdateTimer.current) {
+        clearTimeout(previewUpdateTimer.current);
+      }
     };
   }, [content, handleSave, saveDebounced, insertFormatting, insertLink, insertCodeBlock, isEink, viewMode]);
 
@@ -458,6 +473,43 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
       });
     }
   }, [markdownPanelVimMode]);
+
+  // Auto-switch from split to edit mode if panel becomes too narrow
+  useEffect(() => {
+    if (viewMode === 'split' && !isSplitAvailable) {
+      setViewMode('edit');
+    }
+  }, [viewMode, isSplitAvailable]);
+
+  // Detect toolbar scroll state for fade indicators
+  useEffect(() => {
+    const toolbar = toolbarRef.current;
+    if (!toolbar) return;
+
+    const updateScrollState = () => {
+      const { scrollLeft, scrollWidth, clientWidth } = toolbar;
+      const maxScroll = scrollWidth - clientWidth;
+
+      if (maxScroll <= 0) {
+        setToolbarScrollState('none');
+      } else if (scrollLeft <= 1) {
+        setToolbarScrollState('start');
+      } else if (scrollLeft >= maxScroll - 1) {
+        setToolbarScrollState('end');
+      } else {
+        setToolbarScrollState('middle');
+      }
+    };
+
+    updateScrollState();
+    toolbar.addEventListener('scroll', updateScrollState);
+    window.addEventListener('resize', updateScrollState);
+
+    return () => {
+      toolbar.removeEventListener('scroll', updateScrollState);
+      window.removeEventListener('resize', updateScrollState);
+    };
+  }, [isLoading]);
 
   // Handle resize
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
@@ -532,7 +584,11 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
   );
 
   const toolbar = (
-    <div className={`flex items-center ${isMobile ? 'gap-0.5 px-2 py-1.5 overflow-x-auto' : 'gap-1 px-3 py-2'} border-b ${isEink ? 'border-gray-300 bg-gray-50' : 'border-text-secondary/10'}`}>
+    <div className={`markdown-editor-toolbar ${toolbarScrollState !== 'none' ? `scroll-${toolbarScrollState}` : ''}`}>
+    <div
+      ref={toolbarRef}
+      className={`markdown-editor-toolbar-inner flex items-center ${isMobile ? 'gap-0.5 px-2 py-1.5' : 'gap-1 px-3 py-2'} border-b ${isEink ? 'border-gray-300 bg-gray-50' : 'border-text-secondary/10'}`}
+    >
       {/* Formatting buttons */}
       <ToolbarButton onClick={() => insertFormatting('**')} title="Bold (Cmd+B)">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -614,18 +670,20 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
       <div className="flex-1" />
 
       {/* Vim mode toggle */}
-      <ToolbarButton
-        onClick={() => setMarkdownPanelVimMode(!markdownPanelVimMode)}
-        title={markdownPanelVimMode ? 'Disable Vim mode' : 'Enable Vim mode'}
-        active={markdownPanelVimMode}
-      >
-        <span className="text-xs font-bold">VIM</span>
-      </ToolbarButton>
+      <div className="shrink-0">
+        <ToolbarButton
+          onClick={() => setMarkdownPanelVimMode(!markdownPanelVimMode)}
+          title={markdownPanelVimMode ? 'Disable Vim mode' : 'Enable Vim mode'}
+          active={markdownPanelVimMode}
+        >
+          <span className="text-xs font-bold">VIM</span>
+        </ToolbarButton>
+      </div>
 
       <div className={`w-px h-5 mx-1 ${isEink ? 'bg-gray-300' : 'bg-text-secondary/20'}`} />
 
       {/* View mode toggle */}
-      <div className={`flex items-center rounded-lg p-0.5 ${isEink ? 'bg-gray-200' : 'bg-bg-deep'}`}>
+      <div className={`flex items-center rounded-lg p-0.5 shrink-0 ${isEink ? 'bg-gray-200' : 'bg-bg-deep'}`}>
         <button
           onClick={() => setViewMode('edit')}
           title="Edit mode - write markdown"
@@ -640,12 +698,15 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
           Edit
         </button>
         <button
-          onClick={() => setViewMode('split')}
-          title="Split mode - edit and preview side by side"
+          onClick={() => isSplitAvailable && setViewMode('split')}
+          title={isSplitAvailable ? 'Split mode - edit and preview side by side' : 'Panel too narrow for split mode (min 500px)'}
           aria-label="Split mode"
           aria-pressed={viewMode === 'split'}
+          aria-disabled={!isSplitAvailable}
           className={`px-2 py-1 text-xs rounded transition-colors ${
-            viewMode === 'split'
+            !isSplitAvailable
+              ? isEink ? 'text-gray-400 cursor-not-allowed' : 'text-text-secondary/50 cursor-not-allowed'
+              : viewMode === 'split'
               ? isEink ? 'bg-white text-black shadow-sm' : 'bg-bg-surface text-text-primary'
               : isEink ? 'text-gray-600' : 'text-text-secondary'
           }`}
@@ -667,18 +728,21 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
         </button>
       </div>
     </div>
+    </div>
   );
 
   const previewPane = (
-    <div
-      className={`prose prose-sm max-w-none p-4 overflow-auto h-full ${
-        isEink
-          ? 'prose-gray bg-white'
-          : 'prose-invert bg-bg-deep'
-      }`}
-      style={isEink ? { color: '#000' } : {}}
-      dangerouslySetInnerHTML={{ __html: previewContent }}
-    />
+    <div className={`overflow-y-auto h-full px-4 ${isEink ? 'bg-white' : 'bg-bg-deep'}`}>
+      <div
+        className={`prose prose-sm max-w-none py-4 ${
+          isEink
+            ? 'prose-gray'
+            : 'prose-invert'
+        }`}
+        style={isEink ? { color: '#000' } : {}}
+        dangerouslySetInnerHTML={{ __html: previewContent }}
+      />
+    </div>
   );
 
   const panelContent = (

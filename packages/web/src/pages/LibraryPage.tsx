@@ -5,6 +5,7 @@ import { useCollections } from '../hooks/useCollections';
 import { useMobile } from '../hooks/useMobile';
 import { useConnection } from '../contexts/ConnectionContext';
 import { LibraryGrid } from '../components/library/LibraryGrid';
+import { LibraryListView } from '../components/library/LibraryListView';
 import { SearchResults } from '../components/library/SearchResults';
 import { MobileLibraryFilters } from '../components/library/MobileLibraryFilters';
 import { ContinueReadingCard, ContinueReadingCardSkeleton } from '../components/library/ContinueReadingCard';
@@ -37,12 +38,14 @@ export function LibraryPage() {
     progressFilter,
     collectionFilter,
     searchMode,
+    viewMode,
     setSort,
     toggleSortOrder,
     setTypeFilter,
     setProgressFilter,
     setCollectionFilter,
     setSearchMode,
+    setViewMode,
     clearFilters,
   } = useLibraryFiltersStore();
 
@@ -166,38 +169,38 @@ export function LibraryPage() {
 
   if (isLoading && !showConnectionError) {
     return (
-      <div className="p-6">
+      <div className="p-6 page-transition">
         {/* Search bar skeleton */}
         <div className="flex flex-col gap-4 mb-6">
           <div className="flex gap-2">
-            <div className="flex-1 h-10 bg-bg-surface rounded-lg animate-pulse" />
-            <div className="w-24 h-10 bg-bg-surface rounded-lg animate-pulse" />
+            <div className="flex-1 h-11 skeleton rounded-xl" />
+            <div className="w-28 h-11 skeleton rounded-xl" />
           </div>
           {/* Filter row skeleton */}
           {!isMobile && (
             <div className="flex flex-wrap items-center gap-3">
-              <div className="w-32 h-8 bg-bg-surface rounded-lg animate-pulse" />
-              <div className="w-48 h-8 bg-bg-surface rounded-lg animate-pulse" />
+              <div className="w-32 h-9 skeleton rounded-xl" />
+              <div className="w-48 h-9 skeleton rounded-xl" />
               <div className="flex-1" />
-              <div className="w-64 h-8 bg-bg-surface rounded-lg animate-pulse" />
+              <div className="w-64 h-9 skeleton rounded-xl" />
             </div>
           )}
         </div>
 
         {/* Continue Reading skeleton */}
         <div className="mb-8">
-          <div className="w-32 h-4 bg-bg-surface rounded animate-pulse mb-3" />
+          <div className="w-36 h-4 skeleton rounded mb-4" />
           <ContinueReadingCardSkeleton />
         </div>
 
         {/* Library grid skeleton */}
-        <div className="w-20 h-4 bg-bg-surface rounded animate-pulse mb-3" />
+        <div className="w-20 h-4 skeleton rounded mb-4" />
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="flex flex-col gap-2">
-              <div className="aspect-[2/3] bg-bg-surface rounded-lg animate-pulse" />
-              <div className="h-4 bg-bg-surface rounded animate-pulse w-3/4" />
-              <div className="h-3 bg-bg-surface rounded animate-pulse w-1/2" />
+              <div className="aspect-[2/3] skeleton rounded-xl" />
+              <div className="h-4 skeleton rounded w-3/4" />
+              <div className="h-3 skeleton rounded w-1/2" />
             </div>
           ))}
         </div>
@@ -224,20 +227,47 @@ export function LibraryPage() {
     );
   }
 
+  // Empty library state - shown when there are no books at all
+  if (notes && notes.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] p-6 page-transition">
+        <div className="relative mb-8 animate-float">
+          {/* Decorative background circles */}
+          <div className="absolute -inset-12 bg-gradient-to-br from-accent-primary/15 via-transparent to-accent-secondary/15 rounded-full blur-3xl" />
+          <div className="relative bg-bg-surface p-8 rounded-3xl border border-white/[0.08] shadow-xl shadow-black/20 animate-pulse-glow">
+            <BookStackIcon className="w-20 h-20 text-accent-primary" />
+          </div>
+        </div>
+        <h2 className="text-2xl font-bold text-text-primary mb-3">
+          Your library awaits
+        </h2>
+        <p className="text-text-secondary text-center max-w-md mb-2 leading-relaxed">
+          Start building your reading collection by adding literature notes with linked PDFs or EPUBs.
+        </p>
+        <p className="text-text-secondary/60 text-sm text-center max-w-md mb-8 leading-relaxed">
+          Place your markdown files in your configured library folder and link them to documents using the <code className="px-1.5 py-0.5 rounded-md bg-bg-surface text-accent-secondary text-xs font-mono">source</code> frontmatter key.
+        </p>
+        <Button variant="secondary" onClick={() => refetch()}>
+          Refresh Library
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6">
       {/* Search and filters */}
       <div className="flex flex-col gap-4 mb-6">
         {/* Search bar with mode toggle */}
         <div className="flex gap-2">
-          <div className="relative flex-1">
-            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary" />
+          <div className="relative flex-1 group/search">
+            <SearchIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary transition-colors group-focus-within/search:text-accent-primary" />
             <input
               type="search"
               placeholder={searchMode === 'title' ? 'Search by title...' : 'Search document contents...'}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-bg-surface border border-text-secondary/20 rounded-lg text-text-primary placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-accent-primary/50 focus:border-accent-primary"
+              className="w-full pl-10 pr-10 py-2.5 bg-bg-surface border border-white/[0.08] rounded-xl text-text-primary placeholder:text-text-secondary/60 focus:outline-none focus:ring-2 focus:ring-accent-primary/30 focus:border-accent-primary/50 transition-all duration-200 hover:border-text-secondary/30"
             />
             {searchQuery && (
               <button
@@ -252,14 +282,14 @@ export function LibraryPage() {
           </div>
 
           {/* Search mode toggle */}
-          <div className="flex rounded-lg bg-bg-surface border border-text-secondary/20 overflow-hidden">
+          <div className="flex rounded-xl filter-btn-group overflow-hidden">
             <button
               onClick={() => setSearchMode('title')}
               type="button"
-              className={`px-3 py-2 text-sm transition-colors flex items-center gap-1.5 ${
+              className={`filter-btn px-3 py-2 text-sm transition-all duration-150 flex items-center gap-1.5 ${
                 searchMode === 'title'
-                  ? 'bg-accent-primary/20 text-accent-primary'
-                  : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'
+                  ? 'filter-btn-active text-accent-primary'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep/50'
               }`}
               title="Search by title"
               aria-pressed={searchMode === 'title'}
@@ -270,10 +300,10 @@ export function LibraryPage() {
             <button
               onClick={() => setSearchMode('content')}
               type="button"
-              className={`px-3 py-2 text-sm transition-colors flex items-center gap-1.5 ${
+              className={`filter-btn px-3 py-2 text-sm transition-all duration-150 flex items-center gap-1.5 ${
                 searchMode === 'content'
-                  ? 'bg-accent-primary/20 text-accent-primary'
-                  : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'
+                  ? 'filter-btn-active text-accent-primary'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep/50'
               }`}
               title="Search document contents"
               aria-pressed={searchMode === 'content'}
@@ -309,29 +339,43 @@ export function LibraryPage() {
                 aria-expanded={showMobileFilters}
                 aria-controls="library-filters-sheet"
                 type="button"
-                className="flex items-center gap-2 px-4 py-2 bg-bg-surface border border-text-secondary/20 rounded-lg text-text-primary"
+                className="flex items-center gap-2 min-h-[44px] px-4 py-2.5 bg-bg-surface border border-text-secondary/20 rounded-xl text-text-primary hover:border-text-secondary/40 transition-colors active:scale-[0.97]"
               >
                 <FilterIcon className="w-4 h-4" />
-                <span className="text-sm">Filters</span>
+                <span className="text-sm font-medium">Filters</span>
                 {activeFilterCount > 0 && (
-                  <span className="flex items-center justify-center w-5 h-5 text-xs font-medium bg-accent-primary text-white rounded-full">
+                  <span className="flex items-center justify-center w-5 h-5 text-xs font-bold bg-accent-primary text-bg-deep rounded-full">
                     {activeFilterCount}
                   </span>
+                )}
+              </button>
+              {/* View mode toggle on mobile */}
+              <button
+                onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
+                type="button"
+                className="w-11 h-11 flex items-center justify-center rounded-xl bg-bg-surface border border-text-secondary/20 text-text-secondary hover:text-text-primary hover:bg-bg-deep hover:border-text-secondary/40 transition-colors active:scale-[0.97]"
+                title={viewMode === 'grid' ? 'Switch to list view' : 'Switch to grid view'}
+                aria-label={viewMode === 'grid' ? 'Switch to list view' : 'Switch to grid view'}
+              >
+                {viewMode === 'grid' ? (
+                  <ListViewIcon className="w-5 h-5" />
+                ) : (
+                  <GridViewIcon className="w-5 h-5" />
                 )}
               </button>
               {/* Sort order button on mobile */}
               <button
                 onClick={toggleSortOrder}
                 type="button"
-                className="p-2 rounded-lg bg-bg-surface border border-text-secondary/20 text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-colors"
+                className="w-11 h-11 flex items-center justify-center rounded-xl bg-bg-surface border border-text-secondary/20 text-text-secondary hover:text-text-primary hover:bg-bg-deep hover:border-text-secondary/40 transition-colors active:scale-[0.97]"
                 title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
                 aria-label={`Sort order: ${sortOrder === 'asc' ? 'ascending' : 'descending'}`}
                 aria-pressed={sortOrder === 'asc'}
               >
                 {sortOrder === 'asc' ? (
-                  <SortAscIcon className="w-4 h-4" />
+                  <SortAscIcon className="w-5 h-5" />
                 ) : (
-                  <SortDescIcon className="w-4 h-4" />
+                  <SortDescIcon className="w-5 h-5" />
                 )}
               </button>
             </div>
@@ -340,8 +384,8 @@ export function LibraryPage() {
             <div className="flex flex-wrap items-center gap-3">
               {/* Type filter */}
               <div className="flex items-center gap-1.5">
-                <span className="text-xs text-text-secondary uppercase tracking-wide">Type</span>
-                <div className="flex rounded-lg bg-bg-surface border border-text-secondary/20 overflow-hidden">
+                <span className="text-xs text-text-secondary/70 uppercase tracking-wider font-medium">Type</span>
+                <div className="flex rounded-xl filter-btn-group overflow-hidden">
                   <FilterButton
                     active={typeFilter === 'all'}
                     onClick={() => handleTypeFilter('all')}
@@ -365,8 +409,8 @@ export function LibraryPage() {
 
               {/* Progress filter */}
               <div className="flex items-center gap-1.5">
-                <span className="text-xs text-text-secondary uppercase tracking-wide">Status</span>
-                <div className="flex rounded-lg bg-bg-surface border border-text-secondary/20 overflow-hidden">
+                <span className="text-xs text-text-secondary/70 uppercase tracking-wider font-medium">Status</span>
+                <div className="flex rounded-xl filter-btn-group overflow-hidden">
                   {(Object.keys(PROGRESS_LABELS) as ProgressFilter[]).map((key) => (
                     <FilterButton
                       key={key}
@@ -382,11 +426,11 @@ export function LibraryPage() {
               {/* Collection filter */}
               {availableCollections.length > 0 && (
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-text-secondary uppercase tracking-wide">Collection</span>
+                  <span className="text-xs text-text-secondary/70 uppercase tracking-wider font-medium">Collection</span>
                   <select
                     value={collectionFilter || ''}
                     onChange={(e) => setCollectionFilter(e.target.value || null)}
-                    className="px-2 py-1.5 text-sm bg-bg-surface border border-text-secondary/20 rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary/50"
+                    className="collection-select px-3 py-2 text-sm bg-bg-surface border border-white/[0.08] rounded-xl text-text-primary focus:outline-none min-h-[38px]"
                   >
                     <option value="">All</option>
                     {availableCollections.map((collection) => (
@@ -401,10 +445,45 @@ export function LibraryPage() {
               {/* Spacer */}
               <div className="flex-1" />
 
+              {/* View mode toggle */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-text-secondary/70 uppercase tracking-wider font-medium">View</span>
+                <div className="flex rounded-xl filter-btn-group overflow-hidden">
+                  <button
+                    onClick={() => setViewMode('grid')}
+                    type="button"
+                    className={`filter-btn p-2 transition-all duration-150 ${
+                      viewMode === 'grid'
+                        ? 'filter-btn-active text-accent-primary'
+                        : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep/50'
+                    }`}
+                    title="Grid view"
+                    aria-label="Grid view"
+                    aria-pressed={viewMode === 'grid'}
+                  >
+                    <GridViewIcon className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setViewMode('list')}
+                    type="button"
+                    className={`filter-btn p-2 transition-all duration-150 ${
+                      viewMode === 'list'
+                        ? 'filter-btn-active text-accent-primary'
+                        : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep/50'
+                    }`}
+                    title="List view"
+                    aria-label="List view"
+                    aria-pressed={viewMode === 'list'}
+                  >
+                    <ListViewIcon className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
               {/* Sort controls */}
               <div className="flex items-center gap-1.5">
-                <span className="text-xs text-text-secondary uppercase tracking-wide">Sort</span>
-                <div className="flex rounded-lg bg-bg-surface border border-text-secondary/20 overflow-hidden">
+                <span className="text-xs text-text-secondary/70 uppercase tracking-wider font-medium">Sort</span>
+                <div className="flex rounded-xl filter-btn-group overflow-hidden">
                   {(Object.keys(SORT_LABELS) as SortOption[]).map((key) => (
                     <FilterButton
                       key={key}
@@ -418,7 +497,7 @@ export function LibraryPage() {
                 <button
                   onClick={toggleSortOrder}
                   type="button"
-                  className="p-1.5 rounded-lg bg-bg-surface border border-text-secondary/20 text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-colors"
+                  className="w-10 h-10 flex items-center justify-center rounded-xl filter-btn-group text-text-secondary hover:text-accent-primary hover:bg-bg-deep transition-all duration-150 active:scale-95"
                   title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
                   aria-label={`Sort order: ${sortOrder === 'asc' ? 'ascending' : 'descending'}`}
                   aria-pressed={sortOrder === 'asc'}
@@ -455,16 +534,16 @@ export function LibraryPage() {
       {!isShowingSearchResults && !hasActiveFilters && (
         isLoading ? (
           <div className="mb-8">
-            <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-3">
+            <SectionHeader icon={<PlayCircleIcon className="w-4 h-4" />}>
               Continue Reading
-            </h2>
+            </SectionHeader>
             <ContinueReadingCardSkeleton />
           </div>
         ) : continueReadingBook ? (
           <div className="mb-8">
-            <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-3">
+            <SectionHeader icon={<PlayCircleIcon className="w-4 h-4" />}>
               Continue Reading
-            </h2>
+            </SectionHeader>
             <ContinueReadingCard note={continueReadingBook} />
           </div>
         ) : null
@@ -480,15 +559,17 @@ export function LibraryPage() {
       ) : (
         <>
           {!hasActiveFilters && continueReadingBook && (
-            <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-3">
-              Library
-            </h2>
+            <SectionHeader icon={<LibraryIcon className="w-4 h-4" />}>
+              All Books
+            </SectionHeader>
           )}
           {filteredNotes.length === 0 && (notes?.length ?? 0) > 0 ? (
             <FilteredEmptyState
               query={searchQuery}
               onClear={handleClearFilters}
             />
+          ) : viewMode === 'list' ? (
+            <LibraryListView notes={filteredNotes} />
           ) : (
             <LibraryGrid notes={filteredNotes} />
           )}
@@ -530,10 +611,10 @@ function FilterButton({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`px-3 py-1.5 text-sm transition-all duration-150 select-none ${
+      className={`filter-btn px-3.5 py-2 text-sm font-medium transition-all duration-150 select-none min-h-[38px] ${
         active
-          ? 'bg-accent-primary/20 text-accent-primary'
-          : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep active:bg-accent-primary/10 active:scale-95'
+          ? 'filter-btn-active text-accent-primary'
+          : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep/50 active:scale-95'
       }`}
     >
       {children}
@@ -549,16 +630,21 @@ function FilteredEmptyState({
   onClear: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-text-secondary">
-      <SearchIcon className="w-12 h-12 mb-3 opacity-40" />
-      <p className="text-lg text-text-primary">No matches found</p>
-      <p className="text-sm mt-1">
+    <div className="flex flex-col items-center justify-center py-20 text-text-secondary page-transition">
+      <div className="relative mb-4">
+        <div className="absolute -inset-4 bg-accent-primary/5 rounded-full blur-xl" />
+        <div className="relative p-4 bg-bg-surface rounded-2xl border border-white/[0.05]">
+          <SearchIcon className="w-10 h-10 text-text-secondary/50" />
+        </div>
+      </div>
+      <p className="text-lg font-semibold text-text-primary mb-1">No matches found</p>
+      <p className="text-sm text-text-secondary/70 mb-6">
         {query ? `No titles match "${query}".` : 'Try adjusting your filters.'}
       </p>
       <button
         type="button"
         onClick={onClear}
-        className="mt-4 px-4 py-2 rounded-lg bg-accent-primary/20 text-accent-primary text-sm font-medium"
+        className="min-h-[44px] px-5 py-2.5 rounded-xl bg-accent-primary/15 text-accent-primary text-sm font-medium hover:bg-accent-primary/25 transition-colors active:scale-[0.97]"
       >
         Clear filters
       </button>
@@ -626,6 +712,72 @@ function DisconnectedIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+    </svg>
+  );
+}
+
+function BookStackIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      {/* Bottom book */}
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 19.5A2.5 2.5 0 016.5 17H20" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
+      {/* Book pages decoration */}
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h8M8 11h6" />
+    </svg>
+  );
+}
+
+function PlayCircleIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <circle cx="12" cy="12" r="10" />
+      <polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function LibraryIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
+    </svg>
+  );
+}
+
+function SectionHeader({ children, icon }: { children: React.ReactNode; icon?: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 mb-4">
+      {icon && (
+        <span className="text-accent-primary/70">{icon}</span>
+      )}
+      <h2 className="text-xs font-semibold tracking-wider text-text-secondary uppercase">
+        {children}
+      </h2>
+    </div>
+  );
+}
+
+function GridViewIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+    </svg>
+  );
+}
+
+function ListViewIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <line x1="8" y1="6" x2="21" y2="6" />
+      <line x1="8" y1="12" x2="21" y2="12" />
+      <line x1="8" y1="18" x2="21" y2="18" />
+      <line x1="3" y1="6" x2="3.01" y2="6" strokeLinecap="round" />
+      <line x1="3" y1="12" x2="3.01" y2="12" strokeLinecap="round" />
+      <line x1="3" y1="18" x2="3.01" y2="18" strokeLinecap="round" />
     </svg>
   );
 }

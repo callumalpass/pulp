@@ -23,7 +23,7 @@ test.describe('Library Page', () => {
 
     await page.goto('/');
 
-    await expect(page.getByText('No literature notes found')).toBeVisible();
+    await expect(page.getByText('Your library awaits')).toBeVisible();
   });
 
   test('should display book cards when notes exist', async ({ page }) => {

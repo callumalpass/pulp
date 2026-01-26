@@ -6,6 +6,7 @@ export type SortOrder = 'asc' | 'desc';
 export type TypeFilter = 'all' | 'pdf' | 'epub';
 export type ProgressFilter = 'all' | 'unread' | 'reading' | 'completed';
 export type SearchMode = 'title' | 'content';
+export type ViewMode = 'grid' | 'list';
 
 interface LibraryFiltersState {
   // Persisted filter preferences
@@ -15,6 +16,7 @@ interface LibraryFiltersState {
   progressFilter: ProgressFilter;
   collectionFilter: string | null; // null means no collection filter
   searchMode: SearchMode;
+  viewMode: ViewMode;
 
   // Actions
   setSort: (sort: SortOption) => void;
@@ -24,6 +26,7 @@ interface LibraryFiltersState {
   setProgressFilter: (filter: ProgressFilter) => void;
   setCollectionFilter: (collection: string | null) => void;
   setSearchMode: (mode: SearchMode) => void;
+  setViewMode: (mode: ViewMode) => void;
   clearFilters: () => void;
 }
 
@@ -37,6 +40,7 @@ export const useLibraryFiltersStore = create<LibraryFiltersState>()(
       progressFilter: 'all',
       collectionFilter: null,
       searchMode: 'title',
+      viewMode: 'grid',
 
       // Actions
       setSort: (sort) => set({ sort }),
@@ -46,11 +50,12 @@ export const useLibraryFiltersStore = create<LibraryFiltersState>()(
       setProgressFilter: (progressFilter) => set({ progressFilter }),
       setCollectionFilter: (collectionFilter) => set({ collectionFilter }),
       setSearchMode: (searchMode) => set({ searchMode }),
+      setViewMode: (viewMode) => set({ viewMode }),
       clearFilters: () => set({
         typeFilter: 'all',
         progressFilter: 'all',
         collectionFilter: null,
-        // Don't clear sort preferences as they're more like display preferences
+        // Don't clear sort/view preferences as they're more like display preferences
       }),
     }),
     {

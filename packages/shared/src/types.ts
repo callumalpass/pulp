@@ -43,6 +43,24 @@ export interface LiteratureNote {
   frontmatter: Record<string, unknown>;
 }
 
+// CSL (Citation Style Language) metadata extracted from frontmatter
+export interface CSLMetadata {
+  type: string | null;              // CSL type: book, chapter, article-journal, etc.
+  containerTitle: string | null;    // For chapters/articles: the book/journal title
+  publisher: string | null;         // Publisher name
+  publisherPlace: string | null;    // Place of publication
+  issued: string | null;            // Publication date (year or full date)
+  isbn: string | null;              // ISBN
+  doi: string | null;               // DOI
+  url: string | null;               // URL
+  edition: string | null;           // Edition
+  volume: string | null;            // Volume number
+  issue: string | null;             // Issue number
+  page: string | null;              // Page range (for chapters/articles)
+  collectionTitle: string | null;   // Series/collection title
+  translator: string | null;        // Translator(s)
+}
+
 export interface LiteratureNoteSummary {
   id: string;
   title: string;
@@ -64,6 +82,7 @@ export interface LiteratureNoteSummary {
   highlightCount: number;      // Number of highlights in this note
   collections: string[];       // User-defined collections/shelves this book belongs to
   currentChapter: string | null; // Current chapter/section for display in library
+  csl: CSLMetadata | null;     // CSL citation metadata from frontmatter
 }
 
 // Highlight categories with predefined colors

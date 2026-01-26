@@ -9,6 +9,8 @@ interface PreferencesState {
   markdownPanelOverlay: boolean;
   markdownPanelWidth: number;
   markdownPanelVimMode: boolean;
+  metadataPanelWidth: number;
+  metadataPanelExpandedSections: string[];
 
   setTheme: (theme: 'light' | 'dark') => void;
   setReaderTheme: (theme: 'light' | 'dark' | 'sepia' | 'eink') => void;
@@ -17,6 +19,9 @@ interface PreferencesState {
   setMarkdownPanelOverlay: (overlay: boolean) => void;
   setMarkdownPanelWidth: (width: number) => void;
   setMarkdownPanelVimMode: (enabled: boolean) => void;
+  setMetadataPanelWidth: (width: number) => void;
+  setMetadataPanelExpandedSections: (sections: string[]) => void;
+  toggleMetadataPanelSection: (section: string) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -29,6 +34,8 @@ export const usePreferencesStore = create<PreferencesState>()(
       markdownPanelOverlay: false,
       markdownPanelWidth: 400,
       markdownPanelVimMode: false,
+      metadataPanelWidth: 380,
+      metadataPanelExpandedSections: ['publication', 'progress'],
 
       setTheme: (theme) => {
         document.documentElement.setAttribute('data-theme', theme);
@@ -40,6 +47,13 @@ export const usePreferencesStore = create<PreferencesState>()(
       setMarkdownPanelOverlay: (markdownPanelOverlay) => set({ markdownPanelOverlay }),
       setMarkdownPanelWidth: (markdownPanelWidth) => set({ markdownPanelWidth: Math.max(280, Math.min(800, markdownPanelWidth)) }),
       setMarkdownPanelVimMode: (markdownPanelVimMode) => set({ markdownPanelVimMode }),
+      setMetadataPanelWidth: (metadataPanelWidth) => set({ metadataPanelWidth: Math.max(320, Math.min(500, metadataPanelWidth)) }),
+      setMetadataPanelExpandedSections: (metadataPanelExpandedSections) => set({ metadataPanelExpandedSections }),
+      toggleMetadataPanelSection: (section) => set((state) => ({
+        metadataPanelExpandedSections: state.metadataPanelExpandedSections.includes(section)
+          ? state.metadataPanelExpandedSections.filter(s => s !== section)
+          : [...state.metadataPanelExpandedSections, section]
+      })),
     }),
     {
       name: 'pulp-preferences',

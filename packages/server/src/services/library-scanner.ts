@@ -25,6 +25,7 @@ import {
   getReaderPreferences,
   getCurrentChapter,
   getBookNotes,
+  getCSLMetadata,
 } from './frontmatter-parser.js';
 import { parseHighlightsFromNote } from './highlight-parser.js';
 
@@ -292,6 +293,7 @@ export class LibraryScanner {
       highlightCount: note.highlights.length,
       collections: note.collections,
       currentChapter: note.currentChapter,
+      csl: getCSLMetadata(note.frontmatter),
     }));
   }
 
