@@ -7,11 +7,14 @@ export const configSchema = z.object({
   progress_key: z.string().default('reading_progress'),
   last_read_key: z.string().default('last_read'),
   date_created_key: z.string().default('dateCreated'),
+  author_key: z.string().default('author'),
+  rating_key: z.string().default('rating'),
+  total_pages_key: z.string().default('total_pages'),
   highlight_template: z.string().default(
-    '- [[{{source}}#page={{page}}&rect={{rect}}|"{{text}}"]]{{#if note}} — {{note}}{{/if}}'
+    '- [[{{source}}#page={{page}}&selection={{selection}}|"{{text}}"]]{{#if note}}\n{{note}}{{/if}}'
   ),
   highlight_template_epub: z.string().default(
-    '- [[{{source}}#cfi={{cfi}}|"{{text}}"]]{{#if note}} — {{note}}{{/if}}'
+    '- [[{{source}}#cfi={{cfi}}|"{{text}}"]]{{#if note}}\n{{note}}{{/if}}'
   ),
   progress_debounce_ms: z.number().default(5000),
   exclude_folders: z.array(z.string()).default(['.obsidian', '.trash', 'templates']),

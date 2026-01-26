@@ -26,7 +26,7 @@ export function Sidebar() {
               key={item.path}
               to={item.path}
               className={clsx(
-                'w-10 h-10 rounded-lg flex items-center justify-center transition-stoody',
+                'w-10 h-10 rounded-lg flex items-center justify-center transition-smooth',
                 isActive
                   ? 'bg-accent-primary/20 text-accent-primary'
                   : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'

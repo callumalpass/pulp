@@ -14,6 +14,9 @@ import {
   getBookmarks,
   getPinned,
   getReadingStats,
+  getAuthor,
+  getRating,
+  getTotalPages,
 } from './frontmatter-parser.js';
 import { parseHighlightsFromNote } from './highlight-parser.js';
 
@@ -102,6 +105,7 @@ export class LibraryScanner {
       const note: LiteratureNote = {
         id,
         title: getTitle(frontmatter, basename(notePath)),
+        author: getAuthor(frontmatter, this.config.author_key),
         source: resolvedSource,
         sourceRelative: sourcePath, // Keep the original relative path for wiki-links
         sourceType,
@@ -115,7 +119,9 @@ export class LibraryScanner {
         highlights,
         bookmarks,
         pinned: getPinned(frontmatter, this.config.pinned_key),
+        rating: getRating(frontmatter, this.config.rating_key),
         readingStats: getReadingStats(frontmatter, this.config.reading_stats_key),
+        totalPages: getTotalPages(frontmatter, this.config.total_pages_key),
         frontmatter,
       };
 
@@ -226,13 +232,17 @@ export class LibraryScanner {
     return sorted.map(note => ({
       id: note.id,
       title: note.title,
+      author: note.author,
+      citekey: typeof note.frontmatter.id === 'string' ? note.frontmatter.id : null,
       sourceType: note.sourceType,
       progress: note.progress,
       lastRead: note.lastRead,
       dateCreated: note.dateCreated,
       cover: note.cover,
       pinned: note.pinned,
+      rating: note.rating,
       readingStats: note.readingStats,
+      totalPages: note.totalPages,
     }));
   }
 

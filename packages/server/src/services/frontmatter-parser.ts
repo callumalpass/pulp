@@ -155,6 +155,66 @@ export function getPinned(
   return pinned === true || pinned === 'true';
 }
 
+export function getAuthor(
+  frontmatter: Record<string, unknown>,
+  authorKey: string
+): string | null {
+  const author = frontmatter[authorKey];
+
+  if (typeof author === 'string' && author.trim()) {
+    return author.trim();
+  }
+
+  // Handle array format (multiple authors)
+  if (Array.isArray(author) && author.length > 0) {
+    return author.map(a => String(a).trim()).join(', ');
+  }
+
+  return null;
+}
+
+export function getRating(
+  frontmatter: Record<string, unknown>,
+  ratingKey: string
+): number | null {
+  const rating = frontmatter[ratingKey];
+
+  if (typeof rating === 'number') {
+    // Clamp to valid range
+    const clamped = Math.max(1, Math.min(5, Math.round(rating)));
+    return clamped;
+  }
+
+  if (typeof rating === 'string') {
+    const parsed = parseFloat(rating);
+    if (!isNaN(parsed)) {
+      return Math.max(1, Math.min(5, Math.round(parsed)));
+    }
+  }
+
+  return null;
+}
+
+export function getTotalPages(
+  frontmatter: Record<string, unknown>,
+  totalPagesKey: string
+): number | null {
+  const totalPages = frontmatter[totalPagesKey];
+
+  if (typeof totalPages === 'number' && totalPages > 0) {
+    return Math.round(totalPages);
+  }
+
+  if (typeof totalPages === 'string') {
+    const parsed = parseInt(totalPages, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
 export interface ParsedBookmark {
   id: string;
   label: string;

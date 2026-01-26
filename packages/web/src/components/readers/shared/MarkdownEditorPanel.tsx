@@ -618,7 +618,7 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
           {!isMobile && (
             <button
               onClick={() => setMarkdownPanelOverlay(!markdownPanelOverlay)}
-              className={`w-6 h-6 rounded flex items-center justify-center transition-stoody ${isEink ? 'text-gray-600 hover:bg-gray-200' : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'}`}
+              className={`w-6 h-6 rounded flex items-center justify-center transition-smooth ${isEink ? 'text-gray-600 hover:bg-gray-200' : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'}`}
               title={markdownPanelOverlay ? 'Dock to side' : 'Float over content'}
             >
               {markdownPanelOverlay ? (
@@ -640,8 +640,8 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
           <button
             onClick={onClose}
             className={isMobile
-              ? `touch-target rounded-lg flex items-center justify-center transition-stoody ${isEink ? 'text-gray-600 hover:bg-gray-200' : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'}`
-              : `w-6 h-6 rounded flex items-center justify-center transition-stoody ${isEink ? 'text-gray-600 hover:bg-gray-200' : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'}`
+              ? `touch-target rounded-lg flex items-center justify-center transition-smooth ${isEink ? 'text-gray-600 hover:bg-gray-200' : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'}`
+              : `w-6 h-6 rounded flex items-center justify-center transition-smooth ${isEink ? 'text-gray-600 hover:bg-gray-200' : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'}`
             }
             title="Close (Esc)"
           >

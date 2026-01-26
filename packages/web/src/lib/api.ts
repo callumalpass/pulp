@@ -5,6 +5,7 @@ import type {
   Bookmark,
   ProgressUpdate,
   PinUpdate,
+  RatingUpdate,
   CreateHighlightRequest,
   UpdateHighlightRequest,
   CreateBookmarkRequest,
@@ -88,6 +89,18 @@ export const api = {
     update(id: string, data: PinUpdate) {
       return fetchJSON<{ success: boolean; pinned: boolean }>(
         `/library/${id}/pin`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(data),
+        }
+      );
+    },
+  },
+
+  rating: {
+    update(id: string, data: RatingUpdate) {
+      return fetchJSON<{ success: boolean; rating: number | null }>(
+        `/library/${id}/rating`,
         {
           method: 'PATCH',
           body: JSON.stringify(data),

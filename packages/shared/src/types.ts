@@ -15,6 +15,7 @@ export interface PulpConfig {
 export interface LiteratureNote {
   id: string;
   title: string;
+  author: string | null;       // Author of the work
   source: string;              // Absolute path to source file
   sourceRelative: string;      // Relative path for wiki-links (e.g., "biblib/id/id.pdf")
   sourceType: 'pdf' | 'epub';
@@ -28,20 +29,26 @@ export interface LiteratureNote {
   highlights: Highlight[];
   bookmarks: Bookmark[];
   pinned: boolean;
+  rating: number | null;       // User rating (1-5 stars, null if not rated)
   readingStats: ReadingStats | null;
+  totalPages: number | null;   // Total pages in document
   frontmatter: Record<string, unknown>;
 }
 
 export interface LiteratureNoteSummary {
   id: string;
   title: string;
+  author: string | null;       // Author of the work
+  citekey: string | null;
   sourceType: 'pdf' | 'epub';
   progress: number;
   lastRead: string | null;
   dateCreated: string | null;
   cover: string | null;
   pinned: boolean;
+  rating: number | null;       // User rating (1-5 stars, null if not rated)
   readingStats: ReadingStats | null;
+  totalPages: number | null;   // Total pages in document
 }
 
 // Highlight types
@@ -88,6 +95,10 @@ export interface ProgressUpdate {
 
 export interface PinUpdate {
   pinned: boolean;
+}
+
+export interface RatingUpdate {
+  rating: number | null;       // 1-5 or null to remove rating
 }
 
 export interface CreateHighlightRequest {

@@ -13,6 +13,7 @@ import { coversRoutes } from './routes/covers.js';
 import { searchRoutes } from './routes/search.js';
 import { bookmarkRoutes } from './routes/bookmarks.js';
 import { pinRoutes } from './routes/pin.js';
+import { ratingRoutes } from './routes/rating.js';
 import { readingStatsRoutes } from './routes/reading-stats.js';
 import { readingGoalsRoutes } from './routes/reading-goals.js';
 import { websocketPlugin } from './plugins/websocket.js';
@@ -68,6 +69,7 @@ async function main() {
   await fastify.register(searchRoutes, { searchIndex, scanner });
   await fastify.register(bookmarkRoutes, { scanner, config });
   await fastify.register(pinRoutes, { scanner, config });
+  await fastify.register(ratingRoutes, { scanner, config });
   await fastify.register(readingStatsRoutes, { scanner, config, goalsService });
   await fastify.register(readingGoalsRoutes, { goalsService });
 

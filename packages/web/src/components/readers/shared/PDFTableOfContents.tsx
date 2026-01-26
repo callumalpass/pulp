@@ -37,7 +37,7 @@ function TOCItemWithLabels({ item, level, currentPage, pageLabel, pageLabels, ou
   return (
     <div className="toc-item">
       <div
-        className={`toc-item-row flex items-center gap-1 rounded cursor-pointer hover:bg-bg-deep transition-stoody ${
+        className={`toc-item-row flex items-center gap-1 rounded cursor-pointer hover:bg-bg-deep transition-smooth ${
           level === 0 ? 'font-medium' : ''
         } ${isMobile ? 'min-h-[44px] py-2 px-3' : 'py-1.5 px-2'}`}
         style={{ paddingLeft: `${level * 16 + (isMobile ? 12 : 8)}px` }}
@@ -233,7 +233,7 @@ export function PDFTableOfContents({ pdfDoc, pageLabels, onClose }: PDFTableOfCo
           <h3 className="text-base font-semibold text-text-primary">Table of Contents</h3>
           <button
             onClick={onClose}
-            className="touch-target rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-stoody"
+            className="touch-target rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-smooth"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6L6 18M6 6l12 12" />
@@ -254,7 +254,7 @@ export function PDFTableOfContents({ pdfDoc, pageLabels, onClose }: PDFTableOfCo
         <h3 className="text-sm font-semibold text-text-primary">Table of Contents</h3>
         <button
           onClick={onClose}
-          className="w-6 h-6 rounded flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-stoody"
+          className="w-6 h-6 rounded flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-smooth"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M18 6L6 18M6 6l12 12" />

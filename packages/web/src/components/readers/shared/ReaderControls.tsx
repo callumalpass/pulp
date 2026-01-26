@@ -175,7 +175,7 @@ export function ReaderControls({
           {/* Back button - 44x44px touch target */}
           <Link
             to="/"
-            className="touch-target rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-stoody"
+            className="touch-target rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-smooth"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M19 12H5M12 19l-7-7 7-7" />
@@ -202,6 +202,19 @@ export function ReaderControls({
             onKeyDown={(e) => e.key === 'Enter' && handlePageSubmit(e)}
             className="sr-only"
           />
+
+          {/* Search button - quick access */}
+          <button
+            onClick={toggleSearch}
+            className={`touch-target rounded-lg flex items-center justify-center transition-colors ${
+              isSearchOpen ? 'bg-accent-primary/20 text-accent-primary' : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'
+            }`}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8" />
+              <path d="M21 21l-4.35-4.35" />
+            </svg>
+          </button>
 
           {/* TOC toggle - 44x44px */}
           {hasToc && (
@@ -300,7 +313,7 @@ export function ReaderControls({
       {/* Back button */}
       <Link
         to="/"
-        className="w-8 h-8 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-stoody focus:outline-none focus:ring-2 focus:ring-accent-primary"
+        className="w-8 h-8 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-smooth focus:outline-none focus:ring-2 focus:ring-accent-primary"
         aria-label="Back to library"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
