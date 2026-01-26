@@ -1364,28 +1364,19 @@ export function PDFReader({ note }: PDFReaderProps) {
     checkTextSelection();
   }, [checkTextSelection]);
 
-  // Listen for selection changes on mobile - debounced to wait until selection is complete
+  // Handle touch end for mobile - only show popup when user lifts finger
   useEffect(() => {
     if (!isMobile) return;
 
-    let timeoutId: ReturnType<typeof setTimeout>;
-
-    const handleSelectionChange = () => {
-      clearTimeout(timeoutId);
+    const handleTouchEnd = () => {
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed && sel.toString().trim()) {
-        // Wait for selection to stabilize before showing popup
-        timeoutId = setTimeout(() => {
-          checkTextSelection();
-        }, 300);
+        checkTextSelection();
       }
     };
 
-    document.addEventListener('selectionchange', handleSelectionChange);
-    return () => {
-      document.removeEventListener('selectionchange', handleSelectionChange);
-      clearTimeout(timeoutId);
-    };
+    document.addEventListener('touchend', handleTouchEnd);
+    return () => document.removeEventListener('touchend', handleTouchEnd);
   }, [isMobile, checkTextSelection]);
 
   // Prevent native context menu when there's a text selection

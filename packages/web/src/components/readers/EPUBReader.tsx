@@ -260,14 +260,6 @@ export function EPUBReader({ note }: EPUBReaderProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  if (isLoading) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <ReaderControls
@@ -278,15 +270,23 @@ export function EPUBReader({ note }: EPUBReaderProps) {
         onZoomChange={() => {}}
       />
 
-      <div
-        ref={containerRef}
-        className={`flex-1 overflow-hidden ${isMobile ? 'hide-scrollbar-mobile' : ''}`}
-        style={{
-          background: readerTheme === 'sepia' ? '#f4ecd8' : readerTheme === 'light' ? '#ffffff' : '#2d3436',
-        }}
-        onTouchStart={swipeHandlers.handleTouchStart}
-        onTouchEnd={swipeHandlers.handleTouchEnd}
-      />
+      <div className="flex-1 overflow-hidden relative">
+        <div
+          ref={containerRef}
+          className={`absolute inset-0 ${isMobile ? 'hide-scrollbar-mobile' : ''}`}
+          style={{
+            background: readerTheme === 'sepia' ? '#f4ecd8' : readerTheme === 'light' ? '#ffffff' : '#2d3436',
+          }}
+          onTouchStart={swipeHandlers.handleTouchStart}
+          onTouchEnd={swipeHandlers.handleTouchEnd}
+        />
+
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-bg-primary/80">
+            <div className="w-8 h-8 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+      </div>
 
       {selection && (
         <HighlightPopup

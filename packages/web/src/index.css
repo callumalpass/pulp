@@ -90,6 +90,8 @@ body {
   forced-color-adjust: none;
   transform-origin: 0 0;
   z-index: 2;
+  /* Prevent native context menu on mobile */
+  -webkit-touch-callout: none;
 }
 
 .textLayer :is(span, br) {
