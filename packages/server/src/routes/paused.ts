@@ -1,22 +1,22 @@
 import type { FastifyPluginAsync } from 'fastify';
-import type { PinUpdate } from '@pulp/shared';
+import type { PausedUpdate } from '@pulp/shared';
 import type { LibraryScanner } from '../services/library-scanner.js';
 import type { Config } from '../config/schema.js';
 import { atomicFrontmatterUpdate } from '../services/file-lock.js';
 
-interface PinRouteOptions {
+interface PausedRouteOptions {
   scanner: LibraryScanner;
   config: Config;
 }
 
-export const pinRoutes: FastifyPluginAsync<PinRouteOptions> = async (fastify, opts) => {
+export const pausedRoutes: FastifyPluginAsync<PausedRouteOptions> = async (fastify, opts) => {
   const { scanner, config } = opts;
 
-  // PATCH /api/library/:id/pin - Update pin status
+  // PATCH /api/library/:id/paused - Update paused status
   fastify.patch<{
     Params: { id: string };
-    Body: PinUpdate;
-  }>('/api/library/:id/pin', {
+    Body: PausedUpdate;
+  }>('/api/library/:id/paused', {
     schema: {
       params: {
         type: 'object',
@@ -27,9 +27,9 @@ export const pinRoutes: FastifyPluginAsync<PinRouteOptions> = async (fastify, op
       },
       body: {
         type: 'object',
-        required: ['pinned'],
+        required: ['paused'],
         properties: {
-          pinned: { type: 'boolean' },
+          paused: { type: 'boolean' },
         },
       },
     },
@@ -40,27 +40,33 @@ export const pinRoutes: FastifyPluginAsync<PinRouteOptions> = async (fastify, op
       return reply.code(404).send({ error: 'Note not found' });
     }
 
-    const { pinned } = request.body;
+    const { paused } = request.body;
+    const now = new Date().toISOString();
 
     try {
       // Use atomic update to prevent race conditions
       await atomicFrontmatterUpdate(note.notePath, ({ frontmatter }) => {
-        // Update or remove the pinned key
-        if (pinned) {
-          frontmatter[config.pinned_key] = true;
+        // Update or remove the paused key
+        if (paused) {
+          frontmatter[config.paused_key] = true;
+          frontmatter[config.paused_at_key] = now;
         } else {
-          delete frontmatter[config.pinned_key];
+          delete frontmatter[config.paused_key];
+          delete frontmatter[config.paused_at_key];
         }
         return frontmatter;
       });
 
       // Update in-memory cache
-      scanner.updateNote(request.params.id, { pinned });
+      scanner.updateNote(request.params.id, {
+        paused,
+        pausedAt: paused ? now : null,
+      });
 
-      return { success: true, pinned };
+      return { success: true, paused, pausedAt: paused ? now : null };
     } catch (error) {
-      fastify.log.error(error, 'Failed to update pin status');
-      return reply.code(500).send({ error: 'Failed to update pin status' });
+      fastify.log.error(error, 'Failed to update paused status');
+      return reply.code(500).send({ error: 'Failed to update paused status' });
     }
   });
 };

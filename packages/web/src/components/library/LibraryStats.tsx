@@ -94,6 +94,27 @@ export function LibraryStats() {
         )}
       </div>
 
+      {/* Streak at-risk warning */}
+      {data.streakAtRisk?.isAtRisk && streak.currentStreak > 0 && !data.streakAtRisk?.isFreezeDay && (
+        <>
+          <div className="h-4 w-px bg-text-secondary/20" />
+          <div
+            className="flex items-center gap-1.5 text-amber-500"
+            title={`Read ${data.streakAtRisk.minutesRemaining}m more to keep your streak! ${data.streakAtRisk.hoursUntilMidnight.toFixed(1)}h until midnight.${data.streakAtRisk.graceDaysRemaining > 0 ? ` ${data.streakAtRisk.graceDaysRemaining} grace day${data.streakAtRisk.graceDaysRemaining === 1 ? '' : 's'} remaining.` : ''}`}
+          >
+            <WarningIcon className="w-3.5 h-3.5" />
+            <span className="text-xs font-medium">
+              {data.streakAtRisk.minutesRemaining}m to go
+            </span>
+            {data.streakAtRisk.hoursUntilMidnight <= 2 && (
+              <span className="text-xs text-amber-400/80">
+                ({data.streakAtRisk.hoursUntilMidnight.toFixed(1)}h left)
+              </span>
+            )}
+          </div>
+        </>
+      )}
+
       {/* Freeze day indicator */}
       {data.streakAtRisk?.isFreezeDay && (
         <>
@@ -172,6 +193,16 @@ function HighlightIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 20h9" />
       <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
+  );
+}
+
+function WarningIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
     </svg>
   );
 }

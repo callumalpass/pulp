@@ -23,6 +23,8 @@ vi.mock('../frontmatter-parser.js', () => ({
   getTitle: vi.fn(),
   getBookmarks: vi.fn(),
   getPinned: vi.fn(),
+  getPaused: vi.fn(),
+  getPausedAt: vi.fn(),
   getReadingStats: vi.fn(),
   getAuthor: vi.fn(),
   getRating: vi.fn(),
@@ -56,6 +58,8 @@ const mockGetCollections = vi.mocked(frontmatterParser.getCollections);
 const mockGetTitle = vi.mocked(frontmatterParser.getTitle);
 const mockGetBookmarks = vi.mocked(frontmatterParser.getBookmarks);
 const mockGetPinned = vi.mocked(frontmatterParser.getPinned);
+const mockGetPaused = vi.mocked(frontmatterParser.getPaused);
+const mockGetPausedAt = vi.mocked(frontmatterParser.getPausedAt);
 const mockGetReadingStats = vi.mocked(frontmatterParser.getReadingStats);
 const mockGetAuthor = vi.mocked(frontmatterParser.getAuthor);
 const mockGetRating = vi.mocked(frontmatterParser.getRating);
@@ -101,6 +105,8 @@ function createMockConfig(overrides: Partial<Config> = {}): Config {
     default_grace_period_days: 1,
     reading_history_key: 'reading_history',
     reading_sessions_key: 'reading_sessions',
+    paused_key: 'paused',
+    paused_at_key: 'paused_at',
     ...overrides,
   };
 }
@@ -138,6 +144,8 @@ function setupDefaultNoteMocks() {
   mockGetTitle.mockReturnValue('Test Book');
   mockGetBookmarks.mockReturnValue([]);
   mockGetPinned.mockReturnValue(false);
+  mockGetPaused.mockReturnValue(false);
+  mockGetPausedAt.mockReturnValue(null);
   mockGetReadingStats.mockReturnValue(null);
   mockGetAuthor.mockReturnValue(null);
   mockGetRating.mockReturnValue(null);

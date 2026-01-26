@@ -58,6 +58,8 @@ describe('Book Notes Routes', () => {
       readerPreferences: null,
       currentChapter: null,
       bookNotes: 'My original notes about this book.',
+      paused: false,
+      pausedAt: null,
       frontmatter: {},
     };
 
@@ -68,6 +70,8 @@ describe('Book Notes Routes', () => {
 
     mockConfig = {
       book_notes_key: 'book_notes',
+      paused_key: 'paused',
+      paused_at_key: 'paused_at',
     } as Config;
 
     fastify = Fastify();

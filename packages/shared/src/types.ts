@@ -32,6 +32,8 @@ export interface LiteratureNote {
   highlights: Highlight[];
   bookmarks: Bookmark[];
   pinned: boolean;
+  paused: boolean;             // Whether reading is paused (doesn't affect streak)
+  pausedAt: string | null;     // When reading was paused
   rating: number | null;       // User rating (1-5 stars, null if not rated)
   readingStats: ReadingStats | null;
   totalPages: number | null;   // Total pages in document
@@ -54,6 +56,8 @@ export interface LiteratureNoteSummary {
   yearCompleted: number | null; // Year the book was completed (for annual stats)
   cover: string | null;
   pinned: boolean;
+  paused: boolean;             // Whether reading is paused (doesn't affect streak)
+  pausedAt: string | null;     // When reading was paused
   rating: number | null;       // User rating (1-5 stars, null if not rated)
   readingStats: ReadingStats | null;
   totalPages: number | null;   // Total pages in document
@@ -159,6 +163,10 @@ export interface ProgressUpdate {
 
 export interface PinUpdate {
   pinned: boolean;
+}
+
+export interface PausedUpdate {
+  paused: boolean;
 }
 
 export interface RatingUpdate {

@@ -1,9 +1,8 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { readFileSync, writeFileSync } from 'node:fs';
-import matter from 'gray-matter';
 import type { ProgressUpdate } from '@pulp/shared';
 import type { LibraryScanner } from '../services/library-scanner.js';
 import type { Config } from '../config/schema.js';
+import { atomicFrontmatterUpdate } from '../services/file-lock.js';
 
 interface ProgressRouteOptions {
   scanner: LibraryScanner;
@@ -48,29 +47,27 @@ export const progressRoutes: FastifyPluginAsync<ProgressRouteOptions> = async (f
     const now = new Date().toISOString();
 
     try {
-      // Read and parse the note file
-      const fileContent = readFileSync(note.notePath, 'utf-8');
-      const { data: frontmatter, content } = matter(fileContent);
-
-      // Update frontmatter
-      frontmatter[config.progress_key] = progress;
-      frontmatter[config.last_read_key] = now;
-
-      // Update lastOpenedCfi for EPUBs
-      if (lastOpenedCfi && note.sourceType === 'epub') {
-        frontmatter[config.last_opened_cfi_key] = lastOpenedCfi;
-      }
-
-      // Set date_finished when book is completed (reaches 100% for the first time)
       let dateFinished = note.dateFinished;
-      if (progress === 100 && !note.dateFinished) {
-        frontmatter[config.date_finished_key] = now;
-        dateFinished = now;
-      }
 
-      // Write back
-      const updated = matter.stringify(content, frontmatter);
-      writeFileSync(note.notePath, updated, 'utf-8');
+      // Use atomic update to prevent race conditions
+      await atomicFrontmatterUpdate(note.notePath, ({ frontmatter }) => {
+        // Update frontmatter
+        frontmatter[config.progress_key] = progress;
+        frontmatter[config.last_read_key] = now;
+
+        // Update lastOpenedCfi for EPUBs
+        if (lastOpenedCfi && note.sourceType === 'epub') {
+          frontmatter[config.last_opened_cfi_key] = lastOpenedCfi;
+        }
+
+        // Set date_finished when book is completed (reaches 100% for the first time)
+        if (progress === 100 && !note.dateFinished) {
+          frontmatter[config.date_finished_key] = now;
+          dateFinished = now;
+        }
+
+        return frontmatter;
+      });
 
       // Update in-memory cache
       scanner.updateNote(request.params.id, {

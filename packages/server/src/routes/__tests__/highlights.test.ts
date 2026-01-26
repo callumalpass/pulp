@@ -32,6 +32,9 @@ function createTestNote(overrides: Partial<LiteratureNote> = {}): LiteratureNote
     totalPages: 100,
     readerPreferences: null,
     currentChapter: null,
+    paused: false,
+    pausedAt: null,
+    bookNotes: null,
     frontmatter: {},
     ...overrides,
   };

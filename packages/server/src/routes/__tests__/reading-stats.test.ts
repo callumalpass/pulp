@@ -51,6 +51,9 @@ const testConfig: Config = {
   cover_quality: 80,
   default_daily_goal_minutes: 30,
   default_grace_period_days: 1,
+  paused_key: 'paused',
+  paused_at_key: 'paused_at',
+  book_notes_key: 'book_notes',
 };
 
 // Helper to create a test literature note
@@ -80,6 +83,9 @@ function createTestNote(overrides: Partial<LiteratureNote> = {}): LiteratureNote
     totalPages: 100,
     readerPreferences: null,
     currentChapter: null,
+    paused: false,
+    pausedAt: null,
+    bookNotes: null,
     frontmatter: {},
     ...overrides,
   };

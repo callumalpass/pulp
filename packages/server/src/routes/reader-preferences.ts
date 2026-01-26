@@ -1,10 +1,9 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { readFileSync, writeFileSync } from 'node:fs';
-import matter from 'gray-matter';
 import type { ReaderPreferencesUpdate } from '@pulp/shared';
 import type { LibraryScanner } from '../services/library-scanner.js';
 import type { Config } from '../config/schema.js';
 import { createReaderPreferencesForFrontmatter } from '../services/frontmatter-parser.js';
+import { atomicFrontmatterUpdate } from '../services/file-lock.js';
 
 interface ReaderPreferencesRouteOptions {
   scanner: LibraryScanner;
@@ -55,21 +54,17 @@ export const readerPreferencesRoutes: FastifyPluginAsync<ReaderPreferencesRouteO
     };
 
     try {
-      // Read and parse the note file
-      const fileContent = readFileSync(note.notePath, 'utf-8');
-      const { data: frontmatter, content } = matter(fileContent);
-
-      // Update the preferences key
-      const prefsForFrontmatter = createReaderPreferencesForFrontmatter(newPrefs);
-      if (Object.keys(prefsForFrontmatter).length > 0) {
-        frontmatter[config.reader_preferences_key] = prefsForFrontmatter;
-      } else {
-        delete frontmatter[config.reader_preferences_key];
-      }
-
-      // Write back
-      const updated = matter.stringify(content, frontmatter);
-      writeFileSync(note.notePath, updated, 'utf-8');
+      // Use atomic update to prevent race conditions
+      await atomicFrontmatterUpdate(note.notePath, ({ frontmatter }) => {
+        // Update the preferences key
+        const prefsForFrontmatter = createReaderPreferencesForFrontmatter(newPrefs);
+        if (Object.keys(prefsForFrontmatter).length > 0) {
+          frontmatter[config.reader_preferences_key] = prefsForFrontmatter;
+        } else {
+          delete frontmatter[config.reader_preferences_key];
+        }
+        return frontmatter;
+      });
 
       // Update in-memory cache
       scanner.updateNote(request.params.id, { readerPreferences: newPrefs });
@@ -112,20 +107,16 @@ export const readerPreferencesRoutes: FastifyPluginAsync<ReaderPreferencesRouteO
     const { chapter } = request.body;
 
     try {
-      // Read and parse the note file
-      const fileContent = readFileSync(note.notePath, 'utf-8');
-      const { data: frontmatter, content } = matter(fileContent);
-
-      // Update or remove the chapter key
-      if (chapter) {
-        frontmatter[config.current_chapter_key] = chapter;
-      } else {
-        delete frontmatter[config.current_chapter_key];
-      }
-
-      // Write back
-      const updated = matter.stringify(content, frontmatter);
-      writeFileSync(note.notePath, updated, 'utf-8');
+      // Use atomic update to prevent race conditions
+      await atomicFrontmatterUpdate(note.notePath, ({ frontmatter }) => {
+        // Update or remove the chapter key
+        if (chapter) {
+          frontmatter[config.current_chapter_key] = chapter;
+        } else {
+          delete frontmatter[config.current_chapter_key];
+        }
+        return frontmatter;
+      });
 
       // Update in-memory cache
       scanner.updateNote(request.params.id, { currentChapter: chapter });

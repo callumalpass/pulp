@@ -1,9 +1,8 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { readFileSync, writeFileSync } from 'node:fs';
-import matter from 'gray-matter';
 import type { CollectionsUpdate } from '@pulp/shared';
 import type { LibraryScanner } from '../services/library-scanner.js';
 import type { Config } from '../config/schema.js';
+import { atomicFrontmatterUpdate } from '../services/file-lock.js';
 
 interface CollectionsRouteOptions {
   scanner: LibraryScanner;
@@ -50,20 +49,16 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRouteOptions> = as
       .filter(c => c.length > 0);
 
     try {
-      // Read and parse the note file
-      const fileContent = readFileSync(note.notePath, 'utf-8');
-      const { data: frontmatter, content } = matter(fileContent);
-
-      // Update the collections key
-      if (collections.length > 0) {
-        frontmatter[config.collections_key] = collections;
-      } else {
-        delete frontmatter[config.collections_key];
-      }
-
-      // Write back
-      const updated = matter.stringify(content, frontmatter);
-      writeFileSync(note.notePath, updated, 'utf-8');
+      // Use atomic update to prevent race conditions
+      await atomicFrontmatterUpdate(note.notePath, ({ frontmatter }) => {
+        // Update the collections key
+        if (collections.length > 0) {
+          frontmatter[config.collections_key] = collections;
+        } else {
+          delete frontmatter[config.collections_key];
+        }
+        return frontmatter;
+      });
 
       // Update in-memory cache
       scanner.updateNote(request.params.id, { collections });

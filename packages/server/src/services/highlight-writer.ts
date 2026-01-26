@@ -1,8 +1,8 @@
-import { readFileSync, writeFileSync } from 'node:fs';
 import Handlebars from 'handlebars';
 import type { LiteratureNote, CreateHighlightRequest, UpdateHighlightRequest, Highlight, PDFHighlight, EPUBHighlight, TextSelection, HighlightCategory } from '@pulp/shared';
 import type { Config } from '../config/schema.js';
 import { generatePDFHighlightId, generateEPUBHighlightId } from './highlight-parser.js';
+import { atomicFrontmatterAndContentUpdate } from './file-lock.js';
 
 export class HighlightWriter {
   private pdfTemplate: HandlebarsTemplateDelegate;
@@ -117,13 +117,14 @@ export class HighlightWriter {
   }
 
   private async appendToNote(notePath: string, highlight: string): Promise<void> {
-    const content = readFileSync(notePath, 'utf-8');
+    // Use atomic update to prevent race conditions when appending highlights
+    await atomicFrontmatterAndContentUpdate(notePath, ({ frontmatter, content }) => {
+      // Ensure proper line endings
+      const separator = content.endsWith('\n') ? '' : '\n';
+      const newContent = content + separator + highlight + '\n';
 
-    // Ensure proper line endings
-    const separator = content.endsWith('\n') ? '' : '\n';
-    const newContent = content + separator + highlight + '\n';
-
-    writeFileSync(notePath, newContent, 'utf-8');
+      return { frontmatter, content: newContent };
+    });
   }
 
   /**
@@ -138,115 +139,120 @@ export class HighlightWriter {
       return null;
     }
 
-    let content = readFileSync(note.notePath, 'utf-8');
     let linkPattern: string;
-    let baseLinkPattern: string;
 
     if (highlight.type === 'pdf') {
       const sel = highlight.selection;
-      baseLinkPattern = `${this.escapeRegex(note.sourceRelative)}#page=${highlight.page}&selection=${sel.beginIndex},${sel.beginOffset},${sel.endIndex},${sel.endOffset}`;
+      const baseLinkPattern = `${this.escapeRegex(note.sourceRelative)}#page=${highlight.page}&selection=${sel.beginIndex},${sel.beginOffset},${sel.endIndex},${sel.endOffset}`;
       // Match with optional category suffix
       linkPattern = `${baseLinkPattern}(?:&category=\\w+)?`;
     } else {
-      baseLinkPattern = `${this.escapeRegex(note.sourceRelative)}#cfi=${this.escapeRegex(highlight.cfi)}`;
+      const baseLinkPattern = `${this.escapeRegex(note.sourceRelative)}#cfi=${this.escapeRegex(highlight.cfi)}`;
       // Match with optional category suffix
       linkPattern = `${baseLinkPattern}(?:&category=\\w+)?`;
-    }
-
-    // Find the highlight link in the content
-    const linkRegex = new RegExp(`\\[\\[${linkPattern}\\|[^\\]]*\\]\\]`);
-    const match = linkRegex.exec(content);
-
-    if (!match) {
-      return null;
     }
 
     const updatedAt = new Date().toISOString();
     const newCategory = request.category ?? highlight.category;
+    let notFound = false;
+    let noteText: string | undefined;
 
-    // If category changed, update the link
-    if (request.category !== undefined && request.category !== highlight.category) {
-      const oldLink = match[0];
-      // Build the new fragment with category
-      let newFragment: string;
-      if (highlight.type === 'pdf') {
-        const sel = highlight.selection;
-        const selectionStr = `${sel.beginIndex},${sel.beginOffset},${sel.endIndex},${sel.endOffset}`;
-        const categoryStr = newCategory && newCategory !== 'highlight' ? `&category=${newCategory}` : '';
-        newFragment = `#page=${highlight.page}&selection=${selectionStr}${categoryStr}`;
-      } else {
-        const categoryStr = newCategory && newCategory !== 'highlight' ? `&category=${newCategory}` : '';
-        newFragment = `#cfi=${highlight.cfi}${categoryStr}`;
+    // Use atomic update to prevent race conditions
+    await atomicFrontmatterAndContentUpdate(note.notePath, ({ frontmatter, content }) => {
+      // Find the highlight link in the content
+      const linkRegex = new RegExp(`\\[\\[${linkPattern}\\|[^\\]]*\\]\\]`);
+      const match = linkRegex.exec(content);
+
+      if (!match) {
+        notFound = true;
+        return null;
       }
 
-      // Replace the fragment portion while keeping the display text
-      const displayTextMatch = oldLink.match(/\|([^\]]*)\]\]$/);
-      const displayText = displayTextMatch ? displayTextMatch[1] : '';
-      const newLink = `[[${note.sourceRelative}${newFragment}|${displayText}]]`;
-
-      content = content.slice(0, match.index) + newLink + content.slice(match.index + oldLink.length);
-    }
-
-    // Now handle note text updates
-    // Re-find the match since content may have changed
-    const updatedLinkRegex = new RegExp(`\\[\\[${linkPattern}\\|[^\\]]*\\]\\]`);
-    const updatedMatch = updatedLinkRegex.exec(content);
-
-    if (!updatedMatch) {
-      return null;
-    }
-
-    // Find the end of this line and any existing note on the next line
-    const afterLink = content.slice(updatedMatch.index + updatedMatch[0].length);
-
-    // The link might be at the end of a blockquote line, so check where the note would go
-    let insertPoint = updatedMatch.index + updatedMatch[0].length;
-    let existingNoteLength = 0;
-
-    // Skip to end of current line
-    const currentLineEnd = afterLink.indexOf('\n');
-    if (currentLineEnd !== -1) {
-      insertPoint += currentLineEnd + 1;
-
-      // Check if there's an existing note (non-empty, non-blockquote, non-heading line)
-      const nextLines = afterLink.slice(currentLineEnd + 1).split('\n');
-      for (const line of nextLines) {
-        const trimmed = line.trim();
-        if (!trimmed) {
-          // Empty line - could be between link and note
-          existingNoteLength += line.length + 1;
-          continue;
+      // If category changed, update the link
+      if (request.category !== undefined && request.category !== highlight.category) {
+        const oldLink = match[0];
+        // Build the new fragment with category
+        let newFragment: string;
+        if (highlight.type === 'pdf') {
+          const sel = highlight.selection;
+          const selectionStr = `${sel.beginIndex},${sel.beginOffset},${sel.endIndex},${sel.endOffset}`;
+          const categoryStr = newCategory && newCategory !== 'highlight' ? `&category=${newCategory}` : '';
+          newFragment = `#page=${highlight.page}&selection=${selectionStr}${categoryStr}`;
+        } else {
+          const categoryStr = newCategory && newCategory !== 'highlight' ? `&category=${newCategory}` : '';
+          newFragment = `#cfi=${(highlight as EPUBHighlight).cfi}${categoryStr}`;
         }
-        if (trimmed.startsWith('>') || trimmed.startsWith('#') || trimmed.startsWith('- ')) {
-          // Next highlight or section - no existing note
+
+        // Replace the fragment portion while keeping the display text
+        const displayTextMatch = oldLink.match(/\|([^\]]*)\]\]$/);
+        const displayText = displayTextMatch ? displayTextMatch[1] : '';
+        const newLink = `[[${note.sourceRelative}${newFragment}|${displayText}]]`;
+
+        content = content.slice(0, match.index) + newLink + content.slice(match.index + oldLink.length);
+      }
+
+      // Now handle note text updates
+      // Re-find the match since content may have changed
+      const updatedLinkRegex = new RegExp(`\\[\\[${linkPattern}\\|[^\\]]*\\]\\]`);
+      const updatedMatch = updatedLinkRegex.exec(content);
+
+      if (!updatedMatch) {
+        notFound = true;
+        return null;
+      }
+
+      // Find the end of this line and any existing note on the next line
+      const afterLink = content.slice(updatedMatch.index + updatedMatch[0].length);
+
+      // The link might be at the end of a blockquote line, so check where the note would go
+      let insertPoint = updatedMatch.index + updatedMatch[0].length;
+      let existingNoteLength = 0;
+
+      // Skip to end of current line
+      const currentLineEnd = afterLink.indexOf('\n');
+      if (currentLineEnd !== -1) {
+        insertPoint += currentLineEnd + 1;
+
+        // Check if there's an existing note (non-empty, non-blockquote, non-heading line)
+        const nextLines = afterLink.slice(currentLineEnd + 1).split('\n');
+        for (const line of nextLines) {
+          const trimmed = line.trim();
+          if (!trimmed) {
+            // Empty line - could be between link and note
+            existingNoteLength += line.length + 1;
+            continue;
+          }
+          if (trimmed.startsWith('>') || trimmed.startsWith('#') || trimmed.startsWith('- ')) {
+            // Next highlight or section - no existing note
+            break;
+          }
+          // This is an existing note line - mark for replacement
+          existingNoteLength += line.length + 1;
           break;
         }
-        // This is an existing note line - mark for replacement
-        existingNoteLength += line.length + 1;
-        break;
       }
+
+      // Build new content
+      noteText = request.note !== undefined ? request.note?.trim() : highlight.note?.trim();
+
+      if (noteText) {
+        // Add or replace note
+        const beforeNote = content.slice(0, insertPoint);
+        const afterNote = content.slice(insertPoint + existingNoteLength);
+        content = beforeNote + noteText + '\n' + afterNote;
+      } else if (existingNoteLength > 0) {
+        // Remove existing note
+        const beforeNote = content.slice(0, insertPoint);
+        const afterNote = content.slice(insertPoint + existingNoteLength);
+        content = beforeNote + afterNote;
+      }
+
+      return { frontmatter, content };
+    });
+
+    if (notFound) {
+      return null;
     }
-
-    // Build new content
-    let newContent: string;
-    const noteText = request.note !== undefined ? request.note?.trim() : highlight.note?.trim();
-
-    if (noteText) {
-      // Add or replace note
-      const beforeNote = content.slice(0, insertPoint);
-      const afterNote = content.slice(insertPoint + existingNoteLength);
-      newContent = beforeNote + noteText + '\n' + afterNote;
-    } else if (existingNoteLength > 0) {
-      // Remove existing note
-      const beforeNote = content.slice(0, insertPoint);
-      const afterNote = content.slice(insertPoint + existingNoteLength);
-      newContent = beforeNote + afterNote;
-    } else {
-      // No change needed
-      newContent = content;
-    }
-
-    writeFileSync(note.notePath, newContent, 'utf-8');
 
     // Return updated highlight with updatedAt timestamp
     return {
@@ -271,84 +277,90 @@ export class HighlightWriter {
       return false;
     }
 
-    const content = readFileSync(note.notePath, 'utf-8');
     let linkPattern: string;
 
     if (highlight.type === 'pdf') {
       const sel = highlight.selection;
       linkPattern = `${this.escapeRegex(note.sourceRelative)}#page=${highlight.page}&selection=${sel.beginIndex},${sel.beginOffset},${sel.endIndex},${sel.endOffset}`;
     } else {
-      linkPattern = `${this.escapeRegex(note.sourceRelative)}#cfi=${this.escapeRegex(highlight.cfi)}`;
+      linkPattern = `${this.escapeRegex(note.sourceRelative)}#cfi=${this.escapeRegex((highlight as EPUBHighlight).cfi)}`;
     }
 
-    // Find the link in the content
-    const linkRegex = new RegExp(`\\[\\[${linkPattern}\\|[^\\]]*\\]\\]`);
-    const match = linkRegex.exec(content);
+    let notFound = false;
 
-    if (!match) {
-      return false;
-    }
+    // Use atomic update to prevent race conditions
+    await atomicFrontmatterAndContentUpdate(note.notePath, ({ frontmatter, content }) => {
+      // Find the link in the content
+      const linkRegex = new RegExp(`\\[\\[${linkPattern}\\|[^\\]]*\\]\\]`);
+      const match = linkRegex.exec(content);
 
-    // Find the start of the highlight block by looking backwards for blockquote lines
-    const beforeLink = content.slice(0, match.index);
-    const lines = beforeLink.split('\n');
-    let blockStart = match.index;
-
-    // Walk backwards through lines to find the start of the blockquote
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const line = lines[i];
-      const trimmed = line.trim();
-
-      if (trimmed.startsWith('>')) {
-        // This is part of the blockquote, include it
-        blockStart -= line.length + 1; // +1 for newline
-      } else if (trimmed === '' || trimmed === '-') {
-        // Empty line or list marker line (the part before [[) - check if we should continue
-        // If this is a list marker, include it and continue looking for blockquotes
-        if (trimmed === '-') {
-          blockStart -= line.length + 1;
-          continue;
-        }
-        // Empty line - stop here (don't include it in deletion)
-        break;
-      } else {
-        // Non-blockquote, non-empty line - stop
-        break;
+      if (!match) {
+        notFound = true;
+        return null;
       }
-    }
 
-    // Find the end of the highlight block by looking forwards
-    const afterLink = content.slice(match.index + match[0].length);
-    let blockEnd = match.index + match[0].length;
+      // Find the start of the highlight block by looking backwards for blockquote lines
+      const beforeLink = content.slice(0, match.index);
+      const lines = beforeLink.split('\n');
+      let blockStart = match.index;
 
-    // Skip to end of current line
-    const currentLineEnd = afterLink.indexOf('\n');
-    if (currentLineEnd !== -1) {
-      blockEnd += currentLineEnd + 1;
-
-      // Check for note content after the link line
-      const afterLines = afterLink.slice(currentLineEnd + 1).split('\n');
-      for (const line of afterLines) {
+      // Walk backwards through lines to find the start of the blockquote
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i];
         const trimmed = line.trim();
-        if (!trimmed) {
-          // Empty line - include it and stop
+
+        if (trimmed.startsWith('>')) {
+          // This is part of the blockquote, include it
+          blockStart -= line.length + 1; // +1 for newline
+        } else if (trimmed === '' || trimmed === '-') {
+          // Empty line or list marker line (the part before [[) - check if we should continue
+          // If this is a list marker, include it and continue looking for blockquotes
+          if (trimmed === '-') {
+            blockStart -= line.length + 1;
+            continue;
+          }
+          // Empty line - stop here (don't include it in deletion)
+          break;
+        } else {
+          // Non-blockquote, non-empty line - stop
+          break;
+        }
+      }
+
+      // Find the end of the highlight block by looking forwards
+      const afterLink = content.slice(match.index + match[0].length);
+      let blockEnd = match.index + match[0].length;
+
+      // Skip to end of current line
+      const currentLineEnd = afterLink.indexOf('\n');
+      if (currentLineEnd !== -1) {
+        blockEnd += currentLineEnd + 1;
+
+        // Check for note content after the link line
+        const afterLines = afterLink.slice(currentLineEnd + 1).split('\n');
+        for (const line of afterLines) {
+          const trimmed = line.trim();
+          if (!trimmed) {
+            // Empty line - include it and stop
+            blockEnd += line.length + 1;
+            break;
+          }
+          if (trimmed.startsWith('>') || trimmed.startsWith('#') || trimmed.startsWith('- ')) {
+            // Next highlight or section - stop here
+            break;
+          }
+          // This is a note line - include it
           blockEnd += line.length + 1;
           break;
         }
-        if (trimmed.startsWith('>') || trimmed.startsWith('#') || trimmed.startsWith('- ')) {
-          // Next highlight or section - stop here
-          break;
-        }
-        // This is a note line - include it
-        blockEnd += line.length + 1;
-        break;
       }
-    }
 
-    // Remove the block
-    const newContent = content.slice(0, blockStart) + content.slice(blockEnd);
+      // Remove the block
+      const newContent = content.slice(0, blockStart) + content.slice(blockEnd);
 
-    writeFileSync(note.notePath, newContent, 'utf-8');
-    return true;
+      return { frontmatter, content: newContent };
+    });
+
+    return !notFound;
   }
 }

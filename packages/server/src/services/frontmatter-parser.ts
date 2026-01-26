@@ -224,6 +224,28 @@ export function getPinned(
   return pinned === true || pinned === 'true';
 }
 
+export function getPaused(
+  frontmatter: Record<string, unknown>,
+  pausedKey: string
+): boolean {
+  const paused = frontmatter[pausedKey];
+  return paused === true || paused === 'true';
+}
+
+export function getPausedAt(
+  frontmatter: Record<string, unknown>,
+  pausedAtKey: string
+): string | null {
+  const pausedAt = frontmatter[pausedAtKey];
+  if (typeof pausedAt === 'string') {
+    return pausedAt;
+  }
+  if (pausedAt instanceof Date) {
+    return pausedAt.toISOString();
+  }
+  return null;
+}
+
 export function getAuthor(
   frontmatter: Record<string, unknown>,
   authorKey: string
