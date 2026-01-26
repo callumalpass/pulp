@@ -26,6 +26,7 @@ const STANDARD_FONT_URL = `${PDFJS_CDN_BASE}/standard_fonts/`;
 
 interface PDFReaderProps {
   note: LiteratureNote;
+  initialPage?: number;
 }
 
 interface Selection {
@@ -46,7 +47,7 @@ const VIRTUALIZATION_BUFFER = 8; // Number of pages above/below to keep in DOM
 const ZOOM_DEBOUNCE_MS = 150; // Debounce delay for zoom changes
 const PAGE_DIMENSION_CONCURRENCY = 6; // Parallelism for initial page measurements
 
-export function PDFReader({ note }: PDFReaderProps) {
+export function PDFReader({ note, initialPage }: PDFReaderProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pdfDocRef = useRef<PDFDocumentProxy | null>(null);
@@ -264,12 +265,17 @@ export function PDFReader({ note }: PDFReaderProps) {
         setZoomMode('fit-width');
       }
 
-      // Restore progress
-      if (note.progress > 0) {
-        const restoredPage = Math.max(1, Math.round((note.progress / 100) * pdf.numPages));
-        setCurrentPage(restoredPage);
-        // Scroll to restored page after render
-        setTimeout(() => setScrollToPage(restoredPage), 100);
+      // Restore progress or jump to initial page (from search deep link)
+      const targetPage = initialPage && initialPage >= 1 && initialPage <= pdf.numPages
+        ? initialPage
+        : note.progress > 0
+          ? Math.max(1, Math.round((note.progress / 100) * pdf.numPages))
+          : null;
+
+      if (targetPage) {
+        setCurrentPage(targetPage);
+        // Scroll to target page after render
+        setTimeout(() => setScrollToPage(targetPage), 100);
       }
 
       setIsLoading(false);

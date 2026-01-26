@@ -4,11 +4,13 @@ import { loadConfig } from './config/loader.js';
 import { LibraryScanner } from './services/library-scanner.js';
 import { HighlightWriter } from './services/highlight-writer.js';
 import { FileWatcher } from './services/file-watcher.js';
+import { SearchIndex } from './services/search-index.js';
 import { libraryRoutes } from './routes/library.js';
 import { progressRoutes } from './routes/progress.js';
 import { filesRoutes } from './routes/files.js';
 import { highlightsRoutes } from './routes/highlights.js';
 import { coversRoutes } from './routes/covers.js';
+import { searchRoutes } from './routes/search.js';
 import { websocketPlugin } from './plugins/websocket.js';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -26,6 +28,7 @@ async function main() {
 
   const highlightWriter = new HighlightWriter(config);
   const fileWatcher = new FileWatcher(config);
+  const searchIndex = new SearchIndex(config);
 
   // Create Fastify instance
   const fastify = Fastify({
@@ -56,6 +59,7 @@ async function main() {
   await fastify.register(filesRoutes, { scanner });
   await fastify.register(highlightsRoutes, { scanner, highlightWriter });
   await fastify.register(coversRoutes, { scanner, config });
+  await fastify.register(searchRoutes, { searchIndex, scanner });
 
   // Health check
   fastify.get('/health', async () => ({ status: 'ok' }));
@@ -67,6 +71,12 @@ async function main() {
 
     // Start file watcher
     fileWatcher.start();
+
+    // Start background indexing for search
+    const notes = scanner.getAll();
+    searchIndex.indexAllNotes(notes).catch(error => {
+      console.error('Background indexing error:', error);
+    });
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);

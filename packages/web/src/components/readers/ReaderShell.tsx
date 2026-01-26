@@ -5,14 +5,15 @@ import { ReaderErrorBoundary } from '../ui/ErrorBoundary';
 
 interface ReaderShellProps {
   note: LiteratureNote;
+  initialPage?: number;
 }
 
-export function ReaderShell({ note }: ReaderShellProps) {
+export function ReaderShell({ note, initialPage }: ReaderShellProps) {
   return (
     <div className="h-full flex flex-col" role="main" aria-label={`Reading: ${note.title}`}>
       <ReaderErrorBoundary>
         {note.sourceType === 'pdf' ? (
-          <PDFReader note={note} />
+          <PDFReader note={note} initialPage={initialPage} />
         ) : (
           <EPUBReader note={note} />
         )}

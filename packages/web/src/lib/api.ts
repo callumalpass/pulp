@@ -6,6 +6,8 @@ import type {
   CreateHighlightRequest,
   UpdateHighlightRequest,
   DictionaryEntry,
+  SearchResponse,
+  SearchStatus,
 } from '@pulp/shared';
 
 const API_BASE = '/api';
@@ -126,6 +128,26 @@ export const api = {
       } catch {
         return null;
       }
+    },
+  },
+
+  search: {
+    query(q: string, options?: { noteId?: string; limit?: number }) {
+      const params = new URLSearchParams();
+      params.set('q', q);
+      if (options?.noteId) params.set('noteId', options.noteId);
+      if (options?.limit) params.set('limit', String(options.limit));
+      return fetchJSON<SearchResponse>(`/search?${params.toString()}`);
+    },
+
+    status() {
+      return fetchJSON<SearchStatus>('/search/status');
+    },
+
+    reindex() {
+      return fetchJSON<{ message: string; totalDocuments: number }>('/search/reindex', {
+        method: 'POST',
+      });
     },
   },
 };

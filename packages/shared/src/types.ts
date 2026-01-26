@@ -133,6 +133,43 @@ export interface UnsubscribeNoteEvent {
   noteId: string;
 }
 
+// Search API types
+export interface SearchQuery {
+  q: string;
+  noteId?: string;
+  limit?: number;
+}
+
+export interface SearchResult {
+  noteId: string;
+  title: string;
+  sourceType: 'pdf' | 'epub';
+  matches: SearchMatch[];
+  totalMatches: number;
+}
+
+export interface SearchMatch {
+  text: string;
+  page?: number;
+  pageLabel?: string;
+  chapter?: string;
+  chapterHref?: string;
+  position: number;
+}
+
+export interface SearchResponse {
+  query: string;
+  results: SearchResult[];
+  totalResults: number;
+}
+
+export interface SearchStatus {
+  totalDocuments: number;
+  indexedDocuments: number;
+  isComplete: boolean;
+  percentComplete: number;
+}
+
 // Dictionary API types (Free Dictionary API)
 export interface DictionaryEntry {
   word: string;

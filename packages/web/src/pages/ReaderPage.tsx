@@ -1,10 +1,14 @@
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useNote } from '../hooks/useNote';
 import { ReaderShell } from '../components/readers/ReaderShell';
 
 export function ReaderPage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const { data: note, isLoading, error } = useNote(id);
+
+  // Get initial page from URL query parameter (for deep linking from search)
+  const initialPage = searchParams.get('page') ? parseInt(searchParams.get('page')!, 10) : undefined;
 
   if (isLoading) {
     return (
@@ -33,5 +37,5 @@ export function ReaderPage() {
     );
   }
 
-  return <ReaderShell note={note} />;
+  return <ReaderShell note={note} initialPage={initialPage} />;
 }

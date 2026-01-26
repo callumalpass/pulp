@@ -1,6 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useLibrary } from '../hooks/useLibrary';
+import { useSearch, useSearchStatus } from '../hooks/useSearch';
 import { LibraryGrid } from '../components/library/LibraryGrid';
+import { SearchResults } from '../components/library/SearchResults';
 import { Button } from '../components/ui/Button';
 import type { LiteratureNoteSummary } from '@pulp/shared';
 
@@ -8,6 +10,7 @@ type SortOption = 'lastRead' | 'title' | 'progress' | 'dateCreated';
 type SortOrder = 'asc' | 'desc';
 type TypeFilter = 'all' | 'pdf' | 'epub';
 type ProgressFilter = 'all' | 'unread' | 'reading' | 'completed';
+type SearchMode = 'title' | 'content';
 
 const SORT_LABELS: Record<SortOption, string> = {
   lastRead: 'Recent',
@@ -27,17 +30,32 @@ export function LibraryPage() {
   const [sort, setSort] = useState<SortOption>('lastRead');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [progressFilter, setProgressFilter] = useState<ProgressFilter>('all');
+  const [searchMode, setSearchMode] = useState<SearchMode>('title');
 
   const { data: notes, isLoading, error, refetch } = useLibrary(sort, sortOrder);
+  const { data: searchStatus } = useSearchStatus();
+  const { data: searchResults, isLoading: isSearching } = useSearch(debouncedQuery, {
+    enabled: searchMode === 'content' && debouncedQuery.length >= 2,
+    limit: 50,
+  });
+
+  // Debounce search query for content search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const filteredNotes = useMemo(() => {
     if (!notes) return [];
 
     return notes.filter((note: LiteratureNoteSummary) => {
-      // Search filter
-      if (searchQuery) {
+      // Search filter (only for title mode)
+      if (searchMode === 'title' && searchQuery) {
         const query = searchQuery.toLowerCase();
         if (!note.title.toLowerCase().includes(query)) {
           return false;
@@ -59,7 +77,7 @@ export function LibraryPage() {
 
       return true;
     });
-  }, [notes, searchQuery, typeFilter, progressFilter]);
+  }, [notes, searchQuery, typeFilter, progressFilter, searchMode]);
 
   const hasActiveFilters = searchQuery || typeFilter !== 'all' || progressFilter !== 'all';
 
@@ -72,6 +90,8 @@ export function LibraryPage() {
   const toggleSortOrder = () => {
     setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
   };
+
+  const isShowingSearchResults = searchMode === 'content' && debouncedQuery.length >= 2;
 
   if (isLoading) {
     return (
@@ -96,102 +116,144 @@ export function LibraryPage() {
     <div className="p-6">
       {/* Search and filters */}
       <div className="flex flex-col gap-4 mb-6">
-        {/* Search bar */}
-        <div className="relative">
-          <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary" />
-          <input
-            type="text"
-            placeholder="Search library..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-bg-surface border border-text-secondary/20 rounded-lg text-text-primary placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-accent-primary/50 focus:border-accent-primary"
-          />
-          {searchQuery && (
+        {/* Search bar with mode toggle */}
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary" />
+            <input
+              type="text"
+              placeholder={searchMode === 'title' ? 'Search by title...' : 'Search document contents...'}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-bg-surface border border-text-secondary/20 rounded-lg text-text-primary placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-accent-primary/50 focus:border-accent-primary"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary"
+              >
+                <XIcon className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Search mode toggle */}
+          <div className="flex rounded-lg bg-bg-surface border border-text-secondary/20 overflow-hidden">
             <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary"
+              onClick={() => setSearchMode('title')}
+              className={`px-3 py-2 text-sm transition-colors flex items-center gap-1.5 ${
+                searchMode === 'title'
+                  ? 'bg-accent-primary/20 text-accent-primary'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'
+              }`}
+              title="Search by title"
             >
-              <XIcon className="w-4 h-4" />
+              <TitleIcon className="w-4 h-4" />
+              <span className="hidden sm:inline">Title</span>
             </button>
-          )}
-        </div>
-
-        {/* Filter row */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Type filter */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-text-secondary uppercase tracking-wide">Type</span>
-            <div className="flex rounded-lg bg-bg-surface border border-text-secondary/20 overflow-hidden">
-              <FilterButton
-                active={typeFilter === 'all'}
-                onClick={() => setTypeFilter('all')}
-              >
-                All
-              </FilterButton>
-              <FilterButton
-                active={typeFilter === 'pdf'}
-                onClick={() => setTypeFilter('pdf')}
-              >
-                PDF
-              </FilterButton>
-              <FilterButton
-                active={typeFilter === 'epub'}
-                onClick={() => setTypeFilter('epub')}
-              >
-                EPUB
-              </FilterButton>
-            </div>
-          </div>
-
-          {/* Progress filter */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-text-secondary uppercase tracking-wide">Status</span>
-            <div className="flex rounded-lg bg-bg-surface border border-text-secondary/20 overflow-hidden">
-              {(Object.keys(PROGRESS_LABELS) as ProgressFilter[]).map((key) => (
-                <FilterButton
-                  key={key}
-                  active={progressFilter === key}
-                  onClick={() => setProgressFilter(key)}
-                >
-                  {PROGRESS_LABELS[key]}
-                </FilterButton>
-              ))}
-            </div>
-          </div>
-
-          {/* Spacer */}
-          <div className="flex-1" />
-
-          {/* Sort controls */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-text-secondary uppercase tracking-wide">Sort</span>
-            <div className="flex rounded-lg bg-bg-surface border border-text-secondary/20 overflow-hidden">
-              {(Object.keys(SORT_LABELS) as SortOption[]).map((key) => (
-                <FilterButton
-                  key={key}
-                  active={sort === key}
-                  onClick={() => setSort(key)}
-                >
-                  {SORT_LABELS[key]}
-                </FilterButton>
-              ))}
-            </div>
             <button
-              onClick={toggleSortOrder}
-              className="p-1.5 rounded-lg bg-bg-surface border border-text-secondary/20 text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-colors"
-              title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+              onClick={() => setSearchMode('content')}
+              className={`px-3 py-2 text-sm transition-colors flex items-center gap-1.5 ${
+                searchMode === 'content'
+                  ? 'bg-accent-primary/20 text-accent-primary'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'
+              }`}
+              title="Search document contents"
             >
-              {sortOrder === 'asc' ? (
-                <SortAscIcon className="w-4 h-4" />
-              ) : (
-                <SortDescIcon className="w-4 h-4" />
-              )}
+              <ContentIcon className="w-4 h-4" />
+              <span className="hidden sm:inline">Content</span>
             </button>
           </div>
         </div>
+
+        {/* Indexing status indicator (only show when content search is active and indexing) */}
+        {searchMode === 'content' && searchStatus && !searchStatus.isComplete && (
+          <div className="flex items-center gap-2 text-sm text-text-secondary bg-bg-surface border border-text-secondary/20 rounded-lg px-3 py-2">
+            <div className="w-4 h-4 border-2 border-accent-primary/50 border-t-accent-primary rounded-full animate-spin" />
+            <span>
+              Indexing documents for search... {searchStatus.percentComplete}% ({searchStatus.indexedDocuments}/{searchStatus.totalDocuments})
+            </span>
+          </div>
+        )}
+
+        {/* Filter row - hide when showing search results */}
+        {!isShowingSearchResults && (
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Type filter */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-text-secondary uppercase tracking-wide">Type</span>
+              <div className="flex rounded-lg bg-bg-surface border border-text-secondary/20 overflow-hidden">
+                <FilterButton
+                  active={typeFilter === 'all'}
+                  onClick={() => setTypeFilter('all')}
+                >
+                  All
+                </FilterButton>
+                <FilterButton
+                  active={typeFilter === 'pdf'}
+                  onClick={() => setTypeFilter('pdf')}
+                >
+                  PDF
+                </FilterButton>
+                <FilterButton
+                  active={typeFilter === 'epub'}
+                  onClick={() => setTypeFilter('epub')}
+                >
+                  EPUB
+                </FilterButton>
+              </div>
+            </div>
+
+            {/* Progress filter */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-text-secondary uppercase tracking-wide">Status</span>
+              <div className="flex rounded-lg bg-bg-surface border border-text-secondary/20 overflow-hidden">
+                {(Object.keys(PROGRESS_LABELS) as ProgressFilter[]).map((key) => (
+                  <FilterButton
+                    key={key}
+                    active={progressFilter === key}
+                    onClick={() => setProgressFilter(key)}
+                  >
+                    {PROGRESS_LABELS[key]}
+                  </FilterButton>
+                ))}
+              </div>
+            </div>
+
+            {/* Spacer */}
+            <div className="flex-1" />
+
+            {/* Sort controls */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-text-secondary uppercase tracking-wide">Sort</span>
+              <div className="flex rounded-lg bg-bg-surface border border-text-secondary/20 overflow-hidden">
+                {(Object.keys(SORT_LABELS) as SortOption[]).map((key) => (
+                  <FilterButton
+                    key={key}
+                    active={sort === key}
+                    onClick={() => setSort(key)}
+                  >
+                    {SORT_LABELS[key]}
+                  </FilterButton>
+                ))}
+              </div>
+              <button
+                onClick={toggleSortOrder}
+                className="p-1.5 rounded-lg bg-bg-surface border border-text-secondary/20 text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-colors"
+                title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+              >
+                {sortOrder === 'asc' ? (
+                  <SortAscIcon className="w-4 h-4" />
+                ) : (
+                  <SortDescIcon className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Active filters summary */}
-        {hasActiveFilters && (
+        {!isShowingSearchResults && hasActiveFilters && (
           <div className="flex items-center gap-2 text-sm">
             <span className="text-text-secondary">
               Showing {filteredNotes.length} of {notes?.length || 0} items
@@ -206,7 +268,16 @@ export function LibraryPage() {
         )}
       </div>
 
-      <LibraryGrid notes={filteredNotes} />
+      {/* Content - either search results or library grid */}
+      {isShowingSearchResults ? (
+        <SearchResults
+          results={searchResults?.results || []}
+          query={debouncedQuery}
+          isLoading={isSearching}
+        />
+      ) : (
+        <LibraryGrid notes={filteredNotes} />
+      )}
     </div>
   );
 }
@@ -246,6 +317,22 @@ function XIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  );
+}
+
+function TitleIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+    </svg>
+  );
+}
+
+function ContentIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
   );
 }
