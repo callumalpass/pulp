@@ -95,7 +95,7 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
   return (
     <div
       ref={popupRef}
-      className="absolute z-50 bg-bg-surface rounded-lg shadow-xl border border-text-secondary/20 overflow-hidden"
+      className="absolute z-50 bg-bg-surface rounded-lg shadow-xl border border-text-secondary/20 overflow-hidden highlight-popup-enter"
       style={{
         left: Math.max(10, Math.min(selection.position.x - 100, window.innerWidth - 220)),
         top: selection.position.y,

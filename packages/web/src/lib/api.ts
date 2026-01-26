@@ -10,12 +10,14 @@ import type {
 const API_BASE = '/api';
 
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
+  const headers: HeadersInit = { ...options?.headers };
+  if (options?.body) {
+    headers['Content-Type'] = 'application/json';
+  }
+
   const response = await fetch(`${API_BASE}${url}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
     ...options,
+    headers,
   });
 
   if (!response.ok) {
@@ -42,6 +44,17 @@ export const api = {
 
     getHighlights(id: string) {
       return fetchJSON<Highlight[]>(`/library/${id}/highlights`);
+    },
+
+    getContent(id: string) {
+      return fetchJSON<{ content: string }>(`/library/${id}/content`);
+    },
+
+    updateContent(id: string, content: string) {
+      return fetchJSON<{ success: boolean }>(`/library/${id}/content`, {
+        method: 'PUT',
+        body: JSON.stringify({ content }),
+      });
     },
   },
 

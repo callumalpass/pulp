@@ -52,7 +52,7 @@ export class HighlightWriter {
         page: highlight.page,
         selection: this.formatSelection(highlight.selection),
         text: this.formatBlockquote(highlight.text),
-        note: highlight.note,
+        note: highlight.note ? new Handlebars.SafeString(highlight.note) : undefined,
         citekey,
       });
     } else {
@@ -73,7 +73,7 @@ export class HighlightWriter {
         source: note.sourceRelative,
         cfi: highlight.cfi,
         text: this.formatBlockquote(highlight.text),
-        note: highlight.note,
+        note: highlight.note ? new Handlebars.SafeString(highlight.note) : undefined,
         citekey,
       });
     }
@@ -201,5 +201,90 @@ export class HighlightWriter {
 
   private escapeRegex(str: string): string {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  /**
+   * Delete a highlight from the markdown file.
+   * Finds the highlight block (blockquote + link + optional note) and removes it.
+   */
+  async delete(note: LiteratureNote, highlightId: string): Promise<boolean> {
+    const highlight = note.highlights.find(h => h.id === highlightId);
+    if (!highlight) {
+      return false;
+    }
+
+    const content = readFileSync(note.notePath, 'utf-8');
+    let linkPattern: string;
+
+    if (highlight.type === 'pdf') {
+      const sel = highlight.selection;
+      linkPattern = `${this.escapeRegex(note.sourceRelative)}#page=${highlight.page}&selection=${sel.beginIndex},${sel.beginOffset},${sel.endIndex},${sel.endOffset}`;
+    } else {
+      linkPattern = `${this.escapeRegex(note.sourceRelative)}#cfi=${this.escapeRegex(highlight.cfi)}`;
+    }
+
+    // Find the link in the content
+    const linkRegex = new RegExp(`\\[\\[${linkPattern}\\|[^\\]]*\\]\\]`);
+    const match = linkRegex.exec(content);
+
+    if (!match) {
+      return false;
+    }
+
+    // Find the start of the highlight block by looking backwards for blockquote lines
+    const beforeLink = content.slice(0, match.index);
+    const lines = beforeLink.split('\n');
+    let blockStart = match.index;
+
+    // Walk backwards through lines to find the start of the blockquote
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      const trimmed = line.trim();
+
+      if (trimmed.startsWith('>')) {
+        // This is part of the blockquote, include it
+        blockStart -= line.length + 1; // +1 for newline
+      } else if (trimmed === '') {
+        // Empty line - stop here (don't include it in deletion)
+        break;
+      } else {
+        // Non-blockquote, non-empty line - stop
+        break;
+      }
+    }
+
+    // Find the end of the highlight block by looking forwards
+    const afterLink = content.slice(match.index + match[0].length);
+    let blockEnd = match.index + match[0].length;
+
+    // Skip to end of current line
+    const currentLineEnd = afterLink.indexOf('\n');
+    if (currentLineEnd !== -1) {
+      blockEnd += currentLineEnd + 1;
+
+      // Check for note content after the link line
+      const afterLines = afterLink.slice(currentLineEnd + 1).split('\n');
+      for (const line of afterLines) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          // Empty line - include it and stop
+          blockEnd += line.length + 1;
+          break;
+        }
+        if (trimmed.startsWith('>') || trimmed.startsWith('#') || trimmed.startsWith('- ')) {
+          // Next highlight or section - stop here
+          break;
+        }
+        // This is a note line - include it
+        blockEnd += line.length + 1;
+        break;
+      }
+    }
+
+    // Remove the block
+    const newContent = content.slice(0, blockStart) + content.slice(blockEnd);
+
+    writeFileSync(note.notePath, newContent, 'utf-8');
+    return true;
   }
 }

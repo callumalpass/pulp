@@ -9,15 +9,20 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.10.1",
+    "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/state": "^6.5.4",
+    "@codemirror/view": "^6.39.11",
     "@pulp/shared": "*",
+    "@tanstack/react-query": "^5.17.19",
+    "clsx": "^2.1.0",
+    "codemirror": "^6.0.2",
+    "epubjs": "^0.3.93",
+    "pdfjs-dist": "^4.0.379",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.21.3",
-    "@tanstack/react-query": "^5.17.19",
-    "zustand": "^4.5.0",
-    "pdfjs-dist": "^4.0.379",
-    "epubjs": "^0.3.93",
-    "clsx": "^2.1.0"
+    "zustand": "^4.5.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.48",

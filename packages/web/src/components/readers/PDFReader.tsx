@@ -3,13 +3,14 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { TextLayer } from 'pdfjs-dist';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import type { LiteratureNote, PDFHighlight, TextSelection } from '@pulp/shared';
-import { useReaderStore, type ZoomMode } from '../../stores/reader';
+import { useReaderStore, type ZoomMode, type SearchMatch } from '../../stores/reader';
 import { useProgress } from '../../hooks/useProgress';
 import { useHighlights } from '../../hooks/useNote';
 import { ReaderControls } from './shared/ReaderControls';
 import { HighlightPopup } from './shared/HighlightPopup';
 import { HighlightEditPopup } from './shared/HighlightEditPopup';
 import { PDFTableOfContents } from './shared/PDFTableOfContents';
+import { MarkdownEditorPanel } from './shared/MarkdownEditorPanel';
 import { api } from '../../lib/api';
 
 // Configure PDF.js worker
@@ -51,15 +52,27 @@ export function PDFReader({ note }: PDFReaderProps) {
     zoom,
     zoomMode,
     tocOpen,
+    markdownPanelOpen,
     scrollToPage,
     isLoading,
+    searchQuery,
+    searchResults,
+    currentMatchIndex,
+    isSearchOpen,
+    pdfViewMode,
+    pdfColorMode,
     setCurrentPage,
     setTotalPages,
     setZoom,
     setZoomMode,
     setTocOpen,
+    setMarkdownPanelOpen,
     setScrollToPage,
     setIsLoading,
+    setSearchResults,
+    toggleSearch,
+    clearSearch,
+    setPdfViewMode,
     reset,
   } = useReaderStore();
 
@@ -72,6 +85,12 @@ export function PDFReader({ note }: PDFReaderProps) {
   const [visiblePages, setVisiblePages] = useState<Set<number>>(new Set([1]));
   const [pageDimensions, setPageDimensions] = useState<Map<number, PageDimensions>>(new Map());
   const [hasToc, setHasToc] = useState(false);
+  const [isPresentation, setIsPresentation] = useState(false);
+  const [presentationPage, setPresentationPage] = useState(1);
+
+  // Text content cache for search
+  const textContentCache = useRef<Map<number, string>>(new Map());
+  const searchLayerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   // Calculate fit-width zoom
   const calculateFitWidthZoom = useCallback((containerWidth: number, pageWidth: number) => {
@@ -438,6 +457,12 @@ export function PDFReader({ note }: PDFReaderProps) {
 
         const textContent = await page.getTextContent();
 
+        // Cache text content for search
+        const pageText = textContent.items
+          .map((item) => ('str' in item ? item.str : ''))
+          .join(' ');
+        textContentCache.current.set(pageNum, pageText);
+
         const textLayer = new TextLayer({
           textContentSource: textContent,
           container: textLayerDiv,
@@ -613,6 +638,163 @@ export function PDFReader({ note }: PDFReaderProps) {
     return merged;
   };
 
+  /**
+   * Search through PDF text content
+   */
+  const performSearch = useCallback(async (query: string) => {
+    if (!query.trim() || !pdfDocRef.current) {
+      setSearchResults([]);
+      return;
+    }
+
+    const results: SearchMatch[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    // Search through all pages
+    for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+      // Try to get text from cache, otherwise load it
+      let pageText = textContentCache.current.get(pageNum);
+
+      if (!pageText && pdfDocRef.current) {
+        try {
+          const page = await pdfDocRef.current.getPage(pageNum);
+          const textContent = await page.getTextContent();
+          pageText = textContent.items
+            .map((item) => ('str' in item ? item.str : ''))
+            .join(' ');
+          textContentCache.current.set(pageNum, pageText);
+        } catch {
+          continue;
+        }
+      }
+
+      if (!pageText) continue;
+
+      // Find all matches in this page
+      const lowerPageText = pageText.toLowerCase();
+      let searchIndex = 0;
+      let matchIndex = 0;
+
+      while ((searchIndex = lowerPageText.indexOf(lowerQuery, searchIndex)) !== -1) {
+        results.push({
+          pageNum,
+          spanIndex: matchIndex,
+          startOffset: searchIndex,
+          endOffset: searchIndex + query.length,
+          text: pageText.slice(searchIndex, searchIndex + query.length),
+        });
+        searchIndex += 1;
+        matchIndex++;
+      }
+    }
+
+    setSearchResults(results);
+  }, [totalPages, setSearchResults]);
+
+  // Perform search when query changes
+  useEffect(() => {
+    const debounceTimer = setTimeout(() => {
+      performSearch(searchQuery);
+    }, 300);
+
+    return () => clearTimeout(debounceTimer);
+  }, [searchQuery, performSearch]);
+
+  // Scroll to current search match
+  useEffect(() => {
+    if (searchResults.length === 0 || currentMatchIndex >= searchResults.length) return;
+
+    const match = searchResults[currentMatchIndex];
+    setScrollToPage(match.pageNum);
+  }, [currentMatchIndex, searchResults, setScrollToPage]);
+
+  // Render search highlights on rendered pages
+  useEffect(() => {
+    if (!searchQuery) {
+      // Clear all search highlights
+      searchLayerRefs.current.forEach((layer) => {
+        layer.innerHTML = '';
+      });
+      return;
+    }
+
+    renderedPages.forEach((pageNum) => {
+      const textLayerDiv = textLayerRefs.current.get(pageNum);
+      const searchLayerDiv = searchLayerRefs.current.get(pageNum);
+      if (!textLayerDiv || !searchLayerDiv) return;
+
+      // Clear existing search highlights
+      searchLayerDiv.innerHTML = '';
+
+      // Find matches for this page
+      const pageMatches = searchResults.filter((m) => m.pageNum === pageNum);
+      if (pageMatches.length === 0) return;
+
+      const spans = Array.from(textLayerDiv.querySelectorAll('span'));
+      const layerRect = textLayerDiv.getBoundingClientRect();
+
+      // For each match, find the corresponding text and highlight it
+      pageMatches.forEach((match) => {
+        const globalIdx = searchResults.findIndex(
+          (m) => m.pageNum === match.pageNum && m.startOffset === match.startOffset
+        );
+        const isCurrent = globalIdx === currentMatchIndex;
+
+        // Search through spans to find text that matches
+        let charCount = 0;
+        for (const span of spans) {
+          const text = span.textContent || '';
+          const spanStart = charCount;
+          const spanEnd = charCount + text.length;
+
+          // Check if this span contains part of the match
+          if (spanEnd > match.startOffset && spanStart < match.endOffset) {
+            const rect = span.getBoundingClientRect();
+            const highlightEl = document.createElement('div');
+            highlightEl.className = `pdf-search-highlight ${isCurrent ? 'current' : ''}`;
+            highlightEl.style.cssText = `
+              position: absolute;
+              left: ${rect.left - layerRect.left}px;
+              top: ${rect.top - layerRect.top}px;
+              width: ${rect.width}px;
+              height: ${rect.height}px;
+            `;
+            searchLayerDiv.appendChild(highlightEl);
+          }
+
+          charCount += text.length + 1; // +1 for space between spans
+        }
+      });
+    });
+  }, [searchQuery, searchResults, currentMatchIndex, renderedPages]);
+
+  // Enter presentation mode
+  const enterPresentation = useCallback(() => {
+    setIsPresentation(true);
+    setPresentationPage(currentPage);
+    document.documentElement.requestFullscreen?.();
+  }, [currentPage]);
+
+  // Exit presentation mode
+  const exitPresentation = useCallback(() => {
+    setIsPresentation(false);
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.();
+    }
+  }, []);
+
+  // Listen for fullscreen change
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement && isPresentation) {
+        setIsPresentation(false);
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, [isPresentation]);
+
   // Handle page navigation (now scrolls to page)
   const goToPage = useCallback(
     (page: number) => {
@@ -735,6 +917,31 @@ export function PDFReader({ note }: PDFReaderProps) {
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't handle shortcuts if typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      // Search shortcut: Ctrl/Cmd + F
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        toggleSearch();
+        return;
+      }
+
+      // Presentation mode navigation
+      if (isPresentation) {
+        if (e.key === 'Escape') {
+          exitPresentation();
+        } else if (e.key === 'ArrowRight' || e.key === ' ') {
+          setPresentationPage((p) => Math.min(totalPages, p + 1));
+        } else if (e.key === 'ArrowLeft') {
+          setPresentationPage((p) => Math.max(1, p - 1));
+        }
+        return;
+      }
+
+      // Normal navigation
       if (e.key === 'ArrowRight' || e.key === 'PageDown') {
         goToPage(currentPage + 1);
       } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
@@ -747,17 +954,161 @@ export function PDFReader({ note }: PDFReaderProps) {
         setZoom(zoom + 0.25);
       } else if (e.key === '-') {
         setZoom(zoom - 0.25);
+      } else if (e.key === 'Escape' && isSearchOpen) {
+        clearSearch();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentPage, totalPages, zoom, goToPage, setZoom]);
+  }, [currentPage, totalPages, zoom, goToPage, setZoom, toggleSearch, isSearchOpen, clearSearch, isPresentation, exitPresentation]);
+
+  // Render a single page container
+  const renderPageContainer = (pageNum: number) => {
+    const dims = pageDimensions.get(pageNum);
+    const isRendered = renderedPages.has(pageNum);
+
+    return (
+      <div
+        key={pageNum}
+        data-page={pageNum}
+        ref={(el) => {
+          if (el) {
+            pageContainerRefs.current.set(pageNum, el);
+            observerRef.current?.observe(el);
+          }
+        }}
+        className="pdf-page-container relative bg-white shadow-lg"
+        style={{
+          width: dims ? `${dims.width * zoom}px` : 'auto',
+          height: dims ? `${dims.height * zoom}px` : 'auto',
+        }}
+      >
+        {/* Skeleton loading placeholder */}
+        {!isRendered && (
+          <div className="pdf-page-skeleton">
+            {Array.from({ length: 20 }, (_, i) => (
+              <div key={i} className="skeleton-line" style={{ animationDelay: `${i * 50}ms` }} />
+            ))}
+          </div>
+        )}
+
+        <canvas
+          ref={(el) => {
+            if (el) pageCanvasRefs.current.set(pageNum, el);
+          }}
+          className="block"
+        />
+
+        {/* Text layer for selection */}
+        <div
+          ref={(el) => {
+            if (el) textLayerRefs.current.set(pageNum, el);
+          }}
+          className="textLayer absolute top-0 left-0"
+          style={{ zIndex: 1 }}
+        />
+
+        {/* Search highlight layer */}
+        <div
+          ref={(el) => {
+            if (el) searchLayerRefs.current.set(pageNum, el);
+          }}
+          className="absolute top-0 left-0"
+          style={{ width: '100%', height: '100%', zIndex: 2, pointerEvents: 'none' }}
+        />
+
+        {/* Highlight layer - above text layer for clickable highlights */}
+        <div
+          ref={(el) => {
+            if (el) highlightLayerRefs.current.set(pageNum, el);
+          }}
+          className="absolute top-0 left-0"
+          style={{ width: '100%', height: '100%', zIndex: 3, pointerEvents: 'none' }}
+        />
+
+        {/* Page number indicator */}
+        <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/50 text-white text-xs rounded">
+          {pageNum}
+        </div>
+      </div>
+    );
+  };
 
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // Presentation mode overlay
+  if (isPresentation) {
+    const dims = pageDimensions.get(presentationPage);
+    const presZoom = dims ? Math.min(
+      (window.innerWidth - 100) / dims.width,
+      (window.innerHeight - 150) / dims.height
+    ) : 1;
+
+    return (
+      <div className="pdf-presentation-mode">
+        <div
+          className="pdf-page-container relative bg-white shadow-lg"
+          style={{
+            width: dims ? `${dims.width * presZoom}px` : 'auto',
+            height: dims ? `${dims.height * presZoom}px` : 'auto',
+          }}
+        >
+          <canvas
+            ref={(el) => {
+              if (el) {
+                // Render the presentation page
+                const existingCanvas = pageCanvasRefs.current.get(presentationPage);
+                if (existingCanvas) {
+                  const ctx = el.getContext('2d');
+                  el.width = existingCanvas.width;
+                  el.height = existingCanvas.height;
+                  el.style.width = dims ? `${dims.width * presZoom}px` : 'auto';
+                  el.style.height = dims ? `${dims.height * presZoom}px` : 'auto';
+                  ctx?.drawImage(existingCanvas, 0, 0);
+                }
+              }
+            }}
+            className="block"
+          />
+        </div>
+
+        <div className="pdf-presentation-controls">
+          <button
+            onClick={() => setPresentationPage((p) => Math.max(1, p - 1))}
+            disabled={presentationPage <= 1}
+            className="px-4 py-2 text-white hover:bg-white/20 rounded disabled:opacity-50"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+          <span className="px-4 py-2 text-white">
+            {presentationPage} / {totalPages}
+          </span>
+          <button
+            onClick={() => setPresentationPage((p) => Math.min(totalPages, p + 1))}
+            disabled={presentationPage >= totalPages}
+            className="px-4 py-2 text-white hover:bg-white/20 rounded disabled:opacity-50"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </button>
+          <div className="w-px h-6 bg-white/30 mx-2" />
+          <button
+            onClick={exitPresentation}
+            className="px-4 py-2 text-white hover:bg-white/20 rounded"
+          >
+            Exit
+          </button>
+        </div>
       </div>
     );
   }
@@ -771,6 +1122,8 @@ export function PDFReader({ note }: PDFReaderProps) {
         onPageChange={goToPage}
         onZoomChange={setZoom}
         onZoomModeChange={handleZoomModeChange}
+        onViewModeChange={setPdfViewMode}
+        onEnterPresentation={enterPresentation}
         hasToc={hasToc}
       />
 
@@ -783,63 +1136,45 @@ export function PDFReader({ note }: PDFReaderProps) {
         {/* PDF Pages Container */}
         <div
           ref={scrollContainerRef}
-          className="flex-1 overflow-auto bg-bg-deep"
+          className={`flex-1 overflow-auto bg-bg-deep ${pdfColorMode === 'dark' ? 'pdf-dark-mode' : ''}`}
           onMouseUp={handleMouseUp}
         >
-          <div className="pdf-pages-container flex flex-col items-center py-4 gap-4">
+          <div className={`pdf-pages-container flex flex-col items-center py-4 gap-4 ${pdfViewMode === 'spread' ? 'pdf-spread-layout' : ''}`}>
             {/* Render all pages */}
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => {
-              const dims = pageDimensions.get(pageNum);
-              return (
-              <div
-                key={pageNum}
-                data-page={pageNum}
-                ref={(el) => {
-                  if (el) {
-                    pageContainerRefs.current.set(pageNum, el);
-                    observerRef.current?.observe(el);
-                  }
-                }}
-                className="pdf-page-container relative bg-white shadow-lg"
-                style={{
-                  width: dims ? `${dims.width * zoom}px` : 'auto',
-                  height: dims ? `${dims.height * zoom}px` : 'auto',
-                }}
-              >
-                <canvas
-                  ref={(el) => {
-                    if (el) pageCanvasRefs.current.set(pageNum, el);
-                  }}
-                  className="block"
-                />
-
-                {/* Text layer for selection */}
-                <div
-                  ref={(el) => {
-                    if (el) textLayerRefs.current.set(pageNum, el);
-                  }}
-                  className="textLayer absolute top-0 left-0"
-                  style={{ zIndex: 1 }}
-                />
-
-                {/* Highlight layer - above text layer for clickable highlights */}
-                <div
-                  ref={(el) => {
-                    if (el) highlightLayerRefs.current.set(pageNum, el);
-                  }}
-                  className="absolute top-0 left-0"
-                  style={{ width: '100%', height: '100%', zIndex: 2, pointerEvents: 'none' }}
-                />
-
-                {/* Page number indicator */}
-                <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/50 text-white text-xs rounded">
-                  {pageNum}
-                </div>
-              </div>
-              );
-            })}
+            {pdfViewMode === 'spread' ? (
+              // Spread mode: pair pages side by side
+              <>
+                {/* First page alone */}
+                {totalPages > 0 && (
+                  <div className="pdf-spread-container first-page">
+                    {renderPageContainer(1)}
+                  </div>
+                )}
+                {/* Remaining pages in pairs */}
+                {Array.from({ length: Math.ceil((totalPages - 1) / 2) }, (_, i) => {
+                  const leftPage = i * 2 + 2;
+                  const rightPage = leftPage + 1;
+                  return (
+                    <div key={leftPage} className="pdf-spread-container">
+                      {renderPageContainer(leftPage)}
+                      {rightPage <= totalPages && renderPageContainer(rightPage)}
+                    </div>
+                  );
+                })}
+              </>
+            ) : (
+              // Single page mode
+              Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) =>
+                renderPageContainer(pageNum)
+              )
+            )}
           </div>
         </div>
+
+        {/* Markdown Editor Panel */}
+        {markdownPanelOpen && (
+          <MarkdownEditorPanel noteId={note.id} onClose={() => setMarkdownPanelOpen(false)} />
+        )}
       </div>
 
       {selection && (

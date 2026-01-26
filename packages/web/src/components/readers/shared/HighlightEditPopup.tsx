@@ -74,7 +74,7 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose }: Hig
   return (
     <div
       ref={popupRef}
-      className="absolute z-50 bg-bg-surface rounded-lg shadow-xl border border-text-secondary/20 overflow-hidden w-72"
+      className="absolute z-50 bg-bg-surface rounded-lg shadow-xl border border-text-secondary/20 overflow-hidden w-72 highlight-edit-popup-enter"
       style={{
         left: Math.max(10, Math.min(position.x - 144, window.innerWidth - 300)),
         top: position.y,

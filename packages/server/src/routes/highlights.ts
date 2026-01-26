@@ -140,9 +140,20 @@ export const highlightsRoutes: FastifyPluginAsync<HighlightsRouteOptions> = asyn
       return reply.code(404).send({ error: 'Highlight not found' });
     }
 
-    // Remove from in-memory cache
-    note.highlights.splice(highlightIndex, 1);
+    try {
+      const deleted = await highlightWriter.delete(note, request.params.highlightId);
 
-    return { success: true };
+      if (!deleted) {
+        return reply.code(404).send({ error: 'Highlight not found in file' });
+      }
+
+      // Remove from in-memory cache
+      note.highlights.splice(highlightIndex, 1);
+
+      return { success: true };
+    } catch (error) {
+      fastify.log.error(error, 'Failed to delete highlight');
+      return reply.code(500).send({ error: 'Failed to delete highlight' });
+    }
   });
 };

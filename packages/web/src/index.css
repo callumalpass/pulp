@@ -189,4 +189,211 @@ body {
 
 .pdf-page-container {
   flex-shrink: 0;
+  transition: width 200ms cubic-bezier(0.25, 0.8, 0.25, 1),
+              height 200ms cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+/* PDF Dark Mode Filter */
+.pdf-dark-mode canvas {
+  filter: invert(0.9) hue-rotate(180deg);
+}
+
+.pdf-dark-mode .pdf-highlight {
+  /* Invert highlights back so they remain visible */
+  filter: invert(0.9) hue-rotate(180deg);
+}
+
+/* Skeleton Loading Animation */
+@keyframes skeleton-pulse {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.pdf-page-skeleton {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  gap: 12px;
+  background: white;
+}
+
+.pdf-page-skeleton .skeleton-line {
+  height: 12px;
+  background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+  background-size: 200% 100%;
+  border-radius: 4px;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.pdf-page-skeleton .skeleton-line:nth-child(odd) {
+  width: 100%;
+}
+
+.pdf-page-skeleton .skeleton-line:nth-child(even) {
+  width: 85%;
+}
+
+.pdf-page-skeleton .skeleton-line:nth-child(3n) {
+  width: 70%;
+}
+
+/* Popup Entry Animations */
+@keyframes popup-fade-scale {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes popup-fade-slide {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.highlight-popup-enter {
+  animation: popup-fade-scale 150ms ease-out forwards;
+}
+
+.highlight-edit-popup-enter {
+  animation: popup-fade-slide 150ms ease-out forwards;
+}
+
+/* PDF Search Highlights */
+.pdf-search-highlight {
+  position: absolute;
+  background-color: rgba(255, 235, 59, 0.5);
+  pointer-events: none;
+  border-radius: 2px;
+  z-index: 3;
+}
+
+.pdf-search-highlight.current {
+  background-color: rgba(255, 152, 0, 0.7);
+  box-shadow: 0 0 4px rgba(255, 152, 0, 0.5);
+}
+
+/* Search Input Animation */
+@keyframes search-expand {
+  from {
+    width: 0;
+    opacity: 0;
+  }
+  to {
+    width: 200px;
+    opacity: 1;
+  }
+}
+
+.search-input-container {
+  overflow: hidden;
+}
+
+.search-input-container.open {
+  animation: search-expand 200ms ease-out forwards;
+}
+
+/* Presentation Mode */
+.pdf-presentation-mode {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: black;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.pdf-presentation-mode .pdf-page-container {
+  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.5);
+}
+
+.pdf-presentation-controls {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 12px;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.pdf-presentation-mode:hover .pdf-presentation-controls {
+  opacity: 1;
+}
+
+/* Spread Mode Layout */
+.pdf-spread-container {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.pdf-spread-container.first-page {
+  justify-content: flex-end;
+  padding-right: calc(50% - 8px);
+}
+
+/* Markdown Editor Panel */
+.markdown-editor-panel {
+  width: 400px;
+  min-width: 320px;
+  max-width: 50vw;
+  background-color: var(--color-bg-surface);
+  border-left: 1px solid rgba(178, 190, 195, 0.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.markdown-editor-panel .panel-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(178, 190, 195, 0.2);
+  color: var(--color-text-primary);
+}
+
+.markdown-editor-panel .panel-content {
+  flex: 1;
+  overflow: hidden;
+  background-color: var(--color-bg-deep);
+}
+
+.markdown-editor-panel .cm-editor {
+  height: 100%;
+  background-color: transparent;
+  color: var(--color-text-primary);
+}
+
+.markdown-editor-panel .cm-gutters {
+  background-color: var(--color-bg-surface);
+  border-right: 1px solid rgba(178, 190, 195, 0.2);
+  color: var(--color-text-secondary);
+}
+
+.markdown-editor-panel .cm-cursor {
+  border-left-color: var(--color-accent-primary);
 }
