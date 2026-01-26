@@ -116,6 +116,19 @@ export function getLastRead(
   return null;
 }
 
+export function getLastOpenedCfi(
+  frontmatter: Record<string, unknown>,
+  lastOpenedCfiKey: string
+): string | null {
+  const cfi = frontmatter[lastOpenedCfiKey];
+
+  if (typeof cfi === 'string' && cfi.trim()) {
+    return cfi.trim();
+  }
+
+  return null;
+}
+
 export function getDateCreated(
   frontmatter: Record<string, unknown>,
   dateCreatedKey: string

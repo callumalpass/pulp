@@ -45,7 +45,7 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   library: {
-    list(sort?: 'lastRead' | 'title' | 'progress' | 'dateCreated', order?: 'asc' | 'desc') {
+    list(sort?: 'lastRead' | 'title' | 'progress' | 'dateCreated' | 'author' | 'rating', order?: 'asc' | 'desc') {
       const params = new URLSearchParams();
       if (sort) params.set('sort', sort);
       if (order) params.set('order', order);
@@ -75,7 +75,7 @@ export const api = {
 
   progress: {
     update(id: string, data: ProgressUpdate) {
-      return fetchJSON<{ success: boolean; progress: number; lastRead: string }>(
+      return fetchJSON<{ success: boolean; progress: number; lastRead: string; lastOpenedCfi?: string }>(
         `/library/${id}/progress`,
         {
           method: 'PATCH',

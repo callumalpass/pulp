@@ -4,6 +4,7 @@ import {
   getSourcePath,
   getProgress,
   getLastRead,
+  getLastOpenedCfi,
   getDateCreated,
   getTitle,
   getPinned,
@@ -127,6 +128,30 @@ describe('getLastRead', () => {
 
   it('returns null for invalid date strings', () => {
     expect(getLastRead({ last_read: 'not-a-date' }, 'last_read')).toBeNull();
+  });
+});
+
+describe('getLastOpenedCfi', () => {
+  it('returns null when key is missing', () => {
+    expect(getLastOpenedCfi({}, 'last_opened_cfi')).toBeNull();
+  });
+
+  it('returns null when value is empty string', () => {
+    expect(getLastOpenedCfi({ last_opened_cfi: '' }, 'last_opened_cfi')).toBeNull();
+    expect(getLastOpenedCfi({ last_opened_cfi: '   ' }, 'last_opened_cfi')).toBeNull();
+  });
+
+  it('returns trimmed CFI string', () => {
+    expect(getLastOpenedCfi({ last_opened_cfi: 'epubcfi(/6/4[chap01ref]!/4/2/4)' }, 'last_opened_cfi'))
+      .toBe('epubcfi(/6/4[chap01ref]!/4/2/4)');
+    expect(getLastOpenedCfi({ last_opened_cfi: '  epubcfi(/6/4)  ' }, 'last_opened_cfi'))
+      .toBe('epubcfi(/6/4)');
+  });
+
+  it('returns null for non-string values', () => {
+    expect(getLastOpenedCfi({ last_opened_cfi: 123 }, 'last_opened_cfi')).toBeNull();
+    expect(getLastOpenedCfi({ last_opened_cfi: null }, 'last_opened_cfi')).toBeNull();
+    expect(getLastOpenedCfi({ last_opened_cfi: undefined }, 'last_opened_cfi')).toBeNull();
   });
 });
 

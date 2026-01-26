@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import type { LiteratureNoteSummary } from '@pulp/shared';
 import { useReadingStatsStore } from '../../stores/readingStats';
 import { api } from '../../lib/api';
+import { formatLastRead, getEstimatedTimeRemaining } from '../../lib/format';
 
 interface ContinueReadingCardProps {
   note: LiteratureNoteSummary;
@@ -13,27 +14,11 @@ export function ContinueReadingCard({ note }: ContinueReadingCardProps) {
   const { getFormattedReadingTime } = useReadingStatsStore();
   const bookStats = note.readingStats;
 
-  // Calculate estimated time remaining
-  const getEstimatedTimeRemaining = (): string | null => {
-    if (!note.totalPages || note.progress >= 100) return null;
-
-    const pagesPerHour = bookStats?.pagesPerHour ?? 25;
-    const pagesRemaining = Math.ceil(note.totalPages * ((100 - note.progress) / 100));
-    const hoursRemaining = pagesRemaining / pagesPerHour;
-
-    if (hoursRemaining < 1) {
-      const mins = Math.round(hoursRemaining * 60);
-      return `${mins} min`;
-    } else if (hoursRemaining < 10) {
-      const hours = Math.round(hoursRemaining * 10) / 10;
-      return `${hours} hr`;
-    } else {
-      const hours = Math.round(hoursRemaining);
-      return `${hours} hr`;
-    }
-  };
-
-  const estimatedTime = getEstimatedTimeRemaining();
+  const estimatedTime = getEstimatedTimeRemaining({
+    totalPages: note.totalPages,
+    progress: note.progress,
+    pagesPerHour: bookStats?.pagesPerHour,
+  });
 
   return (
     <Link to={`/read/${note.id}`}>
@@ -73,7 +58,7 @@ export function ContinueReadingCard({ note }: ContinueReadingCardProps) {
               </span>
               {estimatedTime && (
                 <span className="text-xs text-accent-primary">
-                  ~{estimatedTime} left
+                  ~{estimatedTime}
                 </span>
               )}
             </div>
@@ -125,17 +110,4 @@ function PlayIcon({ className }: { className?: string }) {
       <path d="M8 5v14l11-7z" />
     </svg>
   );
-}
-
-function formatLastRead(isoDate: string): string {
-  const date = new Date(isoDate);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) return 'today';
-  if (diffDays === 1) return 'yesterday';
-  if (diffDays < 7) return `${diffDays} days ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-  return date.toLocaleDateString();
 }

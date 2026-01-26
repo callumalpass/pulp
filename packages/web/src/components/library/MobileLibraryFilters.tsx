@@ -5,6 +5,8 @@ const SORT_LABELS: Record<SortOption, string> = {
   dateCreated: 'Added',
   title: 'Title',
   progress: 'Progress',
+  author: 'Author',
+  rating: 'Rating',
 };
 
 const PROGRESS_LABELS: Record<ProgressFilter, string> = {

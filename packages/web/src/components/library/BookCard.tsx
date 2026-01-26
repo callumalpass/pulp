@@ -7,6 +7,7 @@ import { usePinned } from '../../hooks/usePinned';
 import { useRating } from '../../hooks/useRating';
 import { useReadingStatsStore } from '../../stores/readingStats';
 import { api } from '../../lib/api';
+import { formatLastRead, getEstimatedTimeRemaining } from '../../lib/format';
 
 interface BookCardProps {
   note: LiteratureNoteSummary;
@@ -40,28 +41,11 @@ export function BookCard({ note }: BookCardProps) {
     setShowRatingMenu(false);
   };
 
-  // Calculate estimated time remaining based on reading speed and progress
-  const getEstimatedTimeRemaining = (): string | null => {
-    if (!note.totalPages || note.progress >= 100) return null;
-
-    // Default reading speed if we don't have user's speed
-    const pagesPerHour = bookStats?.pagesPerHour ?? 25;
-    const pagesRemaining = Math.ceil(note.totalPages * ((100 - note.progress) / 100));
-    const hoursRemaining = pagesRemaining / pagesPerHour;
-
-    if (hoursRemaining < 1) {
-      const mins = Math.round(hoursRemaining * 60);
-      return `${mins}m left`;
-    } else if (hoursRemaining < 10) {
-      const hours = Math.round(hoursRemaining * 10) / 10;
-      return `${hours}h left`;
-    } else {
-      const hours = Math.round(hoursRemaining);
-      return `${hours}h left`;
-    }
-  };
-
-  const estimatedTime = getEstimatedTimeRemaining();
+  const estimatedTime = getEstimatedTimeRemaining({
+    totalPages: note.totalPages,
+    progress: note.progress,
+    pagesPerHour: bookStats?.pagesPerHour,
+  });
 
   return (
     <Link to={`/read/${note.id}`}>
@@ -224,19 +208,6 @@ function DefaultCover({ title, type }: { title: string; type: 'pdf' | 'epub' }) 
       <p className="text-xs text-center text-text-secondary line-clamp-3">{title}</p>
     </div>
   );
-}
-
-function formatLastRead(isoDate: string): string {
-  const date = new Date(isoDate);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return `${diffDays}d ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
-  return date.toLocaleDateString();
 }
 
 function StarRating({ rating, size = 12 }: { rating: number; size?: number }) {

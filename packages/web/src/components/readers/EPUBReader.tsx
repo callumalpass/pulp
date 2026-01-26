@@ -225,7 +225,12 @@ export function EPUBReader({ note }: EPUBReaderProps) {
       }
 
       // Display content immediately (don't wait for locations)
-      if (note.progress > 0 && generatedLocations.length > 0) {
+      // Prefer exact CFI position if available, otherwise calculate from progress
+      if (note.lastOpenedCfi) {
+        // Resume at exact saved CFI position
+        await rendition.display(note.lastOpenedCfi);
+      } else if (note.progress > 0 && generatedLocations.length > 0) {
+        // Fallback: calculate approximate position from progress percentage
         const locationIndex = Math.floor((note.progress / 100) * generatedLocations.length);
         const cfi = generatedLocations[locationIndex];
         if (cfi) {
@@ -284,7 +289,8 @@ export function EPUBReader({ note }: EPUBReaderProps) {
         const currentLocations = book.locations.length();
         if (currentLocations > 0 && locationIndex >= 0) {
           const progress = ((locationIndex + 1) / currentLocations) * 100;
-          updateProgress(progress);
+          // Send CFI along with progress for precise resume
+          updateProgress(progress, location.start.cfi);
         }
 
         // Find current chapter

@@ -23,6 +23,7 @@ export interface LiteratureNote {
   notePath: string;
   progress: number;
   lastRead: string | null;
+  lastOpenedCfi: string | null; // For EPUBs: exact CFI position to resume at
   dateCreated: string | null;
   tags: string[];
   cover: string | null;
@@ -85,12 +86,13 @@ export interface EPUBHighlight {
 
 // API request/response types
 export interface LibraryQuery {
-  sort?: 'lastRead' | 'title' | 'progress' | 'dateCreated';
+  sort?: 'lastRead' | 'title' | 'progress' | 'dateCreated' | 'author' | 'rating';
   order?: 'asc' | 'desc';
 }
 
 export interface ProgressUpdate {
   progress: number;
+  lastOpenedCfi?: string;  // For EPUBs: exact CFI position for precise resume
 }
 
 export interface PinUpdate {

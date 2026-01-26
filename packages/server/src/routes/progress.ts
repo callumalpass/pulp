@@ -31,6 +31,7 @@ export const progressRoutes: FastifyPluginAsync<ProgressRouteOptions> = async (f
         required: ['progress'],
         properties: {
           progress: { type: 'number', minimum: 0, maximum: 100 },
+          lastOpenedCfi: { type: 'string' },
         },
       },
     },
@@ -43,6 +44,7 @@ export const progressRoutes: FastifyPluginAsync<ProgressRouteOptions> = async (f
 
     // Clamp progress to valid range (defensive - schema should already enforce this)
     const progress = Math.max(0, Math.min(100, request.body.progress));
+    const lastOpenedCfi = request.body.lastOpenedCfi;
     const now = new Date().toISOString();
 
     try {
@@ -54,6 +56,11 @@ export const progressRoutes: FastifyPluginAsync<ProgressRouteOptions> = async (f
       frontmatter[config.progress_key] = progress;
       frontmatter[config.last_read_key] = now;
 
+      // Update lastOpenedCfi for EPUBs
+      if (lastOpenedCfi && note.sourceType === 'epub') {
+        frontmatter[config.last_opened_cfi_key] = lastOpenedCfi;
+      }
+
       // Write back
       const updated = matter.stringify(content, frontmatter);
       writeFileSync(note.notePath, updated, 'utf-8');
@@ -62,9 +69,10 @@ export const progressRoutes: FastifyPluginAsync<ProgressRouteOptions> = async (f
       scanner.updateNote(request.params.id, {
         progress,
         lastRead: now,
+        ...(lastOpenedCfi && note.sourceType === 'epub' ? { lastOpenedCfi } : {}),
       });
 
-      return { success: true, progress, lastRead: now };
+      return { success: true, progress, lastRead: now, lastOpenedCfi };
     } catch (error) {
       fastify.log.error(error, 'Failed to update progress');
       return reply.code(500).send({ error: 'Failed to update progress' });

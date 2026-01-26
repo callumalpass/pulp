@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export type SortOption = 'lastRead' | 'title' | 'progress' | 'dateCreated';
+export type SortOption = 'lastRead' | 'title' | 'progress' | 'dateCreated' | 'author' | 'rating';
 export type SortOrder = 'asc' | 'desc';
 export type TypeFilter = 'all' | 'pdf' | 'epub';
 export type ProgressFilter = 'all' | 'unread' | 'reading' | 'completed';

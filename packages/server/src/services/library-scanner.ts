@@ -9,6 +9,7 @@ import {
   getSourcePath,
   getProgress,
   getLastRead,
+  getLastOpenedCfi,
   getDateCreated,
   getTitle,
   getBookmarks,
@@ -113,6 +114,7 @@ export class LibraryScanner {
         notePath,
         progress: getProgress(frontmatter, this.config.progress_key),
         lastRead: getLastRead(frontmatter, this.config.last_read_key),
+        lastOpenedCfi: sourceType === 'epub' ? getLastOpenedCfi(frontmatter, this.config.last_opened_cfi_key) : null,
         dateCreated: getDateCreated(frontmatter, this.config.date_created_key),
         tags: this.extractTags(frontmatter),
         cover: this.getCoverPath(frontmatter, id),
@@ -201,7 +203,7 @@ export class LibraryScanner {
     return Array.from(this.notes.values());
   }
 
-  getSummaries(sort: 'lastRead' | 'title' | 'progress' | 'dateCreated' = 'lastRead', order: 'asc' | 'desc' = 'desc'): LiteratureNoteSummary[] {
+  getSummaries(sort: 'lastRead' | 'title' | 'progress' | 'dateCreated' | 'author' | 'rating' = 'lastRead', order: 'asc' | 'desc' = 'desc'): LiteratureNoteSummary[] {
     const notes = this.getAll();
 
     const sorted = notes.sort((a, b) => {
@@ -223,6 +225,22 @@ export class LibraryScanner {
           break;
         case 'progress':
           comparison = a.progress - b.progress;
+          break;
+        case 'author':
+          // Sort by author, with null/empty authors at the end
+          const aAuthor = a.author || '';
+          const bAuthor = b.author || '';
+          if (!aAuthor && bAuthor) comparison = 1;
+          else if (aAuthor && !bAuthor) comparison = -1;
+          else comparison = aAuthor.localeCompare(bAuthor);
+          break;
+        case 'rating':
+          // Sort by rating, with unrated items at the end
+          const aRating = a.rating ?? 0;
+          const bRating = b.rating ?? 0;
+          if (aRating === 0 && bRating > 0) comparison = 1;
+          else if (aRating > 0 && bRating === 0) comparison = -1;
+          else comparison = aRating - bRating;
           break;
       }
 

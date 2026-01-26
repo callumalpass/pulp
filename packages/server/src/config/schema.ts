@@ -6,6 +6,7 @@ export const configSchema = z.object({
   source_key: z.string().default('source'),
   progress_key: z.string().default('reading_progress'),
   last_read_key: z.string().default('last_read'),
+  last_opened_cfi_key: z.string().default('last_opened_cfi'),
   date_created_key: z.string().default('dateCreated'),
   author_key: z.string().default('author'),
   rating_key: z.string().default('rating'),
