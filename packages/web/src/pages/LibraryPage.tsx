@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useLibrary } from '../hooks/useLibrary';
 import { useSearch, useSearchStatus } from '../hooks/useSearch';
+import { useCollections } from '../hooks/useCollections';
 import { useMobile } from '../hooks/useMobile';
 import { LibraryGrid } from '../components/library/LibraryGrid';
 import { SearchResults } from '../components/library/SearchResults';
@@ -33,11 +34,13 @@ export function LibraryPage() {
     sortOrder,
     typeFilter,
     progressFilter,
+    collectionFilter,
     searchMode,
     setSort,
     toggleSortOrder,
     setTypeFilter,
     setProgressFilter,
+    setCollectionFilter,
     setSearchMode,
     clearFilters,
   } = useLibraryFiltersStore();
@@ -49,6 +52,7 @@ export function LibraryPage() {
 
   const isMobile = useMobile();
   const { data: notes, isLoading, error, refetch } = useLibrary(sort, sortOrder);
+  const { data: collectionsData } = useCollections();
   const { data: searchStatus } = useSearchStatus();
   const { data: searchResults, isLoading: isSearching } = useSearch(debouncedQuery, {
     enabled: searchMode === 'content' && debouncedQuery.length >= 2,
@@ -90,17 +94,26 @@ export function LibraryPage() {
         if (progressFilter === 'completed' && progress !== 100) return false;
       }
 
+      // Collection filter
+      if (collectionFilter !== null) {
+        if (!note.collections.includes(collectionFilter)) return false;
+      }
+
       return true;
     });
-  }, [notes, searchQuery, typeFilter, progressFilter, searchMode]);
+  }, [notes, searchQuery, typeFilter, progressFilter, collectionFilter, searchMode]);
 
-  const hasActiveFilters = Boolean(searchQuery) || typeFilter !== 'all' || progressFilter !== 'all';
+  const hasActiveFilters = Boolean(searchQuery) || typeFilter !== 'all' || progressFilter !== 'all' || collectionFilter !== null;
 
   // Count active filters for badge display
   const activeFilterCount = [
     typeFilter !== 'all',
     progressFilter !== 'all',
+    collectionFilter !== null,
   ].filter(Boolean).length;
+
+  // Get available collections
+  const availableCollections = collectionsData?.collections || [];
 
   const handleClearFilters = () => {
     setSearchQuery('');
@@ -286,6 +299,25 @@ export function LibraryPage() {
                   ))}
                 </div>
               </div>
+
+              {/* Collection filter */}
+              {availableCollections.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-text-secondary uppercase tracking-wide">Collection</span>
+                  <select
+                    value={collectionFilter || ''}
+                    onChange={(e) => setCollectionFilter(e.target.value || null)}
+                    className="px-2 py-1.5 text-sm bg-bg-surface border border-text-secondary/20 rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary/50"
+                  >
+                    <option value="">All</option>
+                    {availableCollections.map((collection) => (
+                      <option key={collection} value={collection}>
+                        {collection}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Spacer */}
               <div className="flex-1" />

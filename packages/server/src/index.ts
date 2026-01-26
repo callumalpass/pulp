@@ -14,8 +14,10 @@ import { searchRoutes } from './routes/search.js';
 import { bookmarkRoutes } from './routes/bookmarks.js';
 import { pinRoutes } from './routes/pin.js';
 import { ratingRoutes } from './routes/rating.js';
+import { collectionsRoutes } from './routes/collections.js';
 import { readingStatsRoutes } from './routes/reading-stats.js';
 import { readingGoalsRoutes } from './routes/reading-goals.js';
+import { libraryStatsRoutes } from './routes/library-stats.js';
 import { websocketPlugin } from './plugins/websocket.js';
 import { ReadingGoalsService } from './services/reading-goals.js';
 
@@ -70,8 +72,10 @@ async function main() {
   await fastify.register(bookmarkRoutes, { scanner, config });
   await fastify.register(pinRoutes, { scanner, config });
   await fastify.register(ratingRoutes, { scanner, config });
+  await fastify.register(collectionsRoutes, { scanner, config });
   await fastify.register(readingStatsRoutes, { scanner, config, goalsService });
   await fastify.register(readingGoalsRoutes, { goalsService });
+  await fastify.register(libraryStatsRoutes, { scanner });
 
   // Health check
   fastify.get('/health', async () => ({ status: 'ok' }));

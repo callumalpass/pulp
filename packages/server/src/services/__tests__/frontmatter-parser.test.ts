@@ -6,6 +6,8 @@ import {
   getLastRead,
   getLastOpenedCfi,
   getDateCreated,
+  getDateFinished,
+  getCollections,
   getTitle,
   getPinned,
   getBookmarks,
@@ -596,5 +598,72 @@ describe('updateDailyReadingHistory', () => {
     updateDailyReadingHistory(existing, '2024-01-16', 1000, 5);
 
     expect(existing.length).toBe(originalLength);
+  });
+});
+
+describe('getDateFinished', () => {
+  it('returns null when key is missing', () => {
+    expect(getDateFinished({}, 'date_finished')).toBeNull();
+  });
+
+  it('converts Date object to ISO string', () => {
+    const date = new Date('2024-01-20T15:30:00Z');
+    expect(getDateFinished({ date_finished: date }, 'date_finished')).toBe('2024-01-20T15:30:00.000Z');
+  });
+
+  it('parses valid date strings', () => {
+    expect(getDateFinished({ date_finished: '2024-01-20' }, 'date_finished')).toMatch(/^2024-01-20/);
+    expect(getDateFinished({ date_finished: '2024-01-20T15:30:00Z' }, 'date_finished')).toBe('2024-01-20T15:30:00.000Z');
+  });
+
+  it('returns null for invalid date strings', () => {
+    expect(getDateFinished({ date_finished: 'not-a-date' }, 'date_finished')).toBeNull();
+  });
+});
+
+describe('getCollections', () => {
+  it('returns empty array when key is missing', () => {
+    expect(getCollections({}, 'collections')).toEqual([]);
+  });
+
+  it('returns empty array when value is null or undefined', () => {
+    expect(getCollections({ collections: null }, 'collections')).toEqual([]);
+    expect(getCollections({ collections: undefined }, 'collections')).toEqual([]);
+  });
+
+  it('handles array of strings', () => {
+    expect(getCollections({ collections: ['Fiction', 'Favorites'] }, 'collections'))
+      .toEqual(['Fiction', 'Favorites']);
+  });
+
+  it('trims whitespace from collection names', () => {
+    expect(getCollections({ collections: ['  Fiction  ', ' Favorites'] }, 'collections'))
+      .toEqual(['Fiction', 'Favorites']);
+  });
+
+  it('filters out empty strings', () => {
+    expect(getCollections({ collections: ['Fiction', '', '  ', 'Favorites'] }, 'collections'))
+      .toEqual(['Fiction', 'Favorites']);
+  });
+
+  it('handles comma-separated string', () => {
+    expect(getCollections({ collections: 'Fiction, Favorites, To Read' }, 'collections'))
+      .toEqual(['Fiction', 'Favorites', 'To Read']);
+  });
+
+  it('handles comma-separated string with extra whitespace', () => {
+    expect(getCollections({ collections: '  Fiction  ,  Favorites  ' }, 'collections'))
+      .toEqual(['Fiction', 'Favorites']);
+  });
+
+  it('filters out non-string values in arrays', () => {
+    expect(getCollections({ collections: ['Fiction', 123, null, 'Favorites'] }, 'collections'))
+      .toEqual(['Fiction', 'Favorites']);
+  });
+
+  it('returns empty array for non-array, non-string values', () => {
+    expect(getCollections({ collections: 123 }, 'collections')).toEqual([]);
+    expect(getCollections({ collections: true }, 'collections')).toEqual([]);
+    expect(getCollections({ collections: {} }, 'collections')).toEqual([]);
   });
 });

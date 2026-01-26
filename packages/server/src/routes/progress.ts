@@ -61,6 +61,13 @@ export const progressRoutes: FastifyPluginAsync<ProgressRouteOptions> = async (f
         frontmatter[config.last_opened_cfi_key] = lastOpenedCfi;
       }
 
+      // Set date_finished when book is completed (reaches 100% for the first time)
+      let dateFinished = note.dateFinished;
+      if (progress === 100 && !note.dateFinished) {
+        frontmatter[config.date_finished_key] = now;
+        dateFinished = now;
+      }
+
       // Write back
       const updated = matter.stringify(content, frontmatter);
       writeFileSync(note.notePath, updated, 'utf-8');
@@ -70,9 +77,10 @@ export const progressRoutes: FastifyPluginAsync<ProgressRouteOptions> = async (f
         progress,
         lastRead: now,
         ...(lastOpenedCfi && note.sourceType === 'epub' ? { lastOpenedCfi } : {}),
+        ...(dateFinished ? { dateFinished } : {}),
       });
 
-      return { success: true, progress, lastRead: now, lastOpenedCfi };
+      return { success: true, progress, lastRead: now, lastOpenedCfi, dateFinished };
     } catch (error) {
       fastify.log.error(error, 'Failed to update progress');
       return reply.code(500).send({ error: 'Failed to update progress' });

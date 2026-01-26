@@ -11,6 +11,8 @@ import {
   getLastRead,
   getLastOpenedCfi,
   getDateCreated,
+  getDateFinished,
+  getCollections,
   getTitle,
   getBookmarks,
   getPinned,
@@ -127,6 +129,8 @@ export class LibraryScanner {
         lastRead: getLastRead(frontmatter, this.config.last_read_key),
         lastOpenedCfi: sourceType === 'epub' ? getLastOpenedCfi(frontmatter, this.config.last_opened_cfi_key) : null,
         dateCreated: getDateCreated(frontmatter, this.config.date_created_key),
+        dateFinished: getDateFinished(frontmatter, this.config.date_finished_key),
+        collections: getCollections(frontmatter, this.config.collections_key),
         tags: this.extractTags(frontmatter),
         cover: this.getCoverPath(frontmatter, id),
         highlights,
@@ -266,11 +270,14 @@ export class LibraryScanner {
       progress: note.progress,
       lastRead: note.lastRead,
       dateCreated: note.dateCreated,
+      dateFinished: note.dateFinished,
       cover: note.cover,
       pinned: note.pinned,
       rating: note.rating,
       readingStats: note.readingStats,
       totalPages: note.totalPages,
+      highlightCount: note.highlights.length,
+      collections: note.collections,
     }));
   }
 

@@ -13,6 +13,7 @@ interface LibraryFiltersState {
   sortOrder: SortOrder;
   typeFilter: TypeFilter;
   progressFilter: ProgressFilter;
+  collectionFilter: string | null; // null means no collection filter
   searchMode: SearchMode;
 
   // Actions
@@ -21,6 +22,7 @@ interface LibraryFiltersState {
   toggleSortOrder: () => void;
   setTypeFilter: (filter: TypeFilter) => void;
   setProgressFilter: (filter: ProgressFilter) => void;
+  setCollectionFilter: (collection: string | null) => void;
   setSearchMode: (mode: SearchMode) => void;
   clearFilters: () => void;
 }
@@ -33,6 +35,7 @@ export const useLibraryFiltersStore = create<LibraryFiltersState>()(
       sortOrder: 'desc',
       typeFilter: 'all',
       progressFilter: 'all',
+      collectionFilter: null,
       searchMode: 'title',
 
       // Actions
@@ -41,10 +44,12 @@ export const useLibraryFiltersStore = create<LibraryFiltersState>()(
       toggleSortOrder: () => set({ sortOrder: get().sortOrder === 'asc' ? 'desc' : 'asc' }),
       setTypeFilter: (typeFilter) => set({ typeFilter }),
       setProgressFilter: (progressFilter) => set({ progressFilter }),
+      setCollectionFilter: (collectionFilter) => set({ collectionFilter }),
       setSearchMode: (searchMode) => set({ searchMode }),
       clearFilters: () => set({
         typeFilter: 'all',
         progressFilter: 'all',
+        collectionFilter: null,
         // Don't clear sort preferences as they're more like display preferences
       }),
     }),

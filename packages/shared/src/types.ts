@@ -25,6 +25,8 @@ export interface LiteratureNote {
   lastRead: string | null;
   lastOpenedCfi: string | null; // For EPUBs: exact CFI position to resume at
   dateCreated: string | null;
+  dateFinished: string | null; // Date when book was completed (progress reached 100%)
+  collections: string[];       // User-defined collections/shelves this book belongs to
   tags: string[];
   cover: string | null;
   highlights: Highlight[];
@@ -45,11 +47,14 @@ export interface LiteratureNoteSummary {
   progress: number;
   lastRead: string | null;
   dateCreated: string | null;
+  dateFinished: string | null; // Date when book was completed (progress reached 100%)
   cover: string | null;
   pinned: boolean;
   rating: number | null;       // User rating (1-5 stars, null if not rated)
   readingStats: ReadingStats | null;
   totalPages: number | null;   // Total pages in document
+  highlightCount: number;      // Number of highlights in this note
+  collections: string[];       // User-defined collections/shelves this book belongs to
 }
 
 // Highlight types
@@ -101,6 +106,10 @@ export interface PinUpdate {
 
 export interface RatingUpdate {
   rating: number | null;       // 1-5 or null to remove rating
+}
+
+export interface CollectionsUpdate {
+  collections: string[];       // Full list of collections this book belongs to
 }
 
 export interface CreateHighlightRequest {
@@ -200,6 +209,21 @@ export interface ReadingGoalsResponse {
   streak: ReadingStreak;
   todayProgress: DailyReadingSummary;
   weekHistory: DailyReadingSummary[];  // Last 7 days
+}
+
+// Aggregated library statistics
+export interface LibraryStatistics {
+  totalBooks: number;
+  totalPdfBooks: number;
+  totalEpubBooks: number;
+  totalReadingTimeMs: number;
+  totalHighlights: number;
+  totalBookmarks: number;
+  booksCompleted: number;
+  booksInProgress: number;
+  booksUnread: number;
+  averageProgress: number;
+  collectionsCount: number;
 }
 
 // WebSocket event types

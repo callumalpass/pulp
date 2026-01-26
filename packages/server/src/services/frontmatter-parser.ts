@@ -160,6 +160,53 @@ export function getDateCreated(
   return null;
 }
 
+export function getDateFinished(
+  frontmatter: Record<string, unknown>,
+  dateFinishedKey: string
+): string | null {
+  const dateFinished = frontmatter[dateFinishedKey];
+
+  if (!dateFinished) return null;
+
+  if (dateFinished instanceof Date) {
+    return dateFinished.toISOString();
+  }
+
+  if (typeof dateFinished === 'string') {
+    const date = new Date(dateFinished);
+    if (!isNaN(date.getTime())) {
+      return date.toISOString();
+    }
+  }
+
+  return null;
+}
+
+export function getCollections(
+  frontmatter: Record<string, unknown>,
+  collectionsKey: string
+): string[] {
+  const collections = frontmatter[collectionsKey];
+
+  if (!collections) return [];
+
+  if (Array.isArray(collections)) {
+    return collections
+      .filter((c): c is string => typeof c === 'string')
+      .map(c => c.trim())
+      .filter(c => c.length > 0);
+  }
+
+  if (typeof collections === 'string') {
+    return collections
+      .split(',')
+      .map(c => c.trim())
+      .filter(c => c.length > 0);
+  }
+
+  return [];
+}
+
 export function getTitle(frontmatter: Record<string, unknown>, fileName: string): string {
   if (typeof frontmatter.title === 'string' && frontmatter.title.trim()) {
     return frontmatter.title.trim();

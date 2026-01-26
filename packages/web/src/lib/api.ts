@@ -6,6 +6,7 @@ import type {
   ProgressUpdate,
   PinUpdate,
   RatingUpdate,
+  CollectionsUpdate,
   CreateHighlightRequest,
   UpdateHighlightRequest,
   CreateBookmarkRequest,
@@ -18,6 +19,7 @@ import type {
   ReadingGoalsResponse,
   ReadingGoalsUpdate,
   ReadingStreak,
+  LibraryStatistics,
 } from '@pulp/shared';
 
 const API_BASE = '/api';
@@ -101,6 +103,22 @@ export const api = {
     update(id: string, data: RatingUpdate) {
       return fetchJSON<{ success: boolean; rating: number | null }>(
         `/library/${id}/rating`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(data),
+        }
+      );
+    },
+  },
+
+  collections: {
+    list() {
+      return fetchJSON<{ collections: string[] }>('/collections');
+    },
+
+    update(id: string, data: CollectionsUpdate) {
+      return fetchJSON<{ success: boolean; collections: string[] }>(
+        `/library/${id}/collections`,
         {
           method: 'PATCH',
           body: JSON.stringify(data),
@@ -248,6 +266,12 @@ export const api = {
         '/reading-goals/recalculate',
         { method: 'POST' }
       );
+    },
+  },
+
+  libraryStats: {
+    get() {
+      return fetchJSON<LibraryStatistics>('/library-stats');
     },
   },
 };

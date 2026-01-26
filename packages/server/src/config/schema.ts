@@ -16,6 +16,8 @@ export const configSchema = z.object({
   pinned_key: z.string().default('pinned'),
   reading_stats_key: z.string().default('reading_stats'),
   reading_history_key: z.string().default('reading_history'),
+  date_finished_key: z.string().default('date_finished'),
+  collections_key: z.string().default('collections'),
 
   // Highlight templates
   highlight_template: z.string().default(

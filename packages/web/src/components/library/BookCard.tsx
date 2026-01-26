@@ -197,6 +197,12 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
                 </span>
               )}
             </button>
+            {note.highlightCount > 0 && (
+              <span className="text-xs text-text-secondary flex items-center gap-1" title={`${note.highlightCount} highlight${note.highlightCount !== 1 ? 's' : ''}`}>
+                <HighlightIcon />
+                {note.highlightCount}
+              </span>
+            )}
             {bookStats && bookStats.totalReadingTimeMs > 0 && (
               <span className="text-xs text-accent-primary flex items-center gap-1" title="Total reading time">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -326,5 +332,14 @@ function StarRating({ rating, size = 12 }: { rating: number; size?: number }) {
         </svg>
       ))}
     </div>
+  );
+}
+
+function HighlightIcon() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
   );
 }
