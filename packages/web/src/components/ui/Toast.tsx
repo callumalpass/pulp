@@ -23,14 +23,15 @@ export function Toast({ message, type = 'info', duration = 3000, onClose }: Toas
   return (
     <div
       className={clsx(
-        'fixed bottom-4 right-4 px-4 py-3 rounded-md shadow-lg transition-stoody z-50',
+        'px-4 py-3 rounded-md shadow-lg transition-all duration-300 border',
         {
-          'bg-bg-surface text-text-primary': type === 'info',
-          'bg-accent-secondary/20 text-accent-secondary': type === 'success',
-          'bg-red-500/20 text-red-400': type === 'error',
+          'bg-bg-surface text-text-primary border-text-secondary/20': type === 'info',
+          'bg-green-500/10 text-green-400 border-green-500/30': type === 'success',
+          'bg-red-500/10 text-red-400 border-red-500/30': type === 'error',
         },
         isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
       )}
+      role="alert"
     >
       {message}
     </div>

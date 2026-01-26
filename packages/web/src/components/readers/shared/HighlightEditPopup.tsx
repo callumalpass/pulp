@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import type { Highlight } from '@pulp/shared';
 import { Button } from '../../ui/Button';
+import { ConfirmDialog } from '../../ui/ConfirmDialog';
 import { useUpdateHighlight, useDeleteHighlight } from '../../../hooks/useHighlights';
+import { useToast } from '../../../contexts/ToastContext';
 import { DictionaryDefinition } from './DictionaryDefinition';
 
 interface HighlightEditPopupProps {
@@ -14,11 +16,13 @@ interface HighlightEditPopupProps {
 export function HighlightEditPopup({ highlight, noteId, position, onClose }: HighlightEditPopupProps) {
   const [note, setNote] = useState(highlight.note || '');
   const [isEditing, setIsEditing] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const updateHighlight = useUpdateHighlight(noteId);
   const deleteHighlight = useDeleteHighlight(noteId);
+  const { showToast } = useToast();
 
   // Focus input when editing mode is opened
   useEffect(() => {
@@ -57,18 +61,23 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose }: Hig
         highlightId: highlight.id,
         data: { note: note || undefined },
       });
+      showToast('Note saved', 'success');
       onClose();
     } catch (error) {
       console.error('Failed to update highlight:', error);
+      showToast('Failed to save note. Please try again.', 'error');
     }
   };
 
   const handleDelete = async () => {
     try {
       await deleteHighlight.mutateAsync(highlight.id);
+      showToast('Highlight deleted', 'success');
       onClose();
     } catch (error) {
       console.error('Failed to delete highlight:', error);
+      showToast('Failed to delete highlight. Please try again.', 'error');
+      setShowDeleteConfirm(false);
     }
   };
 
@@ -115,11 +124,11 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose }: Hig
             <Button
               variant="ghost"
               size="sm"
-              onClick={handleDelete}
+              onClick={() => setShowDeleteConfirm(true)}
               disabled={deleteHighlight.isPending}
               className="text-red-400 hover:text-red-300 hover:bg-red-400/10"
             >
-              Delete
+              {deleteHighlight.isPending ? 'Deleting...' : 'Delete'}
             </Button>
           </div>
         </div>
@@ -157,6 +166,17 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose }: Hig
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={showDeleteConfirm}
+        title="Delete Highlight"
+        message="Are you sure you want to delete this highlight? This action cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={handleDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </div>
   );
 }

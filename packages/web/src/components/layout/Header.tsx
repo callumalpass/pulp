@@ -1,4 +1,5 @@
 import { useLocation } from 'react-router-dom';
+import { ConnectionStatus } from '../ui/ConnectionStatus';
 
 export function Header() {
   const location = useLocation();
@@ -14,6 +15,7 @@ export function Header() {
       <h1 className="text-lg font-semibold text-text-primary">{getTitle()}</h1>
 
       <div className="ml-auto flex items-center gap-4">
+        <ConnectionStatus />
         <ThemeToggle />
       </div>
     </header>

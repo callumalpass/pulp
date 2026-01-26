@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import type { TextSelection } from '@pulp/shared';
 import { Button } from '../../ui/Button';
 import { useCreateHighlight } from '../../../hooks/useHighlights';
+import { useToast } from '../../../contexts/ToastContext';
 import { DictionaryDefinition } from './DictionaryDefinition';
 
 interface BaseSelection {
@@ -36,6 +37,7 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const createHighlight = useCreateHighlight(noteId);
+  const { showToast } = useToast();
 
   // Focus input when note mode is opened
   useEffect(() => {
@@ -81,9 +83,11 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
 
       // Clear selection
       window.getSelection()?.removeAllRanges();
+      showToast('Highlight saved', 'success');
       onClose();
     } catch (error) {
       console.error('Failed to save highlight:', error);
+      showToast('Failed to save highlight. Please try again.', 'error');
     }
   };
 

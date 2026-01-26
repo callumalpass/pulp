@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useBookmarks } from '../../../hooks/useNote';
+import { useToast } from '../../../contexts/ToastContext';
+import { ConfirmDialog } from '../../ui/ConfirmDialog';
 import type { Bookmark } from '@pulp/shared';
 
 interface BookmarksPanelProps {
@@ -22,8 +24,10 @@ export function BookmarksPanel({
   const { bookmarks, isLoading, addBookmark, removeBookmark, isAdding: isSaving } = useBookmarks(noteId);
   const [newLabel, setNewLabel] = useState('');
   const [isAddingMode, setIsAddingMode] = useState(false);
+  const [bookmarkToDelete, setBookmarkToDelete] = useState<Bookmark | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const { showToast } = useToast();
 
   // Sort bookmarks: PDFs by page number, EPUBs by creation date
   const sortedBookmarks = [...bookmarks].sort((a: Bookmark, b: Bookmark) => {
@@ -40,15 +44,34 @@ export function BookmarksPanel({
     }
   }, [isAddingMode]);
 
-  const handleAddBookmark = () => {
+  const handleAddBookmark = async () => {
     const label = newLabel.trim() || (currentPage ? `Page ${pageLabels?.[currentPage - 1] ?? currentPage}` : 'Bookmark');
-    addBookmark({
-      label,
-      page: currentPage,
-      cfi: currentCfi,
-    });
-    setNewLabel('');
-    setIsAddingMode(false);
+    try {
+      await addBookmark({
+        label,
+        page: currentPage,
+        cfi: currentCfi,
+      });
+      showToast('Bookmark added', 'success');
+      setNewLabel('');
+      setIsAddingMode(false);
+    } catch (error) {
+      console.error('Failed to add bookmark:', error);
+      showToast('Failed to add bookmark. Please try again.', 'error');
+    }
+  };
+
+  const handleDeleteBookmark = async () => {
+    if (!bookmarkToDelete) return;
+    try {
+      await removeBookmark(bookmarkToDelete.id);
+      showToast('Bookmark deleted', 'success');
+      setBookmarkToDelete(null);
+    } catch (error) {
+      console.error('Failed to delete bookmark:', error);
+      showToast('Failed to delete bookmark. Please try again.', 'error');
+      setBookmarkToDelete(null);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -183,7 +206,7 @@ export function BookmarksPanel({
                     </div>
                   </button>
                   <button
-                    onClick={() => removeBookmark(bookmark.id)}
+                    onClick={() => setBookmarkToDelete(bookmark)}
                     className="opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center text-text-secondary hover:text-red-500 transition-all"
                     aria-label={`Remove bookmark: ${bookmark.label}`}
                   >
@@ -206,6 +229,17 @@ export function BookmarksPanel({
           </span>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={bookmarkToDelete !== null}
+        title="Delete Bookmark"
+        message={`Are you sure you want to delete "${bookmarkToDelete?.label}"? This action cannot be undone.`}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={handleDeleteBookmark}
+        onCancel={() => setBookmarkToDelete(null)}
+      />
     </div>
   );
 }
