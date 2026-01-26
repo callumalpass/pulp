@@ -5,7 +5,26 @@ import type { Config } from '../config/schema.js';
 import type { LibraryScanner } from './library-scanner.js';
 import { getDailyReadingHistory } from './frontmatter-parser.js';
 
+/** Filename for storing reading goals and streak data */
 const GOALS_FILE = '.pulp-goals.json';
+
+/** Default daily reading goal in minutes */
+const DEFAULT_DAILY_GOAL_MINUTES = 30;
+
+/** Default grace period for maintaining streaks (days) */
+const DEFAULT_GRACE_PERIOD_DAYS = 1;
+
+/** Minimum allowed daily goal in minutes */
+const MIN_DAILY_GOAL_MINUTES = 1;
+
+/** Maximum allowed daily goal in minutes (24 hours) */
+const MAX_DAILY_GOAL_MINUTES = 1440;
+
+/** Maximum allowed grace period in days */
+const MAX_GRACE_PERIOD_DAYS = 7;
+
+/** Maximum days to look back when recalculating streaks */
+const STREAK_LOOKBACK_DAYS = 365;
 
 interface GoalsFileData {
   goals: ReadingGoals;
@@ -46,9 +65,9 @@ export class ReadingGoalsService {
 
     const defaultData: GoalsFileData = {
       goals: {
-        dailyGoalMinutes: 30,
+        dailyGoalMinutes: this.config.default_daily_goal_minutes ?? DEFAULT_DAILY_GOAL_MINUTES,
         weeklyGoalMinutes: null,
-        gracePeriodDays: 1,
+        gracePeriodDays: this.config.default_grace_period_days ?? DEFAULT_GRACE_PERIOD_DAYS,
       },
       streak: {
         currentStreak: 0,
@@ -106,20 +125,23 @@ export class ReadingGoalsService {
     const sanitizedGoals: Partial<ReadingGoals> = {};
 
     if (goals.dailyGoalMinutes !== undefined) {
-      // Ensure minimum of 1 minute, maximum of 24 hours (1440 minutes)
-      sanitizedGoals.dailyGoalMinutes = Math.max(1, Math.min(1440, Math.round(goals.dailyGoalMinutes)));
+      // Ensure within valid range
+      sanitizedGoals.dailyGoalMinutes = Math.max(
+        MIN_DAILY_GOAL_MINUTES,
+        Math.min(MAX_DAILY_GOAL_MINUTES, Math.round(goals.dailyGoalMinutes))
+      );
     }
 
     if (goals.weeklyGoalMinutes !== undefined) {
       // Allow null to clear, otherwise minimum of 1 minute
       sanitizedGoals.weeklyGoalMinutes = goals.weeklyGoalMinutes === null
         ? null
-        : Math.max(1, Math.round(goals.weeklyGoalMinutes));
+        : Math.max(MIN_DAILY_GOAL_MINUTES, Math.round(goals.weeklyGoalMinutes));
     }
 
     if (goals.gracePeriodDays !== undefined) {
-      // Grace period: 0-7 days
-      sanitizedGoals.gracePeriodDays = Math.max(0, Math.min(7, Math.round(goals.gracePeriodDays)));
+      // Grace period: 0 to max days
+      sanitizedGoals.gracePeriodDays = Math.max(0, Math.min(MAX_GRACE_PERIOD_DAYS, Math.round(goals.gracePeriodDays)));
     }
 
     this.data.goals = {
@@ -269,7 +291,7 @@ export class ReadingGoalsService {
     let consecutiveMissedDays = 0;
 
     // Walk backwards from today
-    for (let i = 0; i < 365; i++) {
+    for (let i = 0; i < STREAK_LOOKBACK_DAYS; i++) {
       const date = getDaysAgo(i);
       const summary = this.getDaySummary(date);
 

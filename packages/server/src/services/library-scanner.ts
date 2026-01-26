@@ -21,6 +21,12 @@ import {
 } from './frontmatter-parser.js';
 import { parseHighlightsFromNote } from './highlight-parser.js';
 
+/** Length of generated note IDs (characters from SHA256 hash) */
+const NOTE_ID_LENGTH = 12;
+
+/** Common attachment folder names to search for source files */
+const ATTACHMENT_FOLDERS = ['attachments', 'assets', 'files', '_attachments'];
+
 export class LibraryScanner {
   private notes: Map<string, LiteratureNote> = new Map();
 
@@ -36,7 +42,12 @@ export class LibraryScanner {
     let entries;
     try {
       entries = readdirSync(dirPath, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      // Log permission errors or other issues (but not for expected missing directories)
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (!errorMessage.includes('ENOENT')) {
+        console.warn(`Unable to scan directory ${dirPath}: ${errorMessage}`);
+      }
       return;
     }
 
@@ -148,8 +159,7 @@ export class LibraryScanner {
     }
 
     // Try with common attachment folders
-    const attachmentFolders = ['attachments', 'assets', 'files', '_attachments'];
-    for (const folder of attachmentFolders) {
+    for (const folder of ATTACHMENT_FOLDERS) {
       const attachmentPath = resolve(this.config.library_path, folder, sourcePath);
       if (this.fileExists(attachmentPath)) {
         return attachmentPath;
@@ -170,7 +180,7 @@ export class LibraryScanner {
   private generateId(notePath: string): string {
     // Create a stable, short ID from the note path relative to vault
     const relativePath = notePath.replace(this.config.library_path, '');
-    return createHash('sha256').update(relativePath).digest('hex').slice(0, 12);
+    return createHash('sha256').update(relativePath).digest('hex').slice(0, NOTE_ID_LENGTH);
   }
 
   private extractTags(frontmatter: Record<string, unknown>): string[] {

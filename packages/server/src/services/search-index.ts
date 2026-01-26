@@ -45,11 +45,45 @@ interface IndexCache {
   documents: Record<string, IndexedDocument>;
 }
 
+/** Schema version for the search index cache - increment when format changes */
 const INDEX_VERSION = 1;
-const CONTEXT_CHARS = 80; // Characters of context around match
+
+/** Characters of context to show around search matches */
+const SEARCH_CONTEXT_CHARS = 80;
+
+/** Maximum matches to collect per document before stopping */
+const MAX_MATCHES_PER_DOCUMENT = 50;
+
+/** Maximum matches to return per document in search results */
+const SEARCH_RESULTS_PER_DOCUMENT = 10;
+
+/** Debounce delay for cache saves (milliseconds) */
+const CACHE_SAVE_DEBOUNCE_MS = 1000;
+
+/** Yield to event loop every N pages during PDF indexing */
+const PDF_YIELD_INTERVAL = 5;
+
+/** Yield to event loop every N chapters during EPUB indexing */
+const EPUB_YIELD_INTERVAL = 3;
+
+/** Timeout for indexing a single document (milliseconds) */
+const INDEX_TIMEOUT_MS = 60000;
+
+/** Timeout for EPUB parsing operations (milliseconds) */
+const EPUB_PARSE_TIMEOUT_MS = 30000;
 
 // Helper to yield to event loop - prevents blocking server
 const yieldToEventLoop = (): Promise<void> => new Promise(resolve => setImmediate(resolve));
+
+// Helper to wrap a promise with a timeout
+function withTimeout<T>(promise: Promise<T>, ms: number, operation: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${operation} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
 
 export class SearchIndex {
   private cacheDir: string;
@@ -57,10 +91,17 @@ export class SearchIndex {
   private index: IndexCache;
   private indexingInProgress: Set<string> = new Set();
   private savePending = false;
+  private readonly searchContextChars: number;
+  private readonly maxMatchesPerDoc: number;
+  private readonly resultsPerDoc: number;
 
-  constructor(config: Config) {
+  constructor(private config: Config) {
     this.cacheDir = join(config.library_path, '.pulp-cache', 'search');
     this.cacheFile = join(this.cacheDir, 'index.json');
+    // Use config values with fallbacks to default constants
+    this.searchContextChars = config.search_context_chars ?? SEARCH_CONTEXT_CHARS;
+    this.maxMatchesPerDoc = config.search_max_matches_per_doc ?? MAX_MATCHES_PER_DOCUMENT;
+    this.resultsPerDoc = config.search_results_per_doc ?? SEARCH_RESULTS_PER_DOCUMENT;
     this.ensureCacheDir();
     this.index = this.loadCache();
   }
@@ -98,7 +139,7 @@ export class SearchIndex {
       } catch (error) {
         console.error('Failed to save search index cache:', error);
       }
-    }, 1000);
+    }, CACHE_SAVE_DEBOUNCE_MS);
   }
 
   async indexNote(note: LiteratureNote): Promise<void> {
@@ -118,9 +159,16 @@ export class SearchIndex {
     try {
       console.log(`Indexing: ${note.title}`);
 
-      const pages: IndexedPage[] = note.sourceType === 'pdf'
-        ? await this.extractPDFText(note.filePath)
-        : await this.extractEPUBText(note.filePath);
+      const extractionPromise = note.sourceType === 'pdf'
+        ? this.extractPDFText(note.filePath)
+        : this.extractEPUBText(note.filePath);
+
+      // Wrap extraction with timeout to prevent hanging on problematic files
+      const pages: IndexedPage[] = await withTimeout(
+        extractionPromise,
+        INDEX_TIMEOUT_MS,
+        `Indexing ${note.title}`
+      );
 
       this.index.documents[note.id] = {
         noteId: note.id,
@@ -133,7 +181,8 @@ export class SearchIndex {
       this.saveCache();
       console.log(`Indexed: ${note.title} (${pages.length} pages/chapters)`);
     } catch (error) {
-      console.error(`Failed to index ${note.title}:`, error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to index ${note.title}: ${errorMessage}`);
     } finally {
       this.indexingInProgress.delete(note.id);
     }
@@ -152,8 +201,8 @@ export class SearchIndex {
       const pageLabels = await pdf.getPageLabels();
 
       for (let i = 1; i <= pdf.numPages; i++) {
-        // Yield to event loop every 5 pages to keep server responsive
-        if (i % 5 === 0) {
+        // Yield to event loop periodically to keep server responsive
+        if (i % PDF_YIELD_INTERVAL === 0) {
           await yieldToEventLoop();
         }
 
@@ -221,8 +270,8 @@ export class SearchIndex {
             for (const item of spine) {
               if (!item.id) continue;
 
-              // Yield every 3 chapters to keep server responsive
-              if (++chapterCount % 3 === 0) {
+              // Yield periodically to keep server responsive
+              if (++chapterCount % EPUB_YIELD_INTERVAL === 0) {
                 await yieldToEventLoop();
               }
 
@@ -317,8 +366,8 @@ export class SearchIndex {
           if (matchIndex === -1) break;
 
           // Extract context around the match
-          const contextStart = Math.max(0, matchIndex - CONTEXT_CHARS);
-          const contextEnd = Math.min(page.text.length, matchIndex + query.length + CONTEXT_CHARS);
+          const contextStart = Math.max(0, matchIndex - this.searchContextChars);
+          const contextEnd = Math.min(page.text.length, matchIndex + query.length + this.searchContextChars);
 
           let contextText = page.text.slice(contextStart, contextEnd);
 
@@ -338,10 +387,10 @@ export class SearchIndex {
           searchStart = matchIndex + 1;
 
           // Limit matches per document to avoid overwhelming results
-          if (matches.length >= 50) break;
+          if (matches.length >= this.maxMatchesPerDoc) break;
         }
 
-        if (matches.length >= 50) break;
+        if (matches.length >= this.maxMatchesPerDoc) break;
       }
 
       if (matches.length > 0) {
@@ -349,7 +398,7 @@ export class SearchIndex {
           noteId,
           title: doc.title,
           sourceType: doc.sourceType,
-          matches: matches.slice(0, 10), // Return top 10 matches per document
+          matches: matches.slice(0, this.resultsPerDoc),
           totalMatches: matches.length,
         });
       }

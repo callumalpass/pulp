@@ -6,14 +6,36 @@ import sharp from 'sharp';
 import EPub from 'epub2';
 import type { Config } from '../config/schema.js';
 
+/** Width of extracted cover images in pixels */
 const COVER_WIDTH = 300;
+
+/** Height of extracted cover images in pixels */
 const COVER_HEIGHT = 450;
+
+/** WebP compression quality (0-100) */
+const COVER_QUALITY = 80;
+
+/** Scale factor for PDF rendering (higher = better quality before downscale) */
+const PDF_RENDER_SCALE = 2;
+
+/** Timeout for EPUB cover extraction in milliseconds */
+const EPUB_COVER_TIMEOUT_MS = 15000;
+
+/** Common cover image patterns to search for in EPUB manifests */
+const EPUB_COVER_PATTERNS = ['cover', 'cover-image', 'coverimage', 'frontcover'];
 
 export class CoverExtractor {
   private cacheDir: string;
+  private readonly coverWidth: number;
+  private readonly coverHeight: number;
+  private readonly coverQuality: number;
 
-  constructor(config: Config) {
+  constructor(private config: Config) {
     this.cacheDir = join(config.library_path, '.pulp-cache', 'covers');
+    // Use config values with fallbacks to default constants
+    this.coverWidth = config.cover_width ?? COVER_WIDTH;
+    this.coverHeight = config.cover_height ?? COVER_HEIGHT;
+    this.coverQuality = config.cover_quality ?? COVER_QUALITY;
     this.ensureCacheDir();
   }
 
@@ -61,11 +83,11 @@ export class CoverExtractor {
       const pdf = await pdfjsLib.getDocument({ data }).promise;
       const page = await pdf.getPage(1);
 
-      // Calculate scale to fit desired dimensions (render at 2x for quality)
+      // Calculate scale to fit desired dimensions (render at higher scale for quality)
       const viewport = page.getViewport({ scale: 1 });
       const scale = Math.min(
-        (COVER_WIDTH * 2) / viewport.width,
-        (COVER_HEIGHT * 2) / viewport.height
+        (this.coverWidth * PDF_RENDER_SCALE) / viewport.width,
+        (this.coverHeight * PDF_RENDER_SCALE) / viewport.height
       );
       const scaledViewport = page.getViewport({ scale });
 
@@ -84,8 +106,8 @@ export class CoverExtractor {
 
       // Resize and convert to WebP using sharp
       const resized = await sharp(pngBuffer)
-        .resize(COVER_WIDTH, COVER_HEIGHT, { fit: 'cover' })
-        .webp({ quality: 80 })
+        .resize(this.coverWidth, this.coverHeight, { fit: 'cover' })
+        .webp({ quality: this.coverQuality })
         .toBuffer();
 
       await pdf.destroy();
@@ -97,7 +119,8 @@ export class CoverExtractor {
   }
 
   private async extractEPUBCover(epubPath: string): Promise<Buffer | null> {
-    return new Promise((resolve) => {
+    // Wrap extraction with timeout to prevent hanging on problematic files
+    const extractionPromise = new Promise<Buffer | null>((resolve) => {
       try {
         const epub = new EPub(epubPath);
 
@@ -117,8 +140,8 @@ export class CoverExtractor {
               try {
                 // Resize and convert to WebP
                 const resized = await sharp(data)
-                  .resize(COVER_WIDTH, COVER_HEIGHT, { fit: 'cover' })
-                  .webp({ quality: 80 })
+                  .resize(this.coverWidth, this.coverHeight, { fit: 'cover' })
+                  .webp({ quality: this.coverQuality })
                   .toBuffer();
 
                 resolve(resized);
@@ -142,6 +165,17 @@ export class CoverExtractor {
         resolve(null);
       }
     });
+
+    // Race between extraction and timeout
+    return Promise.race([
+      extractionPromise,
+      new Promise<null>((resolve) =>
+        setTimeout(() => {
+          console.warn(`EPUB cover extraction timed out after ${EPUB_COVER_TIMEOUT_MS}ms`);
+          resolve(null);
+        }, EPUB_COVER_TIMEOUT_MS)
+      ),
+    ]);
   }
 
   private async extractEPUBCoverFallback(epub: EPub): Promise<Buffer | null> {
@@ -155,7 +189,6 @@ export class CoverExtractor {
     }
 
     // Look for common cover image names in manifest
-    const coverPatterns = ['cover', 'cover-image', 'coverimage', 'frontcover'];
     const images: Array<{ id: string; href: string }> = [];
 
     for (const [id, item] of Object.entries(epub.manifest)) {
@@ -173,8 +206,8 @@ export class CoverExtractor {
       const hrefLower = href.toLowerCase();
 
       if (
-        coverPatterns.some(p => idLower.includes(p)) ||
-        coverPatterns.some(p => hrefLower.includes(p))
+        EPUB_COVER_PATTERNS.some(p => idLower.includes(p)) ||
+        EPUB_COVER_PATTERNS.some(p => hrefLower.includes(p))
       ) {
         const result = await this.tryGetEpubImage(epub, id);
         if (result) return result;
@@ -200,8 +233,8 @@ export class CoverExtractor {
 
         try {
           const resized = await sharp(data)
-            .resize(COVER_WIDTH, COVER_HEIGHT, { fit: 'cover' })
-            .webp({ quality: 80 })
+            .resize(this.coverWidth, this.coverHeight, { fit: 'cover' })
+            .webp({ quality: this.coverQuality })
             .toBuffer();
 
           resolve(resized);

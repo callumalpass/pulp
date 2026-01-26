@@ -4,6 +4,15 @@ import { basename } from 'node:path';
 import type { Config } from '../config/schema.js';
 import { parseNoteFrontmatter, hasTag } from './frontmatter-parser.js';
 
+/** Debounce delay for file change events in milliseconds */
+const FILE_CHANGE_DEBOUNCE_MS = 500;
+
+/** Time to wait for file writes to stabilize before triggering event */
+const WRITE_STABILITY_THRESHOLD_MS = 300;
+
+/** Poll interval for checking file write completion */
+const WRITE_POLL_INTERVAL_MS = 100;
+
 export interface FileEvent {
   type: 'changed' | 'added' | 'removed';
   path: string;
@@ -13,7 +22,6 @@ export interface FileEvent {
 export class FileWatcher extends EventEmitter {
   private watcher: FSWatcher | null = null;
   private debounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
-  private readonly debounceMs = 500;
   // Track known literature note paths so we can detect removals
   private knownLiteratureNotes: Set<string> = new Set();
 
@@ -57,8 +65,8 @@ export class FileWatcher extends EventEmitter {
       persistent: true,
       ignoreInitial: true,
       awaitWriteFinish: {
-        stabilityThreshold: 300,
-        pollInterval: 100,
+        stabilityThreshold: WRITE_STABILITY_THRESHOLD_MS,
+        pollInterval: WRITE_POLL_INTERVAL_MS,
       },
     });
 
@@ -93,7 +101,7 @@ export class FileWatcher extends EventEmitter {
     const timer = setTimeout(() => {
       this.debounceTimers.delete(path);
       this.processFileEvent(type, path);
-    }, this.debounceMs);
+    }, FILE_CHANGE_DEBOUNCE_MS);
 
     this.debounceTimers.set(path, timer);
   }

@@ -2,12 +2,18 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import type { Highlight, PDFHighlight, EPUBHighlight, TextSelection } from '@pulp/shared';
 
+/** Length of generated highlight IDs (characters from MD5 hash) */
+const HIGHLIGHT_ID_LENGTH = 10;
+
+/** Maximum characters to look back when searching for blockquote context */
+const CONTEXT_LOOKBACK_CHARS = 2000;
+
 /**
  * Generate a stable ID for a PDF highlight based on its position.
  */
 export function generatePDFHighlightId(page: number, selection: TextSelection): string {
   const data = `pdf:${page}:${selection.beginIndex},${selection.beginOffset},${selection.endIndex},${selection.endOffset}`;
-  return createHash('md5').update(data).digest('hex').slice(0, 10);
+  return createHash('md5').update(data).digest('hex').slice(0, HIGHLIGHT_ID_LENGTH);
 }
 
 /**
@@ -15,7 +21,7 @@ export function generatePDFHighlightId(page: number, selection: TextSelection): 
  */
 export function generateEPUBHighlightId(cfi: string): string {
   const data = `epub:${cfi}`;
-  return createHash('md5').update(data).digest('hex').slice(0, 10);
+  return createHash('md5').update(data).digest('hex').slice(0, HIGHLIGHT_ID_LENGTH);
 }
 
 /**
@@ -102,7 +108,7 @@ export function parseHighlights(content: string, sourceRelative: string): Highli
  */
 export function extractHighlightContext(content: string, linkIndex: number): { text: string | undefined; note: string | undefined } {
   // Look backwards from the link to find blockquote content
-  const beforeLink = content.slice(Math.max(0, linkIndex - 2000), linkIndex);
+  const beforeLink = content.slice(Math.max(0, linkIndex - CONTEXT_LOOKBACK_CHARS), linkIndex);
   const lines = beforeLink.split('\n').reverse();
 
   const quoteLines: string[] = [];

@@ -1,6 +1,15 @@
 import matter from 'gray-matter';
 import { readFileSync } from 'node:fs';
 
+/** Maximum number of days of reading history to retain */
+const READING_HISTORY_MAX_DAYS = 90;
+
+/** Minimum valid rating value */
+const MIN_RATING = 1;
+
+/** Maximum valid rating value */
+const MAX_RATING = 5;
+
 export interface ParsedNote {
   frontmatter: Record<string, unknown>;
   content: string;
@@ -194,14 +203,14 @@ export function getRating(
 
   if (typeof rating === 'number') {
     // Clamp to valid range
-    const clamped = Math.max(1, Math.min(5, Math.round(rating)));
+    const clamped = Math.max(MIN_RATING, Math.min(MAX_RATING, Math.round(rating)));
     return clamped;
   }
 
   if (typeof rating === 'string') {
     const parsed = parseFloat(rating);
     if (!isNaN(parsed)) {
-      return Math.max(1, Math.min(5, Math.round(parsed)));
+      return Math.max(MIN_RATING, Math.min(MAX_RATING, Math.round(parsed)));
     }
   }
 
@@ -522,8 +531,8 @@ export function updateDailyReadingHistory(
     });
   }
 
-  // Sort by date descending and keep only last 90 days
+  // Sort by date descending and keep only recent history
   return updated
     .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 90);
+    .slice(0, READING_HISTORY_MAX_DAYS);
 }
