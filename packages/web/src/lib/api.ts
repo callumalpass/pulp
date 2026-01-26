@@ -20,6 +20,8 @@ import type {
   ReadingGoalsUpdate,
   ReadingStreak,
   LibraryStatistics,
+  ReaderPreferences,
+  ReaderPreferencesUpdate,
 } from '@pulp/shared';
 
 const API_BASE = '/api';
@@ -280,6 +282,28 @@ export const api = {
   libraryStats: {
     get() {
       return fetchJSON<LibraryStatistics>('/library-stats');
+    },
+  },
+
+  readerPreferences: {
+    update(noteId: string, data: ReaderPreferencesUpdate) {
+      return fetchJSON<{ success: boolean; readerPreferences: ReaderPreferences }>(
+        `/library/${noteId}/reader-preferences`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(data),
+        }
+      );
+    },
+
+    updateChapter(noteId: string, chapter: string | null) {
+      return fetchJSON<{ success: boolean; currentChapter: string | null }>(
+        `/library/${noteId}/current-chapter`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ chapter }),
+        }
+      );
     },
   },
 };

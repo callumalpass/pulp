@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import type { Highlight, PDFHighlight, EPUBHighlight, TextSelection } from '@pulp/shared';
+import type { Highlight, PDFHighlight, EPUBHighlight, TextSelection, HighlightCategory } from '@pulp/shared';
+
+/** Valid highlight categories */
+const VALID_CATEGORIES: HighlightCategory[] = ['highlight', 'important', 'question', 'todo', 'definition'];
 
 /** Length of generated highlight IDs (characters from MD5 hash) */
 const HIGHLIGHT_ID_LENGTH = 10;
@@ -88,20 +91,43 @@ export function extractTimestamp(linkText: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Extract highlight category from the link fragment.
+ * Looks for &category=xxx in the fragment part of the link.
+ *
+ * Common patterns:
+ * - #page=12&selection=0,5,2,10&category=important
+ * - #cfi=epubcfi(...)&category=question
+ *
+ * Returns the category if found and valid, otherwise undefined.
+ */
+export function extractCategory(linkText: string): HighlightCategory | undefined {
+  // Look for &category=xxx pattern in the link
+  const categoryMatch = linkText.match(/&category=(\w+)/);
+  if (categoryMatch) {
+    const category = categoryMatch[1] as HighlightCategory;
+    if (VALID_CATEGORIES.includes(category)) {
+      return category;
+    }
+  }
+  return undefined;
+}
+
 export function parseHighlights(content: string, sourceRelative: string): Highlight[] {
   const highlights: Highlight[] = [];
 
   // Match PDF highlights with selection format (PDF++ style):
   // [[source#page=N&selection=beginIndex,beginOffset,endIndex,endOffset|...]]
+  // May optionally include &category=xxx
   const pdfSelectionRegex = new RegExp(
-    `\\[\\[${escapeRegex(sourceRelative)}#page=(\\d+)&selection=([\\d,]+)\\|[^\\]]*\\]\\]`,
+    `\\[\\[${escapeRegex(sourceRelative)}#page=(\\d+)&selection=([\\d,]+)(?:&category=\\w+)?\\|[^\\]]*\\]\\]`,
     'g'
   );
 
   // Match EPUB highlights with CFI:
-  // [[source#cfi=...]]
+  // [[source#cfi=...]] or [[source#cfi=...&category=xxx|...]]
   const epubRegex = new RegExp(
-    `\\[\\[${escapeRegex(sourceRelative)}#cfi=([^|\\]]+)\\|[^\\]]*\\]\\]`,
+    `\\[\\[${escapeRegex(sourceRelative)}#cfi=([^|\\]&]+)(?:&category=\\w+)?\\|[^\\]]*\\]\\]`,
     'g'
   );
 
@@ -125,6 +151,9 @@ export function parseHighlights(content: string, sourceRelative: string): Highli
       // Extract timestamp from the link if present
       const timestamp = extractTimestamp(match[0]);
 
+      // Extract category from the link if present
+      const category = extractCategory(match[0]);
+
       // Extract the quoted text from the blockquote before this link
       const { text, note } = extractHighlightContext(content, match.index);
 
@@ -143,6 +172,11 @@ export function parseHighlights(content: string, sourceRelative: string): Highli
         highlight.pageLabel = pageLabel;
       }
 
+      // Add category if present (otherwise defaults to 'highlight' on frontend)
+      if (category) {
+        highlight.category = category;
+      }
+
       highlights.push(highlight);
     }
   }
@@ -155,14 +189,24 @@ export function parseHighlights(content: string, sourceRelative: string): Highli
     // Extract timestamp from the link if present
     const timestamp = extractTimestamp(match[0]);
 
-    highlights.push({
+    // Extract category from the link if present
+    const category = extractCategory(match[0]);
+
+    const epubHighlight: EPUBHighlight = {
       id: generateEPUBHighlightId(cfi),
       type: 'epub',
       cfi,
       text: text || 'Highlight',
       note,
       createdAt: timestamp || new Date().toISOString(),
-    } satisfies EPUBHighlight);
+    };
+
+    // Add category if present
+    if (category) {
+      epubHighlight.category = category;
+    }
+
+    highlights.push(epubHighlight);
   }
 
   return highlights;

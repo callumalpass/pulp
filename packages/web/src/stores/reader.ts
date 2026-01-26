@@ -45,6 +45,9 @@ interface ReaderState {
   scrollToPage: number | null;
   isLoading: boolean;
 
+  // Load error state
+  loadError: string | null;
+
   // Page labels (logical page numbers like "iv", "12", "A-3")
   pageLabels: string[] | null;
 
@@ -86,6 +89,7 @@ interface ReaderState {
   toggleMarkdownPanel: () => void;
   setScrollToPage: (page: number | null) => void;
   setIsLoading: (loading: boolean) => void;
+  setLoadError: (error: string | null) => void;
 
   // Search actions
   setSearchQuery: (query: string) => void;
@@ -133,6 +137,9 @@ export const useReaderStore = create<ReaderState>((set) => ({
   scrollToPage: null,
   isLoading: true,
 
+  // Load error state
+  loadError: null,
+
   // Page labels
   pageLabels: null,
 
@@ -174,6 +181,7 @@ export const useReaderStore = create<ReaderState>((set) => ({
   toggleMarkdownPanel: () => set((state) => ({ markdownPanelOpen: !state.markdownPanelOpen })),
   setScrollToPage: (page) => set({ scrollToPage: page }),
   setIsLoading: (loading) => set({ isLoading: loading }),
+  setLoadError: (error) => set({ loadError: error }),
 
   // Search actions
   setSearchQuery: (query) => set({ searchQuery: query, currentMatchIndex: 0 }),
@@ -238,6 +246,7 @@ export const useReaderStore = create<ReaderState>((set) => ({
     markdownPanelOpen: false,
     scrollToPage: null,
     isLoading: true,
+    loadError: null,
     pageLabels: null,
     searchQuery: '',
     searchResults: [],

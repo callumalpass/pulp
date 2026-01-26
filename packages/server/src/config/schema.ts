@@ -18,15 +18,17 @@ export const configSchema = z.object({
   reading_history_key: z.string().default('reading_history'),
   date_finished_key: z.string().default('date_finished'),
   collections_key: z.string().default('collections'),
+  reader_preferences_key: z.string().default('reader_preferences'),
+  current_chapter_key: z.string().default('current_chapter'),
 
   // Highlight templates
-  // Available variables: source, page, pageLabel, selection, text, note, createdAt
+  // Available variables: source, page, pageLabel, selection, category, text, note, createdAt
   highlight_template: z.string().default(
-    '- [[{{source}}#page={{page}}&selection={{selection}}|"{{text}}"|p. {{pageLabel}}|{{createdAt}}]]{{#if note}}\n{{note}}{{/if}}'
+    '- [[{{source}}#page={{page}}&selection={{selection}}{{#if category}}&category={{category}}{{/if}}|"{{text}}"|p. {{pageLabel}}|{{createdAt}}]]{{#if note}}\n{{note}}{{/if}}'
   ),
-  // Available variables: source, cfi, text, note, createdAt
+  // Available variables: source, cfi, category, text, note, createdAt
   highlight_template_epub: z.string().default(
-    '- [[{{source}}#cfi={{cfi}}|"{{text}}"|{{createdAt}}]]{{#if note}}\n{{note}}{{/if}}'
+    '- [[{{source}}#cfi={{cfi}}{{#if category}}&category={{category}}{{/if}}|"{{text}}"|{{createdAt}}]]{{#if note}}\n{{note}}{{/if}}'
   ),
 
   // Timing and debouncing

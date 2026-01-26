@@ -583,3 +583,110 @@ export function updateDailyReadingHistory(
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, READING_HISTORY_MAX_DAYS);
 }
+
+/** Valid zoom modes */
+const VALID_ZOOM_MODES = ['fit-width', 'fit-page', 'custom'] as const;
+
+/** Valid reader themes */
+const VALID_THEMES = ['light', 'dark', 'sepia', 'eink'] as const;
+
+export interface ParsedReaderPreferences {
+  zoomLevel?: number;
+  zoomMode?: 'fit-width' | 'fit-page' | 'custom';
+  theme?: 'light' | 'dark' | 'sepia' | 'eink';
+  fontSize?: number;
+  lineHeight?: number;
+}
+
+/**
+ * Parse reader preferences from frontmatter.
+ * Preferences are stored as a simple object:
+ * reader_preferences:
+ *   zoom_level: 1.25
+ *   zoom_mode: fit-width
+ *   theme: dark
+ *   font_size: 18
+ *   line_height: 1.6
+ */
+export function getReaderPreferences(
+  frontmatter: Record<string, unknown>,
+  readerPreferencesKey: string
+): ParsedReaderPreferences | null {
+  const prefs = frontmatter[readerPreferencesKey];
+
+  if (!prefs || typeof prefs !== 'object') return null;
+
+  const prefsObj = prefs as Record<string, unknown>;
+  const result: ParsedReaderPreferences = {};
+
+  // Parse zoom level (0.25 - 5.0)
+  if (typeof prefsObj.zoom_level === 'number') {
+    result.zoomLevel = Math.max(0.25, Math.min(5, prefsObj.zoom_level));
+  }
+
+  // Parse zoom mode
+  if (typeof prefsObj.zoom_mode === 'string' && VALID_ZOOM_MODES.includes(prefsObj.zoom_mode as typeof VALID_ZOOM_MODES[number])) {
+    result.zoomMode = prefsObj.zoom_mode as ParsedReaderPreferences['zoomMode'];
+  }
+
+  // Parse theme
+  if (typeof prefsObj.theme === 'string' && VALID_THEMES.includes(prefsObj.theme as typeof VALID_THEMES[number])) {
+    result.theme = prefsObj.theme as ParsedReaderPreferences['theme'];
+  }
+
+  // Parse font size (8 - 48)
+  if (typeof prefsObj.font_size === 'number') {
+    result.fontSize = Math.max(8, Math.min(48, Math.round(prefsObj.font_size)));
+  }
+
+  // Parse line height (1.0 - 3.0)
+  if (typeof prefsObj.line_height === 'number') {
+    result.lineHeight = Math.max(1, Math.min(3, prefsObj.line_height));
+  }
+
+  // Return null if no valid preferences found
+  if (Object.keys(result).length === 0) return null;
+
+  return result;
+}
+
+/**
+ * Create reader preferences object for frontmatter storage.
+ */
+export function createReaderPreferencesForFrontmatter(
+  prefs: ParsedReaderPreferences
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+
+  if (prefs.zoomLevel !== undefined) {
+    result.zoom_level = Math.round(prefs.zoomLevel * 100) / 100; // Round to 2 decimals
+  }
+  if (prefs.zoomMode !== undefined) {
+    result.zoom_mode = prefs.zoomMode;
+  }
+  if (prefs.theme !== undefined) {
+    result.theme = prefs.theme;
+  }
+  if (prefs.fontSize !== undefined) {
+    result.font_size = prefs.fontSize;
+  }
+  if (prefs.lineHeight !== undefined) {
+    result.line_height = Math.round(prefs.lineHeight * 10) / 10; // Round to 1 decimal
+  }
+
+  return result;
+}
+
+/**
+ * Get current chapter name from frontmatter.
+ */
+export function getCurrentChapter(
+  frontmatter: Record<string, unknown>,
+  currentChapterKey: string
+): string | null {
+  const chapter = frontmatter[currentChapterKey];
+  if (typeof chapter === 'string' && chapter.trim()) {
+    return chapter.trim();
+  }
+  return null;
+}

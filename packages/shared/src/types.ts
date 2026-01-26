@@ -35,6 +35,8 @@ export interface LiteratureNote {
   rating: number | null;       // User rating (1-5 stars, null if not rated)
   readingStats: ReadingStats | null;
   totalPages: number | null;   // Total pages in document
+  readerPreferences: ReaderPreferences | null; // Per-book reader display preferences
+  currentChapter: string | null; // Current chapter/section name for context
   frontmatter: Record<string, unknown>;
 }
 
@@ -57,6 +59,54 @@ export interface LiteratureNoteSummary {
   collections: string[];       // User-defined collections/shelves this book belongs to
 }
 
+// Highlight categories with predefined colors
+export type HighlightCategory =
+  | 'highlight' // Default yellow - general highlights
+  | 'important' // Red/orange - key concepts, critical info
+  | 'question'  // Blue - things to research or clarify
+  | 'todo'      // Purple - action items, things to follow up on
+  | 'definition'; // Green - definitions, terms, vocabulary
+
+export interface HighlightCategoryInfo {
+  id: HighlightCategory;
+  label: string;
+  color: string;       // CSS color for the highlight background
+  hoverColor: string;  // CSS color on hover
+}
+
+export const HIGHLIGHT_CATEGORIES: Record<HighlightCategory, HighlightCategoryInfo> = {
+  highlight: {
+    id: 'highlight',
+    label: 'Highlight',
+    color: 'rgba(255, 235, 59, 0.4)',   // Yellow
+    hoverColor: 'rgba(255, 235, 59, 0.6)',
+  },
+  important: {
+    id: 'important',
+    label: 'Important',
+    color: 'rgba(255, 138, 101, 0.4)',   // Orange-red
+    hoverColor: 'rgba(255, 138, 101, 0.6)',
+  },
+  question: {
+    id: 'question',
+    label: 'Question',
+    color: 'rgba(100, 181, 246, 0.4)',   // Blue
+    hoverColor: 'rgba(100, 181, 246, 0.6)',
+  },
+  todo: {
+    id: 'todo',
+    label: 'To-do',
+    color: 'rgba(186, 104, 200, 0.4)',   // Purple
+    hoverColor: 'rgba(186, 104, 200, 0.6)',
+  },
+  definition: {
+    id: 'definition',
+    label: 'Definition',
+    color: 'rgba(129, 199, 132, 0.4)',   // Green
+    hoverColor: 'rgba(129, 199, 132, 0.6)',
+  },
+};
+
 // Highlight types
 export type Highlight = PDFHighlight | EPUBHighlight;
 
@@ -68,7 +118,9 @@ export interface PDFHighlight {
   selection: TextSelection; // Text layer indices for Obsidian-compatible links
   text: string;
   note?: string;
+  category?: HighlightCategory; // Category for color coding
   createdAt: string;
+  updatedAt?: string; // Timestamp when highlight was last edited
 }
 
 // Text selection coordinates matching Obsidian PDF++ format
@@ -86,7 +138,9 @@ export interface EPUBHighlight {
   cfi: string;
   text: string;
   note?: string;
+  category?: HighlightCategory; // Category for color coding
   createdAt: string;
+  updatedAt?: string; // Timestamp when highlight was last edited
 }
 
 // API request/response types
@@ -108,6 +162,23 @@ export interface RatingUpdate {
   rating: number | null;       // 1-5 or null to remove rating
 }
 
+// Per-book reader preferences stored in frontmatter
+export interface ReaderPreferences {
+  zoomLevel?: number;          // Last used zoom level (e.g., 1.0, 1.5)
+  zoomMode?: 'fit-width' | 'fit-page' | 'custom'; // How zoom was set
+  theme?: 'light' | 'dark' | 'sepia' | 'eink';   // Reader theme
+  fontSize?: number;           // Font size for EPUB
+  lineHeight?: number;         // Line height for EPUB (1.2 - 2.0)
+}
+
+export interface ReaderPreferencesUpdate {
+  zoomLevel?: number;
+  zoomMode?: 'fit-width' | 'fit-page' | 'custom';
+  theme?: 'light' | 'dark' | 'sepia' | 'eink';
+  fontSize?: number;
+  lineHeight?: number;
+}
+
 export interface CollectionsUpdate {
   collections: string[];       // Full list of collections this book belongs to
 }
@@ -120,10 +191,12 @@ export interface CreateHighlightRequest {
   cfi?: string;
   text: string;
   note?: string;
+  category?: HighlightCategory; // Category for color coding (defaults to 'highlight')
 }
 
 export interface UpdateHighlightRequest {
   note?: string;
+  category?: HighlightCategory; // Category for color coding
 }
 
 // Bookmark types - stored as wikilinks in frontmatter

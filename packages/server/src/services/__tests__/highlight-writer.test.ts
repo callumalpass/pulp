@@ -32,6 +32,8 @@ const testConfig: Config = {
   reading_history_key: 'reading_history',
   date_finished_key: 'date_finished',
   collections_key: 'collections',
+  reader_preferences_key: 'reader_preferences',
+  current_chapter_key: 'current_chapter',
   highlight_template: '> {{text}}\n- [[{{source}}#page={{page}}&selection={{selection}}|p. {{pageLabel}}]]{{#if note}}\n{{note}}{{/if}}\n',
   highlight_template_epub: '> {{text}}\n- [[{{source}}#cfi={{cfi}}|loc]]{{#if note}}\n{{note}}{{/if}}\n',
   progress_debounce_ms: 5000,
@@ -72,6 +74,8 @@ function createTestNote(overrides: Partial<LiteratureNote> = {}): LiteratureNote
     rating: null,
     readingStats: null,
     totalPages: 100,
+    readerPreferences: null,
+    currentChapter: null,
     frontmatter: { id: 'test-citekey' },
     ...overrides,
   };

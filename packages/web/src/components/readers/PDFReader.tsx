@@ -2,7 +2,8 @@ import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { TextLayer } from 'pdfjs-dist';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
-import type { LiteratureNote, PDFHighlight, TextSelection } from '@pulp/shared';
+import type { LiteratureNote, PDFHighlight, TextSelection, HighlightCategory } from '@pulp/shared';
+import { HIGHLIGHT_CATEGORIES } from '@pulp/shared';
 import { useReaderStore, type ZoomMode, type SearchMatch } from '../../stores/reader';
 import { useReadingStatsStore } from '../../stores/readingStats';
 import { useProgress } from '../../hooks/useProgress';
@@ -116,6 +117,8 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     toggleGoals,
     toggleToc,
     togglePdfColorMode,
+    loadError,
+    setLoadError,
     reset,
   } = useReaderStore();
 
@@ -298,6 +301,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   const loadPDF = async () => {
     try {
       setIsLoading(true);
+      setLoadError(null);
       const pdfUrl = api.files.getUrl(note.id);
       // Worker needs absolute URL since it can't resolve relative paths
       const absolutePdfUrl = new URL(pdfUrl, window.location.origin).href;
@@ -370,6 +374,10 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
       startSession(note.id, startPage, pdf.numPages);
     } catch (error) {
       console.error('Failed to load PDF:', error);
+      const errorMessage = error instanceof Error
+        ? error.message
+        : 'An unknown error occurred while loading the PDF';
+      setLoadError(errorMessage);
       setIsLoading(false);
     }
   };
@@ -1141,28 +1149,35 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     // Merge adjacent/overlapping rects on the same line
     const mergedRects = mergeHighlightRects(rects, layerRect);
 
+    // Get category colors (default to highlight if not set)
+    const category: HighlightCategory = highlight.category || 'highlight';
+    const categoryInfo = HIGHLIGHT_CATEGORIES[category];
+    const color = categoryInfo.color;
+    const hoverColor = categoryInfo.hoverColor;
+
     // Create highlight elements
     for (const rect of mergedRects) {
       const highlightEl = document.createElement('div');
       highlightEl.className = 'pdf-highlight';
       highlightEl.dataset.highlightId = highlight.id;
+      highlightEl.dataset.category = category;
       highlightEl.style.cssText = `
         position: absolute;
         left: ${rect.left}px;
         top: ${rect.top}px;
         width: ${rect.width}px;
         height: ${rect.height}px;
-        background-color: rgba(255, 235, 59, 0.4);
+        background-color: ${color};
         pointer-events: auto;
         border-radius: 2px;
         cursor: pointer;
         transition: background-color 0.15s ease;
       `;
       highlightEl.addEventListener('mouseenter', () => {
-        highlightEl.style.backgroundColor = 'rgba(255, 235, 59, 0.6)';
+        highlightEl.style.backgroundColor = hoverColor;
       });
       highlightEl.addEventListener('mouseleave', () => {
-        highlightEl.style.backgroundColor = 'rgba(255, 235, 59, 0.4)';
+        highlightEl.style.backgroundColor = color;
       });
       highlightEl.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1846,6 +1861,49 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // Error state UI
+  if (loadError) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-8">
+        <div className="max-w-md text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/10 flex items-center justify-center">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-500">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold text-text-primary mb-2">
+            Failed to load PDF
+          </h2>
+          <p className="text-text-secondary mb-4">
+            {loadError}
+          </p>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => {
+                setLoadError(null);
+                loadPDF();
+              }}
+              className="px-4 py-2 bg-accent-primary text-white rounded-lg hover:bg-accent-primary/90 transition-colors"
+            >
+              Try Again
+            </button>
+            <button
+              onClick={() => window.history.back()}
+              className="px-4 py-2 text-text-secondary hover:text-text-primary transition-colors"
+            >
+              Go Back
+            </button>
+          </div>
+          <p className="text-xs text-text-secondary mt-4">
+            If this problem persists, the PDF file may be corrupted or inaccessible.
+          </p>
+        </div>
       </div>
     );
   }

@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import Handlebars from 'handlebars';
-import type { LiteratureNote, CreateHighlightRequest, UpdateHighlightRequest, Highlight, PDFHighlight, EPUBHighlight, TextSelection } from '@pulp/shared';
+import type { LiteratureNote, CreateHighlightRequest, UpdateHighlightRequest, Highlight, PDFHighlight, EPUBHighlight, TextSelection, HighlightCategory } from '@pulp/shared';
 import type { Config } from '../config/schema.js';
 import { generatePDFHighlightId, generateEPUBHighlightId } from './highlight-parser.js';
 
@@ -24,6 +24,7 @@ export class HighlightWriter {
 
   async write(note: LiteratureNote, request: CreateHighlightRequest): Promise<Highlight> {
     const createdAt = new Date().toISOString();
+    const category = request.category || 'highlight';
 
     let highlight: Highlight;
     let formatted: string;
@@ -43,6 +44,7 @@ export class HighlightWriter {
         selection: request.selection,
         text: request.text,
         note: request.note,
+        category,
         createdAt,
       } satisfies PDFHighlight;
 
@@ -55,6 +57,8 @@ export class HighlightWriter {
         page: highlight.page,
         pageLabel: highlight.pageLabel ?? String(highlight.page), // Falls back to physical page if no label
         selection: this.formatSelection(highlight.selection),
+        // Include category in the fragment if not the default 'highlight'
+        category: category !== 'highlight' ? category : undefined,
         text: this.formatBlockquote(highlight.text),
         note: highlight.note ? new Handlebars.SafeString(highlight.note) : undefined,
         citekey,
@@ -69,6 +73,7 @@ export class HighlightWriter {
         cfi: request.cfi!,
         text: request.text,
         note: request.note,
+        category,
         createdAt,
       } satisfies EPUBHighlight;
 
@@ -79,6 +84,8 @@ export class HighlightWriter {
       formatted = this.epubTemplate({
         source: note.sourceRelative,
         cfi: highlight.cfi,
+        // Include category in the fragment if not the default 'highlight'
+        category: category !== 'highlight' ? category : undefined,
         text: this.formatBlockquote(highlight.text),
         note: highlight.note ? new Handlebars.SafeString(highlight.note) : undefined,
         citekey,
@@ -120,8 +127,9 @@ export class HighlightWriter {
   }
 
   /**
-   * Update an existing highlight's note in the markdown file.
+   * Update an existing highlight's note and/or category in the markdown file.
    * Finds the highlight link and updates/adds the note text after it.
+   * If category changes, updates the link fragment as well.
    */
   async update(note: LiteratureNote, highlightId: string, request: UpdateHighlightRequest): Promise<Highlight | null> {
     // Find the highlight in the note's current highlights
@@ -130,14 +138,19 @@ export class HighlightWriter {
       return null;
     }
 
-    const content = readFileSync(note.notePath, 'utf-8');
+    let content = readFileSync(note.notePath, 'utf-8');
     let linkPattern: string;
+    let baseLinkPattern: string;
 
     if (highlight.type === 'pdf') {
       const sel = highlight.selection;
-      linkPattern = `${this.escapeRegex(note.sourceRelative)}#page=${highlight.page}&selection=${sel.beginIndex},${sel.beginOffset},${sel.endIndex},${sel.endOffset}`;
+      baseLinkPattern = `${this.escapeRegex(note.sourceRelative)}#page=${highlight.page}&selection=${sel.beginIndex},${sel.beginOffset},${sel.endIndex},${sel.endOffset}`;
+      // Match with optional category suffix
+      linkPattern = `${baseLinkPattern}(?:&category=\\w+)?`;
     } else {
-      linkPattern = `${this.escapeRegex(note.sourceRelative)}#cfi=${this.escapeRegex(highlight.cfi)}`;
+      baseLinkPattern = `${this.escapeRegex(note.sourceRelative)}#cfi=${this.escapeRegex(highlight.cfi)}`;
+      // Match with optional category suffix
+      linkPattern = `${baseLinkPattern}(?:&category=\\w+)?`;
     }
 
     // Find the highlight link in the content
@@ -148,11 +161,46 @@ export class HighlightWriter {
       return null;
     }
 
+    const updatedAt = new Date().toISOString();
+    const newCategory = request.category ?? highlight.category;
+
+    // If category changed, update the link
+    if (request.category !== undefined && request.category !== highlight.category) {
+      const oldLink = match[0];
+      // Build the new fragment with category
+      let newFragment: string;
+      if (highlight.type === 'pdf') {
+        const sel = highlight.selection;
+        const selectionStr = `${sel.beginIndex},${sel.beginOffset},${sel.endIndex},${sel.endOffset}`;
+        const categoryStr = newCategory && newCategory !== 'highlight' ? `&category=${newCategory}` : '';
+        newFragment = `#page=${highlight.page}&selection=${selectionStr}${categoryStr}`;
+      } else {
+        const categoryStr = newCategory && newCategory !== 'highlight' ? `&category=${newCategory}` : '';
+        newFragment = `#cfi=${highlight.cfi}${categoryStr}`;
+      }
+
+      // Replace the fragment portion while keeping the display text
+      const displayTextMatch = oldLink.match(/\|([^\]]*)\]\]$/);
+      const displayText = displayTextMatch ? displayTextMatch[1] : '';
+      const newLink = `[[${note.sourceRelative}${newFragment}|${displayText}]]`;
+
+      content = content.slice(0, match.index) + newLink + content.slice(match.index + oldLink.length);
+    }
+
+    // Now handle note text updates
+    // Re-find the match since content may have changed
+    const updatedLinkRegex = new RegExp(`\\[\\[${linkPattern}\\|[^\\]]*\\]\\]`);
+    const updatedMatch = updatedLinkRegex.exec(content);
+
+    if (!updatedMatch) {
+      return null;
+    }
+
     // Find the end of this line and any existing note on the next line
-    const afterLink = content.slice(match.index + match[0].length);
+    const afterLink = content.slice(updatedMatch.index + updatedMatch[0].length);
 
     // The link might be at the end of a blockquote line, so check where the note would go
-    let insertPoint = match.index + match[0].length;
+    let insertPoint = updatedMatch.index + updatedMatch[0].length;
     let existingNoteLength = 0;
 
     // Skip to end of current line
@@ -181,7 +229,7 @@ export class HighlightWriter {
 
     // Build new content
     let newContent: string;
-    const noteText = request.note?.trim();
+    const noteText = request.note !== undefined ? request.note?.trim() : highlight.note?.trim();
 
     if (noteText) {
       // Add or replace note
@@ -200,10 +248,12 @@ export class HighlightWriter {
 
     writeFileSync(note.notePath, newContent, 'utf-8');
 
-    // Return updated highlight
+    // Return updated highlight with updatedAt timestamp
     return {
       ...highlight,
       note: noteText,
+      category: newCategory as HighlightCategory,
+      updatedAt,
     };
   }
 

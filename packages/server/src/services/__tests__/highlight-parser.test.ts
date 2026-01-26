@@ -6,6 +6,7 @@ import {
   extractHighlightContext,
   extractPageLabel,
   extractTimestamp,
+  extractCategory,
 } from '../highlight-parser.js';
 
 describe('generatePDFHighlightId', () => {
@@ -431,6 +432,84 @@ describe('extractTimestamp', () => {
     const linkText = '[[books/test.pdf#page=1&selection=0,0,1,10|text|2024-12-31]]';
     const timestamp = extractTimestamp(linkText);
     expect(timestamp).toBe('2024-12-31T00:00:00.000Z');
+  });
+});
+
+describe('extractCategory', () => {
+  it('extracts category from PDF highlight link', () => {
+    const linkText = '[[books/test.pdf#page=5&selection=0,10,2,25&category=important|"text"]]';
+    expect(extractCategory(linkText)).toBe('important');
+  });
+
+  it('extracts category from EPUB highlight link', () => {
+    const linkText = '[[books/test.epub#cfi=epubcfi(/6/4)&category=question|"text"]]';
+    expect(extractCategory(linkText)).toBe('question');
+  });
+
+  it('returns undefined when no category present', () => {
+    const linkText = '[[books/test.pdf#page=5&selection=0,10,2,25|"text"]]';
+    expect(extractCategory(linkText)).toBeUndefined();
+  });
+
+  it('returns undefined for invalid category', () => {
+    const linkText = '[[books/test.pdf#page=5&selection=0,10,2,25&category=invalid|"text"]]';
+    expect(extractCategory(linkText)).toBeUndefined();
+  });
+
+  it('extracts all valid categories', () => {
+    const categories = ['highlight', 'important', 'question', 'todo', 'definition'];
+    for (const cat of categories) {
+      const linkText = `[[books/test.pdf#page=1&selection=0,0,1,1&category=${cat}|text]]`;
+      expect(extractCategory(linkText)).toBe(cat);
+    }
+  });
+});
+
+describe('parseHighlights with categories', () => {
+  it('parses PDF highlight with category', () => {
+    const content = `> Important text.
+[[books/test.pdf#page=5&selection=0,10,2,25&category=important|"text"|p. 5]]`;
+
+    const highlights = parseHighlights(content, 'books/test.pdf');
+    expect(highlights).toHaveLength(1);
+    expect(highlights[0].type).toBe('pdf');
+    if (highlights[0].type === 'pdf') {
+      expect(highlights[0].category).toBe('important');
+    }
+  });
+
+  it('parses EPUB highlight with category', () => {
+    const content = `> Question to research.
+[[books/test.epub#cfi=epubcfi(/6/4)&category=question|"text"]]`;
+
+    const highlights = parseHighlights(content, 'books/test.epub');
+    expect(highlights).toHaveLength(1);
+    expect(highlights[0].type).toBe('epub');
+    if (highlights[0].type === 'epub') {
+      expect(highlights[0].category).toBe('question');
+    }
+  });
+
+  it('does not set category when not present', () => {
+    const content = `> Regular highlight.
+[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]`;
+
+    const highlights = parseHighlights(content, 'books/test.pdf');
+    expect(highlights).toHaveLength(1);
+    expect(highlights[0].category).toBeUndefined();
+  });
+
+  it('parses highlights with all metadata: category, pageLabel, and timestamp', () => {
+    const content = `> Definition of a key term.
+[[books/test.pdf#page=10&selection=0,5,2,20&category=definition|"text"|p. iv|2024-06-15]]`;
+
+    const highlights = parseHighlights(content, 'books/test.pdf');
+    expect(highlights).toHaveLength(1);
+    if (highlights[0].type === 'pdf') {
+      expect(highlights[0].category).toBe('definition');
+      expect(highlights[0].pageLabel).toBe('iv');
+      expect(highlights[0].createdAt).toBe('2024-06-15T00:00:00.000Z');
+    }
   });
 });
 

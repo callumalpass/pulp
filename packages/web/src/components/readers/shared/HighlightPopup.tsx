@@ -1,9 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import type { TextSelection } from '@pulp/shared';
+import type { TextSelection, HighlightCategory } from '@pulp/shared';
+import { HIGHLIGHT_CATEGORIES } from '@pulp/shared';
 import { Button } from '../../ui/Button';
 import { useCreateHighlight } from '../../../hooks/useHighlights';
 import { useToast } from '../../../contexts/ToastContext';
 import { DictionaryDefinition } from './DictionaryDefinition';
+import { useFocusTrap } from '../../../hooks/useFocusTrap';
+
+const categoryOrder: HighlightCategory[] = ['highlight', 'important', 'question', 'todo', 'definition'];
 
 interface BaseSelection {
   text: string;
@@ -34,11 +38,15 @@ type SaveState = 'idle' | 'saving' | 'error';
 
 export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }: HighlightPopupProps) {
   const [note, setNote] = useState('');
+  const [category, setCategory] = useState<HighlightCategory>('highlight');
   const [showNoteInput, setShowNoteInput] = useState(false);
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const popupRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Use focus trap for accessibility - trap focus and close on Escape
+  const popupRef = useFocusTrap<HTMLDivElement>(true, onClose);
 
   const createHighlight = useCreateHighlight(noteId);
   const { showToast } = useToast();
@@ -60,11 +68,13 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
 
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
-  }, [onClose]);
+  }, [onClose, popupRef]);
 
-  const handleSave = useCallback(async () => {
+  const handleSave = useCallback(async (overrideCategory?: HighlightCategory) => {
     setSaveState('saving');
     setErrorMessage(null);
+
+    const finalCategory = overrideCategory ?? category;
 
     try {
       if (type === 'pdf' && 'selection' in selection) {
@@ -75,6 +85,7 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
           selection: selection.selection,
           text: selection.text,
           note: note || undefined,
+          category: finalCategory,
         });
       } else if (type === 'epub') {
         const epubCfi = cfi || ('cfi' in selection ? selection.cfi : undefined);
@@ -89,6 +100,7 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
           cfi: epubCfi,
           text: selection.text,
           note: note || undefined,
+          category: finalCategory,
         });
       }
 
@@ -104,14 +116,20 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
       );
       // Don't close popup - let user retry
     }
-  }, [type, selection, cfi, note, createHighlight, showToast, onClose]);
+  }, [type, selection, cfi, note, category, createHighlight, showToast, onClose]);
 
   const handleQuickHighlight = () => {
     handleSave();
   };
 
+  const handleCategorySelect = (selectedCategory: HighlightCategory) => {
+    // Quick save with the selected category
+    handleSave(selectedCategory);
+  };
+
   const handleAddNote = () => {
     setShowNoteInput(true);
+    setShowCategoryPicker(false);
     // Reset error state when switching to note mode
     setSaveState('idle');
     setErrorMessage(null);
@@ -121,9 +139,16 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
     handleSave();
   };
 
+  const toggleCategoryPicker = () => {
+    setShowCategoryPicker(!showCategoryPicker);
+  };
+
   return (
     <div
       ref={popupRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label={showNoteInput ? 'Add highlight with note' : 'Create highlight'}
       className="absolute z-50 bg-bg-surface rounded-lg shadow-xl border border-text-secondary/20 overflow-hidden highlight-popup-enter"
       style={{
         left: Math.max(10, Math.min(selection.position.x - 100, window.innerWidth - 220)),
@@ -162,6 +187,16 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
             </button>
             <div className="w-px bg-text-secondary/20" />
             <button
+              onClick={toggleCategoryPicker}
+              className={`flex items-center gap-2 px-3 py-3 text-sm text-text-primary hover:bg-accent-primary/20 transition-colors ${showCategoryPicker ? 'bg-accent-primary/10' : ''}`}
+              disabled={saveState === 'saving'}
+              title="Choose category"
+            >
+              <CategoryIcon />
+              <ChevronIcon expanded={showCategoryPicker} />
+            </button>
+            <div className="w-px bg-text-secondary/20" />
+            <button
               onClick={handleAddNote}
               className="flex items-center gap-2 px-4 py-3 text-sm text-text-primary hover:bg-accent-primary/20 transition-colors"
               disabled={saveState === 'saving'}
@@ -178,10 +213,38 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
               <CloseIcon />
             </button>
           </div>
+
+          {/* Category picker dropdown */}
+          {showCategoryPicker && (
+            <div className="border-t border-text-secondary/20 p-2">
+              <div className="grid grid-cols-5 gap-1">
+                {categoryOrder.map((cat) => {
+                  const info = HIGHLIGHT_CATEGORIES[cat];
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => handleCategorySelect(cat)}
+                      className="flex flex-col items-center gap-1 p-2 rounded hover:bg-accent-primary/10 transition-colors"
+                      title={info.label}
+                    >
+                      <div
+                        className="w-5 h-5 rounded-full border border-black/20"
+                        style={{ backgroundColor: info.color.replace('0.4', '0.8') }}
+                      />
+                      <span className="text-[10px] text-text-secondary truncate w-full text-center">
+                        {info.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <DictionaryDefinition text={selection.text} />
         </>
       ) : (
-        <div className="w-64 p-3">
+        <div className="w-72 p-3">
           {/* Error state in note mode */}
           {saveState === 'error' && errorMessage && (
             <div className="mb-2 px-2 py-1.5 bg-red-500/10 rounded border border-red-500/20">
@@ -195,6 +258,38 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
           <p className="text-xs text-text-secondary mb-2 line-clamp-2 italic">
             &ldquo;{selection.text.slice(0, 100)}{selection.text.length > 100 ? '...' : ''}&rdquo;
           </p>
+
+          {/* Category selector in note mode */}
+          <div className="mb-2">
+            <span className="text-xs text-text-secondary mb-1 block">Category:</span>
+            <div className="flex gap-1">
+              {categoryOrder.map((cat) => {
+                const info = HIGHLIGHT_CATEGORIES[cat];
+                const isSelected = category === cat;
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setCategory(cat)}
+                    className={`flex-1 flex flex-col items-center gap-0.5 p-1.5 rounded border transition-colors ${
+                      isSelected
+                        ? 'border-accent-primary bg-accent-primary/10'
+                        : 'border-transparent hover:bg-accent-primary/5'
+                    }`}
+                    title={info.label}
+                    disabled={saveState === 'saving'}
+                  >
+                    <div
+                      className="w-4 h-4 rounded-full border border-black/20"
+                      style={{ backgroundColor: info.color.replace('0.4', '0.8') }}
+                    />
+                    <span className="text-[9px] text-text-secondary truncate w-full text-center">
+                      {info.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           <textarea
             ref={inputRef}
@@ -225,7 +320,7 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
             <Button
               variant="primary"
               size="sm"
-              onClick={handleSave}
+              onClick={() => handleSave()}
               disabled={saveState === 'saving'}
               className="flex-1"
             >
@@ -259,6 +354,31 @@ function CloseIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
       <path d="M18 6L6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
+function CategoryIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+function ChevronIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}
+    >
+      <path d="M6 9l6 6 6-6" />
     </svg>
   );
 }

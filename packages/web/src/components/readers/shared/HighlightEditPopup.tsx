@@ -1,10 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
-import type { Highlight, PDFHighlight } from '@pulp/shared';
+import type { Highlight, PDFHighlight, HighlightCategory } from '@pulp/shared';
+import { HIGHLIGHT_CATEGORIES } from '@pulp/shared';
 import { Button } from '../../ui/Button';
 import { ConfirmDialog } from '../../ui/ConfirmDialog';
 import { useUpdateHighlight, useDeleteHighlight } from '../../../hooks/useHighlights';
 import { useToast } from '../../../contexts/ToastContext';
 import { DictionaryDefinition } from './DictionaryDefinition';
+import { useFocusTrap } from '../../../hooks/useFocusTrap';
+
+const categoryOrder: HighlightCategory[] = ['highlight', 'important', 'question', 'todo', 'definition'];
 
 function formatHighlightDate(isoDate: string): string {
   const date = new Date(isoDate);
@@ -32,10 +36,13 @@ interface HighlightEditPopupProps {
 
 export function HighlightEditPopup({ highlight, noteId, position, onClose }: HighlightEditPopupProps) {
   const [note, setNote] = useState(highlight.note || '');
+  const [category, setCategory] = useState<HighlightCategory>(highlight.category || 'highlight');
   const [isEditing, setIsEditing] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const popupRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Use focus trap for accessibility - trap focus and close on Escape
+  const popupRef = useFocusTrap<HTMLDivElement>(true, onClose);
 
   const updateHighlight = useUpdateHighlight(noteId);
   const deleteHighlight = useDeleteHighlight(noteId);
@@ -76,13 +83,34 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose }: Hig
     try {
       await updateHighlight.mutateAsync({
         highlightId: highlight.id,
-        data: { note: note || undefined },
+        data: {
+          note: note || undefined,
+          category: category !== highlight.category ? category : undefined,
+        },
       });
-      showToast('Note saved', 'success');
+      showToast('Highlight saved', 'success');
       onClose();
     } catch (error) {
       console.error('Failed to update highlight:', error);
-      showToast('Failed to save note. Please try again.', 'error');
+      showToast('Failed to save highlight. Please try again.', 'error');
+    }
+  };
+
+  const handleCategoryChange = async (newCategory: HighlightCategory) => {
+    setCategory(newCategory);
+    // If not in editing mode, save immediately
+    if (!isEditing) {
+      try {
+        await updateHighlight.mutateAsync({
+          highlightId: highlight.id,
+          data: { category: newCategory },
+        });
+        showToast('Category updated', 'success');
+      } catch (error) {
+        console.error('Failed to update category:', error);
+        showToast('Failed to update category. Please try again.', 'error');
+        setCategory(highlight.category || 'highlight');
+      }
     }
   };
 
@@ -101,6 +129,9 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose }: Hig
   return (
     <div
       ref={popupRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label={isEditing ? 'Edit highlight note' : 'Highlight details'}
       className="absolute z-50 bg-bg-surface rounded-lg shadow-xl border border-text-secondary/20 overflow-hidden w-72 highlight-edit-popup-enter"
       style={{
         left: Math.max(10, Math.min(position.x - 144, window.innerWidth - 300)),
@@ -145,6 +176,38 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose }: Hig
         <p className="text-sm text-text-primary line-clamp-3 italic">
           &ldquo;{highlight.text.slice(0, 150)}{highlight.text.length > 150 ? '...' : ''}&rdquo;
         </p>
+      </div>
+
+      {/* Category selector */}
+      <div className="px-3 py-2 border-b border-text-secondary/20">
+        <span className="text-xs text-text-secondary mb-1.5 block">Category:</span>
+        <div className="flex gap-1">
+          {categoryOrder.map((cat) => {
+            const info = HIGHLIGHT_CATEGORIES[cat];
+            const isSelected = category === cat;
+            return (
+              <button
+                key={cat}
+                onClick={() => handleCategoryChange(cat)}
+                className={`flex-1 flex flex-col items-center gap-0.5 p-1.5 rounded border transition-colors ${
+                  isSelected
+                    ? 'border-accent-primary bg-accent-primary/10'
+                    : 'border-transparent hover:bg-accent-primary/5'
+                }`}
+                title={info.label}
+                disabled={updateHighlight.isPending}
+              >
+                <div
+                  className="w-4 h-4 rounded-full border border-black/20"
+                  style={{ backgroundColor: info.color.replace('0.4', '0.8') }}
+                />
+                <span className="text-[9px] text-text-secondary truncate w-full text-center">
+                  {info.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Dictionary definition for single words */}

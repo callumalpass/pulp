@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import ePub, { Book, Rendition, Contents, NavItem } from 'epubjs';
-import type { LiteratureNote, EPUBHighlight } from '@pulp/shared';
+import type { LiteratureNote, EPUBHighlight, HighlightCategory } from '@pulp/shared';
+import { HIGHLIGHT_CATEGORIES } from '@pulp/shared';
 import { useReaderStore } from '../../stores/reader';
 import { usePreferencesStore } from '../../stores/preferences';
 import { useReadingStatsStore } from '../../stores/readingStats';
@@ -464,6 +465,11 @@ export function EPUBReader({ note }: EPUBReaderProps) {
 
     epubHighlights.forEach((highlight) => {
       try {
+        // Get category-based color
+        const category: HighlightCategory = highlight.category || 'highlight';
+        const categoryInfo = HIGHLIGHT_CATEGORIES[category];
+        const fillColor = categoryInfo.color;
+
         (rendition.annotations.highlight as (
           cfiRange: string,
           data?: object,
@@ -472,7 +478,7 @@ export function EPUBReader({ note }: EPUBReaderProps) {
           styles?: object
         ) => void)(
           highlight.cfi,
-          { highlightId: highlight.id },
+          { highlightId: highlight.id, category },
           (e: MouseEvent) => {
             const containerRect = containerRef.current?.getBoundingClientRect();
             if (!containerRect) return;
@@ -485,8 +491,8 @@ export function EPUBReader({ note }: EPUBReaderProps) {
               },
             });
           },
-          'pulp-highlight',
-          { fill: 'rgba(255, 235, 59, 0.4)', cursor: 'pointer' }
+          `pulp-highlight pulp-highlight-${category}`,
+          { fill: fillColor, cursor: 'pointer' }
         );
       } catch {}
     });
@@ -641,12 +647,44 @@ export function EPUBReader({ note }: EPUBReaderProps) {
 
   if (error) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8" role="alert" aria-live="assertive">
-        <div className="text-red-500 text-lg" role="heading" aria-level={1}>Failed to load EPUB</div>
-        <div className="text-text-secondary text-sm">{error}</div>
-        <Link to="/" className="text-accent-primary hover:underline focus:outline-none focus:ring-2 focus:ring-accent-primary">
-          Back to library
-        </Link>
+      <div className="flex-1 flex items-center justify-center p-8" role="alert" aria-live="assertive">
+        <div className="max-w-md text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/10 flex items-center justify-center">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-500">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold text-text-primary mb-2" role="heading" aria-level={1}>
+            Failed to load EPUB
+          </h2>
+          <p className="text-text-secondary mb-4">
+            {error}
+          </p>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => {
+                setError(null);
+                setIsLoading(true);
+                // Re-initialize EPUB - need to remount the effect
+                window.location.reload();
+              }}
+              className="px-4 py-2 bg-accent-primary text-white rounded-lg hover:bg-accent-primary/90 transition-colors"
+            >
+              Try Again
+            </button>
+            <Link
+              to="/"
+              className="px-4 py-2 text-text-secondary hover:text-text-primary transition-colors focus:outline-none focus:ring-2 focus:ring-accent-primary rounded"
+            >
+              Go Back to Library
+            </Link>
+          </div>
+          <p className="text-xs text-text-secondary mt-4">
+            If this problem persists, the EPUB file may be corrupted or inaccessible.
+          </p>
+        </div>
       </div>
     );
   }
