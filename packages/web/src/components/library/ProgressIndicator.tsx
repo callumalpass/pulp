@@ -34,7 +34,7 @@ export function ProgressIndicator({
     <div className={clsx('flex items-center gap-2', className)}>
       <div className={clsx('flex-1 bg-bg-deep rounded-full overflow-hidden', height)}>
         <div
-          className="h-full bg-accent-primary transition-all duration-500 ease-out"
+          className="h-full bg-accent-primary transition-all duration-500 ease-out relative overflow-hidden progress-shimmer"
           style={{ width: `${displayedProgress}%` }}
         />
       </div>
