@@ -123,6 +123,14 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
               <NoteIcon />
               Note
             </button>
+            <div className="w-px bg-text-secondary/20" />
+            <button
+              onClick={onClose}
+              className="flex items-center justify-center px-3 py-3 text-text-secondary hover:text-text-primary hover:bg-accent-primary/20 transition-colors"
+              aria-label="Close"
+            >
+              <CloseIcon />
+            </button>
           </div>
           <DictionaryDefinition text={selection.text} />
         </>
@@ -178,6 +186,14 @@ function NoteIcon() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
       <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <path d="M18 6L6 18M6 6l12 12" />
     </svg>
   );
 }
