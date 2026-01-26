@@ -233,8 +233,8 @@ test.describe('Mobile Layout', () => {
         fullPage: false
       });
 
-      // Close by clicking backdrop
-      await page.locator('.mobile-bottom-sheet-backdrop').click();
+      // Close by clicking the backdrop (at the top of the screen, above the menu)
+      await page.mouse.click(200, 50);
       await page.waitForTimeout(300);
 
       const isHidden = !(await bottomSheet.isVisible());

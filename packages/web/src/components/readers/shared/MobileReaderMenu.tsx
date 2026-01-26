@@ -1,4 +1,4 @@
-import { useReaderStore, type ZoomMode, type PDFViewMode } from '../../../stores/reader';
+import { useReaderStore, type ZoomMode, type PDFViewMode, type PDFColorMode } from '../../../stores/reader';
 
 interface MobileReaderMenuProps {
   onZoomModeChange?: (mode: ZoomMode) => void;
@@ -20,7 +20,7 @@ export function MobileReaderMenu({
     pdfColorMode,
     toggleSearch,
     toggleMarkdownPanel,
-    togglePdfColorMode,
+    setPdfColorMode,
     setZoom,
     setPdfViewMode,
   } = useReaderStore();
@@ -54,8 +54,8 @@ export function MobileReaderMenu({
     onClose();
   };
 
-  const handleDarkMode = () => {
-    togglePdfColorMode();
+  const handleColorMode = (mode: PDFColorMode) => {
+    setPdfColorMode(mode);
     onClose();
   };
 
@@ -170,12 +170,58 @@ export function MobileReaderMenu({
             </div>
           </div>
 
+          {/* Display Mode */}
+          <div className="mb-6">
+            <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-3">
+              Display
+            </h3>
+            <div className="grid grid-cols-3 gap-2">
+              <MenuButton
+                active={pdfColorMode === 'light'}
+                onClick={() => handleColorMode('light')}
+                icon={
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="5" />
+                    <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                  </svg>
+                }
+              >
+                Light
+              </MenuButton>
+              <MenuButton
+                active={pdfColorMode === 'dark'}
+                onClick={() => handleColorMode('dark')}
+                icon={
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+                  </svg>
+                }
+              >
+                Dark
+              </MenuButton>
+              <MenuButton
+                active={pdfColorMode === 'eink'}
+                onClick={() => handleColorMode('eink')}
+                icon={
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="4" y="2" width="16" height="20" rx="2" />
+                    <line x1="8" y1="6" x2="16" y2="6" />
+                    <line x1="8" y1="10" x2="16" y2="10" />
+                    <line x1="8" y1="14" x2="12" y2="14" />
+                  </svg>
+                }
+              >
+                E-ink
+              </MenuButton>
+            </div>
+          </div>
+
           {/* Actions */}
           <div>
             <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-3">
               Actions
             </h3>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <MenuButton
                 onClick={handleSearch}
                 icon={
@@ -199,24 +245,6 @@ export function MobileReaderMenu({
                 }
               >
                 Notes
-              </MenuButton>
-              <MenuButton
-                active={pdfColorMode === 'dark'}
-                onClick={handleDarkMode}
-                icon={
-                  pdfColorMode === 'dark' ? (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <circle cx="12" cy="12" r="5" />
-                      <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-                    </svg>
-                  ) : (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
-                    </svg>
-                  )
-                }
-              >
-                {pdfColorMode === 'dark' ? 'Light' : 'Dark'}
               </MenuButton>
             </div>
           </div>

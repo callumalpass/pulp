@@ -344,6 +344,20 @@ export function PDFReader({ note }: PDFReaderProps) {
   useEffect(() => {
     if (!pdfDocRef.current || isLoading) return;
 
+    // E-ink mode: only show current page
+    if (pdfColorMode === 'eink') {
+      setVisiblePages(new Set([currentPage]));
+      setRenderedPages((prev) => {
+        const updated = new Set<number>();
+        if (prev.has(currentPage)) {
+          updated.add(currentPage);
+        }
+        renderedPagesRef.current = updated;
+        return updated;
+      });
+      return;
+    }
+
     // Set visible pages to the virtualized range
     const newVisiblePages = new Set<number>();
     for (let i = virtualizedRange.start; i <= virtualizedRange.end; i++) {
@@ -364,7 +378,14 @@ export function PDFReader({ note }: PDFReaderProps) {
       renderedPagesRef.current = updated;
       return updated;
     });
-  }, [virtualizedRange, isLoading]);
+  }, [virtualizedRange, isLoading, pdfColorMode, currentPage]);
+
+  // E-ink mode: force fit-page zoom for optimal e-reader display
+  useEffect(() => {
+    if (pdfColorMode === 'eink' && zoomMode !== 'fit-page') {
+      handleZoomModeChange('fit-page');
+    }
+  }, [pdfColorMode]);
 
   // Render text layers for visible pages that have canvas but no text layer
   // This handles pages that were pre-rendered as buffer pages
@@ -1562,14 +1583,40 @@ export function PDFReader({ note }: PDFReaderProps) {
         {/* PDF Pages Container */}
         <div
           ref={scrollContainerRef}
-          className={`flex-1 overflow-auto bg-bg-deep ${pdfColorMode === 'dark' ? 'pdf-dark-mode' : ''} ${isMobile ? 'hide-scrollbar-mobile' : ''}`}
+          className={`flex-1 bg-bg-deep ${pdfColorMode === 'dark' ? 'pdf-dark-mode' : ''} ${pdfColorMode === 'eink' ? 'pdf-eink-mode overflow-hidden' : 'overflow-auto'} ${isMobile ? 'hide-scrollbar-mobile' : ''}`}
           onMouseUp={handleMouseUp}
           onTouchStart={swipeHandlers.handleTouchStart}
           onTouchEnd={swipeHandlers.handleTouchEnd}
         >
-          <div className={`pdf-pages-container flex flex-col items-center py-4 gap-4 ${pdfViewMode === 'spread' ? 'pdf-spread-layout' : ''}`}>
-            {/* Virtualization: only render pages within range, use spacers for the rest */}
-            {pdfViewMode === 'spread' ? (
+          <div className={`pdf-pages-container flex flex-col items-center py-4 gap-4 ${pdfViewMode === 'spread' ? 'pdf-spread-layout' : ''} ${pdfColorMode === 'eink' ? 'eink-single-page' : ''}`}>
+            {/* E-ink mode: single page, no scroll */}
+            {pdfColorMode === 'eink' ? (
+              <div className="eink-page-container flex flex-col items-center justify-center h-full w-full">
+                {/* Navigation buttons */}
+                <div className="eink-nav absolute inset-x-0 top-1/2 -translate-y-1/2 flex justify-between px-2 pointer-events-none z-10">
+                  <button
+                    onClick={() => goToPage(currentPage - 1)}
+                    disabled={currentPage <= 1}
+                    className="pointer-events-auto w-12 h-24 flex items-center justify-center bg-white/80 border border-gray-300 disabled:opacity-30"
+                  >
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M15 18l-6-6 6-6" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => goToPage(currentPage + 1)}
+                    disabled={currentPage >= totalPages}
+                    className="pointer-events-auto w-12 h-24 flex items-center justify-center bg-white/80 border border-gray-300 disabled:opacity-30"
+                  >
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M9 18l6-6-6-6" />
+                    </svg>
+                  </button>
+                </div>
+                {/* Current page */}
+                {renderPageContainer(currentPage)}
+              </div>
+            ) : pdfViewMode === 'spread' ? (
               // Spread mode: pair pages side by side (no virtualization for simplicity)
               <>
                 {/* First page alone */}

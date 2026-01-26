@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 export type ZoomMode = 'fit-width' | 'fit-page' | 'custom';
 export type PDFViewMode = 'single' | 'spread' | 'presentation';
-export type PDFColorMode = 'light' | 'dark';
+export type PDFColorMode = 'light' | 'dark' | 'eink';
 
 export interface SearchMatch {
   pageNum: number;
@@ -131,9 +131,12 @@ export const useReaderStore = create<ReaderState>((set) => ({
   // Reading mode actions
   setPdfViewMode: (mode) => set({ pdfViewMode: mode }),
   setPdfColorMode: (mode) => set({ pdfColorMode: mode }),
-  togglePdfColorMode: () => set((state) => ({
-    pdfColorMode: state.pdfColorMode === 'light' ? 'dark' : 'light',
-  })),
+  togglePdfColorMode: () => set((state) => {
+    const modes: PDFColorMode[] = ['light', 'dark', 'eink'];
+    const currentIndex = modes.indexOf(state.pdfColorMode);
+    const nextIndex = (currentIndex + 1) % modes.length;
+    return { pdfColorMode: modes[nextIndex] };
+  }),
 
   // Mobile actions
   setMobileMenuOpen: (open) => set({ mobileMenuOpen: open }),

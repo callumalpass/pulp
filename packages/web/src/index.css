@@ -203,6 +203,64 @@ body {
   filter: invert(0.9) hue-rotate(180deg);
 }
 
+/* PDF E-ink Mode - optimized for e-readers */
+.pdf-eink-mode {
+  background-color: #fff !important;
+}
+
+.pdf-eink-mode canvas {
+  /* High contrast grayscale for e-ink displays */
+  filter: contrast(1.15) grayscale(1);
+}
+
+/* Disable all animations in e-ink mode */
+.pdf-eink-mode,
+.pdf-eink-mode * {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* Hide loading spinners in e-ink mode */
+.pdf-eink-mode .animate-spin {
+  display: none;
+}
+
+/* E-ink skeleton placeholder - static gray instead of animated */
+.pdf-eink-mode .pdf-page-skeleton {
+  animation: none;
+  background: #f5f5f5;
+}
+
+.pdf-eink-mode .pdf-page-skeleton > div {
+  animation: none;
+  background: #e0e0e0;
+}
+
+/* E-ink single page layout */
+.pdf-eink-mode .eink-single-page {
+  height: 100%;
+  padding: 0;
+  gap: 0;
+}
+
+.pdf-eink-mode .eink-page-container {
+  position: relative;
+  height: 100%;
+}
+
+.pdf-eink-mode .eink-nav button {
+  border-radius: 4px;
+}
+
+.pdf-eink-mode .eink-nav button:not(:disabled):hover {
+  background: #f0f0f0;
+}
+
+/* In e-ink mode, center the page vertically */
+.pdf-eink-mode .pdf-page-container {
+  margin: auto;
+}
+
 /* Skeleton Loading Animation */
 @keyframes skeleton-pulse {
   0%, 100% {
