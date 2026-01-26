@@ -4,6 +4,29 @@ export type ZoomMode = 'fit-width' | 'fit-page' | 'custom';
 export type PDFViewMode = 'single' | 'spread' | 'presentation';
 export type PDFColorMode = 'light' | 'dark' | 'eink';
 
+// LocalStorage keys for persisted preferences
+const STORAGE_KEY_COLOR_MODE = 'pulp-pdf-color-mode';
+const STORAGE_KEY_VIEW_MODE = 'pulp-pdf-view-mode';
+
+// Load persisted preferences
+function getPersistedColorMode(): PDFColorMode {
+  if (typeof window === 'undefined') return 'light';
+  const stored = localStorage.getItem(STORAGE_KEY_COLOR_MODE);
+  if (stored === 'light' || stored === 'dark' || stored === 'eink') {
+    return stored;
+  }
+  return 'light';
+}
+
+function getPersistedViewMode(): PDFViewMode {
+  if (typeof window === 'undefined') return 'single';
+  const stored = localStorage.getItem(STORAGE_KEY_VIEW_MODE);
+  if (stored === 'single' || stored === 'spread' || stored === 'presentation') {
+    return stored;
+  }
+  return 'single';
+}
+
 export interface SearchMatch {
   pageNum: number;
   spanIndex: number;
@@ -91,9 +114,9 @@ export const useReaderStore = create<ReaderState>((set) => ({
   currentMatchIndex: 0,
   isSearchOpen: false,
 
-  // Reading mode state
-  pdfViewMode: 'single',
-  pdfColorMode: 'light',
+  // Reading mode state (persisted)
+  pdfViewMode: getPersistedViewMode(),
+  pdfColorMode: getPersistedColorMode(),
 
   // Mobile state
   mobileMenuOpen: false,
@@ -128,14 +151,22 @@ export const useReaderStore = create<ReaderState>((set) => ({
   toggleSearch: () => set((state) => ({ isSearchOpen: !state.isSearchOpen })),
   clearSearch: () => set({ searchQuery: '', searchResults: [], currentMatchIndex: 0, isSearchOpen: false }),
 
-  // Reading mode actions
-  setPdfViewMode: (mode) => set({ pdfViewMode: mode }),
-  setPdfColorMode: (mode) => set({ pdfColorMode: mode }),
+  // Reading mode actions (persisted to localStorage)
+  setPdfViewMode: (mode) => {
+    localStorage.setItem(STORAGE_KEY_VIEW_MODE, mode);
+    return set({ pdfViewMode: mode });
+  },
+  setPdfColorMode: (mode) => {
+    localStorage.setItem(STORAGE_KEY_COLOR_MODE, mode);
+    return set({ pdfColorMode: mode });
+  },
   togglePdfColorMode: () => set((state) => {
     const modes: PDFColorMode[] = ['light', 'dark', 'eink'];
     const currentIndex = modes.indexOf(state.pdfColorMode);
     const nextIndex = (currentIndex + 1) % modes.length;
-    return { pdfColorMode: modes[nextIndex] };
+    const newMode = modes[nextIndex];
+    localStorage.setItem(STORAGE_KEY_COLOR_MODE, newMode);
+    return { pdfColorMode: newMode };
   }),
 
   // Mobile actions
@@ -156,8 +187,9 @@ export const useReaderStore = create<ReaderState>((set) => ({
     searchResults: [],
     currentMatchIndex: 0,
     isSearchOpen: false,
-    pdfViewMode: 'single',
-    pdfColorMode: 'light',
+    // Preserve persisted display preferences
+    pdfViewMode: getPersistedViewMode(),
+    pdfColorMode: getPersistedColorMode(),
     mobileMenuOpen: false,
   }),
 }));
