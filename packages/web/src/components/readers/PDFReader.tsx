@@ -9,6 +9,7 @@ import { useProgress } from '../../hooks/useProgress';
 import { useHighlights } from '../../hooks/useNote';
 import { useMobile } from '../../hooks/useMobile';
 import { useSwipeGesture } from '../../hooks/useSwipeGesture';
+import { useIdleDetection } from '../../hooks/useIdleDetection';
 import { ReaderControls } from './shared/ReaderControls';
 import { HighlightPopup } from './shared/HighlightPopup';
 import { HighlightEditPopup } from './shared/HighlightEditPopup';
@@ -142,11 +143,12 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   const [hasToc, setHasToc] = useState(false);
   const [isPresentation, setIsPresentation] = useState(false);
   const [presentationPage, setPresentationPage] = useState(1);
-  const [showClickZones, setShowClickZones] = useState(true);
-  const [headerVisible, setHeaderVisible] = useState(true);
 
   // Mobile support
   const isMobile = useMobile();
+
+  // Idle detection for reading stats
+  const { isIdlePaused } = useIdleDetection();
 
   // Virtualization: track which pages should have DOM elements
   const [virtualizedRange, setVirtualizedRange] = useState<{ start: number; end: number }>({ start: 1, end: 10 });
@@ -348,16 +350,6 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [pauseSession, resumeSession]);
-
-  // Auto-hide click zone hints after initial display (e-ink mode)
-  useEffect(() => {
-    if (pdfColorMode === 'eink' && !isLoading && showClickZones) {
-      const timer = setTimeout(() => {
-        setShowClickZones(false);
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [pdfColorMode, isLoading, showClickZones]);
 
   // Get max page width for fit-width calculations
   const getMaxPageWidth = useCallback(() => {
@@ -1612,16 +1604,6 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         return;
       }
 
-      // Toggle header/UI visibility: H (e-ink mode)
-      if ((e.key === 'h' || e.key === 'H') && pdfColorMode === 'eink') {
-        e.preventDefault();
-        setHeaderVisible(prev => {
-          if (!prev) setShowClickZones(true);
-          return !prev;
-        });
-        return;
-      }
-
       // Statistics: S
       if (e.key === 's' || e.key === 'S') {
         e.preventDefault();
@@ -1668,7 +1650,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentPage, totalPages, zoom, goToPage, setZoom, toggleSearch, isSearchOpen, clearSearch, isPresentation, exitPresentation, shortcutsOpen, bookmarksOpen, statsOpen, goalsOpen, toggleShortcuts, setShortcutsOpen, toggleBookmarks, setBookmarksOpen, toggleStats, setStatsOpen, toggleGoals, setGoalsOpen, toggleToc, togglePdfColorMode, handleZoomModeChange, enterPresentation, pdfColorMode]);
+  }, [currentPage, totalPages, zoom, goToPage, setZoom, toggleSearch, isSearchOpen, clearSearch, isPresentation, exitPresentation, shortcutsOpen, bookmarksOpen, statsOpen, goalsOpen, toggleShortcuts, setShortcutsOpen, toggleBookmarks, setBookmarksOpen, toggleStats, setStatsOpen, toggleGoals, setGoalsOpen, toggleToc, togglePdfColorMode, handleZoomModeChange, enterPresentation]);
 
   // Render a single page container - use debouncedZoom to match canvas size
   const renderPageContainer = (pageNum: number) => {
@@ -1848,25 +1830,19 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden min-w-0" ref={containerRef}>
-      <div
-        className={`transition-opacity duration-200 ${
-          pdfColorMode === 'eink' && !headerVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'
-        }`}
-      >
-        <ReaderControls
-          noteId={note.id}
-          currentPage={currentPage}
-          totalPages={totalPages}
-          zoom={zoom}
-          pageLabels={pageLabels}
-          onPageChange={goToPage}
-          onZoomChange={setZoom}
-          onZoomModeChange={handleZoomModeChange}
-          onViewModeChange={setPdfViewMode}
-          onEnterPresentation={enterPresentation}
-          hasToc={hasToc}
-        />
-      </div>
+      <ReaderControls
+        noteId={note.id}
+        currentPage={currentPage}
+        totalPages={totalPages}
+        zoom={zoom}
+        pageLabels={pageLabels}
+        onPageChange={goToPage}
+        onZoomChange={setZoom}
+        onZoomModeChange={handleZoomModeChange}
+        onViewModeChange={setPdfViewMode}
+        onEnterPresentation={enterPresentation}
+        hasToc={hasToc}
+      />
 
       <div className="flex-1 flex overflow-hidden min-w-0 relative">
         {/* Bookmarks Panel */}

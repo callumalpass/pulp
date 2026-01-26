@@ -7,6 +7,7 @@ import { useReadingStatsStore } from '../../stores/readingStats';
 import { useProgress } from '../../hooks/useProgress';
 import { useHighlights } from '../../hooks/useNote';
 import { useMobile } from '../../hooks/useMobile';
+import { useIdleDetection } from '../../hooks/useIdleDetection';
 import { HighlightPopup } from './shared/HighlightPopup';
 import { HighlightEditPopup } from './shared/HighlightEditPopup';
 import { KeyboardShortcutsPanel } from './shared/KeyboardShortcutsPanel';
@@ -103,6 +104,9 @@ export function EPUBReader({ note }: EPUBReaderProps) {
 
   const isMobile = useMobile();
   const theme = (readerTheme || 'dark') as EPUBTheme;
+
+  // Idle detection for reading stats
+  const { isIdlePaused } = useIdleDetection();
 
   // Load EPUB
   useEffect(() => {
