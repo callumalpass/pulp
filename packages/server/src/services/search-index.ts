@@ -241,8 +241,9 @@ export class SearchIndex {
                   });
                   position += chapter.length;
                 }
-              } catch {
-                // Skip problematic chapters
+              } catch (chapterError) {
+                // Log the error but continue with other chapters
+                console.warn(`Failed to extract chapter ${item.id} from EPUB:`, chapterError);
               }
             }
 

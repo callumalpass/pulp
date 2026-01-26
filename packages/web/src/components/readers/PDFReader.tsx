@@ -1716,7 +1716,6 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   // Render a single page container - use debouncedZoom to match canvas size
   const renderPageContainer = (pageNum: number) => {
     const dims = pageDimensions.get(pageNum);
-    const isRendered = renderedPages.has(pageNum);
     // Use debouncedZoom for container to match canvas rendering
     const containerZoom = debouncedZoom;
 

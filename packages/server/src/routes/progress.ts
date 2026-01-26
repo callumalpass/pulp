@@ -41,7 +41,8 @@ export const progressRoutes: FastifyPluginAsync<ProgressRouteOptions> = async (f
       return reply.code(404).send({ error: 'Note not found' });
     }
 
-    const { progress } = request.body;
+    // Clamp progress to valid range (defensive - schema should already enforce this)
+    const progress = Math.max(0, Math.min(100, request.body.progress));
     const now = new Date().toISOString();
 
     try {

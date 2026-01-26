@@ -51,7 +51,15 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
       return reply.code(404).send({ error: 'Note not found' });
     }
 
-    const { sessionDurationMs, pagesRead = 0 } = request.body;
+    // Ensure non-negative values (defensive - schema should already enforce this)
+    const sessionDurationMs = Math.max(0, request.body.sessionDurationMs || 0);
+    const pagesRead = Math.max(0, request.body.pagesRead || 0);
+
+    // Skip if no meaningful session data
+    if (sessionDurationMs === 0) {
+      return { success: true, message: 'Session duration is zero, no stats updated' };
+    }
+
     const now = new Date().toISOString();
     const today = now.split('T')[0]; // YYYY-MM-DD
 
@@ -76,7 +84,10 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
       let pagesPerHour: number | null = existingStats?.pagesPerHour || null;
       if (totalPagesRead > 0 && totalReadingTimeMs >= 60000) {
         const hoursRead = totalReadingTimeMs / (1000 * 60 * 60);
-        pagesPerHour = Math.round((totalPagesRead / hoursRead) * 10) / 10; // Round to 1 decimal
+        // Guard against division by zero (should not happen with the check above, but defensive)
+        if (hoursRead > 0) {
+          pagesPerHour = Math.round((totalPagesRead / hoursRead) * 10) / 10; // Round to 1 decimal
+        }
       }
 
       // Track longest session

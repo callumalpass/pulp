@@ -201,4 +201,57 @@ test.describe('Reading Statistics', () => {
     // Just verify the panel structure is correct
     await expect(statsPanel.getByText('Current Session')).toBeVisible();
   });
+
+  test('reading stats API rejects negative session duration', async ({ page }) => {
+    test.skip(!pdfId, 'No PDFs in library');
+
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    // Try to send negative session duration
+    const response = await page.request.patch(`/api/library/${pdfId}/reading-stats`, {
+      data: { sessionDurationMs: -1000, pagesRead: 5 },
+    });
+
+    // Should be rejected with 400 Bad Request (schema validation)
+    expect(response.status()).toBe(400);
+  });
+
+  test('reading stats API handles zero session duration gracefully', async ({ page }) => {
+    test.skip(!pdfId, 'No PDFs in library');
+
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    // Send zero session duration - should return success but indicate no stats updated
+    const response = await page.request.patch(`/api/library/${pdfId}/reading-stats`, {
+      data: { sessionDurationMs: 0, pagesRead: 0 },
+    });
+
+    expect(response.ok()).toBe(true);
+    const data = await response.json();
+    expect(data.success).toBe(true);
+    // Should indicate no stats were updated due to zero duration
+    expect(data.message).toContain('zero');
+  });
+
+  test('progress API clamps values to 0-100 range', async ({ page }) => {
+    test.skip(!pdfId, 'No PDFs in library');
+
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    // Try to set progress above 100 - should be rejected by schema validation
+    const highResponse = await page.request.patch(`/api/library/${pdfId}/progress`, {
+      data: { progress: 150 },
+    });
+    // Schema validation should reject values > 100
+    expect(highResponse.status()).toBe(400);
+
+    // Try to set progress below 0 - should also be rejected
+    const lowResponse = await page.request.patch(`/api/library/${pdfId}/progress`, {
+      data: { progress: -10 },
+    });
+    expect(lowResponse.status()).toBe(400);
+  });
 });

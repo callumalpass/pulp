@@ -14,9 +14,33 @@ export class FileWatcher extends EventEmitter {
   private watcher: FSWatcher | null = null;
   private debounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private readonly debounceMs = 500;
+  // Track known literature note paths so we can detect removals
+  private knownLiteratureNotes: Set<string> = new Set();
 
   constructor(private config: Config) {
     super();
+  }
+
+  /**
+   * Register a path as a known literature note.
+   * Called by the scanner when notes are discovered.
+   */
+  trackLiteratureNote(path: string): void {
+    this.knownLiteratureNotes.add(path);
+  }
+
+  /**
+   * Unregister a path from known literature notes.
+   */
+  untrackLiteratureNote(path: string): void {
+    this.knownLiteratureNotes.delete(path);
+  }
+
+  /**
+   * Bulk update known literature notes (called after scanner refresh).
+   */
+  updateKnownLiteratureNotes(paths: string[]): void {
+    this.knownLiteratureNotes = new Set(paths);
   }
 
   start(): void {
@@ -77,11 +101,25 @@ export class FileWatcher extends EventEmitter {
   private processFileEvent(type: 'changed' | 'added' | 'removed', path: string): void {
     let isLiteratureNote = false;
 
-    // Check if it's a literature note (for added/changed)
-    if (type !== 'removed') {
+    if (type === 'removed') {
+      // For removed events, check our tracked set of known literature notes
+      // since we can't read the file anymore
+      isLiteratureNote = this.knownLiteratureNotes.has(path);
+      if (isLiteratureNote) {
+        this.knownLiteratureNotes.delete(path);
+      }
+    } else {
+      // For added/changed events, parse the frontmatter
       try {
         const { frontmatter } = parseNoteFrontmatter(path);
         isLiteratureNote = hasTag(frontmatter, this.config.literature_note_tag);
+
+        // Update tracking
+        if (isLiteratureNote) {
+          this.knownLiteratureNotes.add(path);
+        } else {
+          this.knownLiteratureNotes.delete(path);
+        }
       } catch {
         // File might have been deleted between event and check
         return;

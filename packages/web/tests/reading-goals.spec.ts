@@ -272,4 +272,66 @@ test.describe('Reading Goals', () => {
     await expect(shortcutsPanel).toBeVisible({ timeout: 5000 });
     await expect(shortcutsPanel.getByText('Toggle reading goals')).toBeVisible();
   });
+
+  test('daily goal validation - clamps to minimum of 1 minute', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    // Try to set goal to 0 (should be rejected or clamped)
+    const updateResponse = await page.request.patch('/api/reading-goals', {
+      data: { dailyGoalMinutes: 0 },
+    });
+
+    // Either the request fails validation, or the value is clamped to 1
+    if (updateResponse.ok()) {
+      const data = await updateResponse.json();
+      expect(data.goals.dailyGoalMinutes).toBeGreaterThanOrEqual(1);
+    } else {
+      // 400 Bad Request is also acceptable for invalid input
+      expect(updateResponse.status()).toBe(400);
+    }
+  });
+
+  test('daily goal validation - clamps to maximum of 1440 minutes', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    // Try to set goal to more than 24 hours
+    const updateResponse = await page.request.patch('/api/reading-goals', {
+      data: { dailyGoalMinutes: 2000 },
+    });
+
+    // Either the request fails validation, or the value is clamped to 1440
+    if (updateResponse.ok()) {
+      const data = await updateResponse.json();
+      expect(data.goals.dailyGoalMinutes).toBeLessThanOrEqual(1440);
+    } else {
+      // 400 Bad Request is also acceptable for invalid input
+      expect(updateResponse.status()).toBe(400);
+    }
+  });
+
+  test('grace period validation - accepts values 0-7', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    // Get initial state
+    const getResponse = await page.request.get('/api/reading-goals');
+    const initialData = await getResponse.json();
+    const initialGrace = initialData.goals.gracePeriodDays;
+
+    // Set grace period to 3
+    const updateResponse = await page.request.patch('/api/reading-goals', {
+      data: { gracePeriodDays: 3 },
+    });
+    expect(updateResponse.ok()).toBe(true);
+
+    const data = await updateResponse.json();
+    expect(data.goals.gracePeriodDays).toBe(3);
+
+    // Restore original value
+    await page.request.patch('/api/reading-goals', {
+      data: { gracePeriodDays: initialGrace },
+    });
+  });
 });

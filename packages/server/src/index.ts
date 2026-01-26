@@ -81,6 +81,10 @@ async function main() {
     await fastify.listen({ port: PORT, host: HOST });
     console.log(`Server listening on http://${HOST}:${PORT}`);
 
+    // Initialize file watcher with known literature notes
+    const allNotes = scanner.getAll();
+    fileWatcher.updateKnownLiteratureNotes(allNotes.map(n => n.notePath));
+
     // Start file watcher
     fileWatcher.start();
 

@@ -271,7 +271,13 @@ export function getBookmarks(
     // Parse CFI for EPUBs
     const cfiMatch = fragment.match(/cfi=(.+)$/);
     if (cfiMatch) {
-      parsedBookmark.cfi = decodeURIComponent(cfiMatch[1]);
+      try {
+        parsedBookmark.cfi = decodeURIComponent(cfiMatch[1]);
+      } catch (decodeError) {
+        // If URL decoding fails, use the raw value
+        console.warn(`Failed to decode CFI: ${cfiMatch[1]}`, decodeError);
+        parsedBookmark.cfi = cfiMatch[1];
+      }
     }
 
     parsed.push(parsedBookmark);

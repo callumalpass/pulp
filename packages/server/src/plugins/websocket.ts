@@ -83,7 +83,18 @@ export const websocketPlugin: FastifyPluginAsync<WebSocketPluginOptions> = async
 
   // Listen to file watcher events
   fileWatcher.on('file', (event: FileEvent) => {
-    if (event.isLiteratureNote) {
+    if (event.isLiteratureNote || event.type === 'removed') {
+      // For removed events, we need to look up the note ID BEFORE refreshing
+      // Otherwise, the note will be gone from the scanner
+      let removedNoteId: string | null = null;
+      if (event.type === 'removed') {
+        const notes = scanner.getAll();
+        const removedNote = notes.find((n) => n.notePath === event.path);
+        if (removedNote) {
+          removedNoteId = removedNote.id;
+        }
+      }
+
       // Refresh the library scanner
       scanner.refresh();
 
@@ -97,11 +108,11 @@ export const websocketPlugin: FastifyPluginAsync<WebSocketPluginOptions> = async
             noteId: addedNote.id,
           });
         }
-      } else if (event.type === 'removed') {
+      } else if (event.type === 'removed' && removedNoteId) {
         broadcast({
           type: 'library:updated',
           action: 'removed',
-          noteId: '', // We don't have the ID anymore
+          noteId: removedNoteId,
         });
       } else if (event.type === 'changed') {
         const notes = scanner.getAll();

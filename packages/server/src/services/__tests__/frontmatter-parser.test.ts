@@ -237,6 +237,18 @@ describe('getBookmarks', () => {
     expect(bookmarks[0].cfi).toBe('epubcfi(/6/4!/4/2)');
   });
 
+  it('handles malformed URL-encoded CFI gracefully', () => {
+    // This CFI has an invalid percent-encoding sequence (%ZZ is not valid)
+    const malformedCfi = 'epubcfi(/6/4%ZZ)';
+    const bookmarks = getBookmarks({
+      bookmarks: [`[[book.epub#cfi=${malformedCfi}|Test]]`],
+    }, 'bookmarks');
+
+    expect(bookmarks).toHaveLength(1);
+    // Should fall back to using the raw value when decoding fails
+    expect(bookmarks[0].cfi).toBe(malformedCfi);
+  });
+
   it('ignores invalid bookmark formats', () => {
     const bookmarks = getBookmarks({
       bookmarks: [

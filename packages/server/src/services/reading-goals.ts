@@ -102,9 +102,29 @@ export class ReadingGoalsService {
   }
 
   updateGoals(goals: Partial<ReadingGoals>): ReadingGoals {
+    // Validate and clamp values
+    const sanitizedGoals: Partial<ReadingGoals> = {};
+
+    if (goals.dailyGoalMinutes !== undefined) {
+      // Ensure minimum of 1 minute, maximum of 24 hours (1440 minutes)
+      sanitizedGoals.dailyGoalMinutes = Math.max(1, Math.min(1440, Math.round(goals.dailyGoalMinutes)));
+    }
+
+    if (goals.weeklyGoalMinutes !== undefined) {
+      // Allow null to clear, otherwise minimum of 1 minute
+      sanitizedGoals.weeklyGoalMinutes = goals.weeklyGoalMinutes === null
+        ? null
+        : Math.max(1, Math.round(goals.weeklyGoalMinutes));
+    }
+
+    if (goals.gracePeriodDays !== undefined) {
+      // Grace period: 0-7 days
+      sanitizedGoals.gracePeriodDays = Math.max(0, Math.min(7, Math.round(goals.gracePeriodDays)));
+    }
+
     this.data.goals = {
       ...this.data.goals,
-      ...goals,
+      ...sanitizedGoals,
     };
     this.saveGoalsFile(this.data);
     return this.getGoals();

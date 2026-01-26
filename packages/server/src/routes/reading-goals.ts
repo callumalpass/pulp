@@ -31,6 +31,7 @@ export const readingGoalsRoutes: FastifyPluginAsync<ReadingGoalsRouteOptions> = 
         properties: {
           dailyGoalMinutes: { type: 'number', minimum: 1, maximum: 1440 },
           weeklyGoalMinutes: { type: ['number', 'null'], minimum: 1 },
+          gracePeriodDays: { type: 'number', minimum: 0, maximum: 7 },
         },
       },
     },
