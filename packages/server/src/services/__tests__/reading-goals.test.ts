@@ -608,4 +608,379 @@ describe('ReadingGoalsService', () => {
       expect(service.getGoals().dailyGoalMinutes).toBe(60);
     });
   });
+
+  describe('getWeekSummary', () => {
+    it('returns empty summary when no reading data', () => {
+      mockExistsSync.mockReturnValue(false);
+      mockScanner.getAll.mockReturnValue([]);
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const summary = service.getWeekSummary();
+      expect(summary.totalDurationMs).toBe(0);
+      expect(summary.totalSessions).toBe(0);
+      expect(summary.booksRead).toBe(0);
+      expect(summary.daysWithReading).toBe(0);
+      expect(summary.daysGoalMet).toBe(0);
+      expect(summary.weeklyGoalMet).toBe(false);
+    });
+
+    it('aggregates reading data for the current week', () => {
+      // Date is Monday Jan 15, 2024 - week is Jan 15-21 (Mon-Sun)
+      // The test was set to Jan 15, so only data from Jan 15 onwards is in current week
+      vi.setSystemTime(new Date('2024-01-15T12:00:00Z'));
+
+      mockExistsSync.mockReturnValue(false);
+      mockScanner.getAll.mockReturnValue([
+        {
+          id: 'book1',
+          frontmatter: {
+            reading_history: [
+              { date: '2024-01-15', duration_ms: 1800000, sessions: 1, pages: 10 }, // Mon - 30min (in week)
+              { date: '2024-01-14', duration_ms: 1800000, sessions: 1, pages: 10 }, // Sun - 30min (NOT in week - previous week)
+            ],
+          },
+        },
+        {
+          id: 'book2',
+          frontmatter: {
+            reading_history: [
+              { date: '2024-01-15', duration_ms: 600000, sessions: 1, pages: 5 }, // Mon - 10min additional
+            ],
+          },
+        },
+      ]);
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const summary = service.getWeekSummary();
+      // Only Jan 15 data should be counted (1800000 + 600000 = 2400000 = 40 min)
+      expect(summary.totalDurationMs).toBe(2400000);
+      expect(summary.totalSessions).toBe(2);
+      expect(summary.booksRead).toBe(2); // 2 unique books
+      expect(summary.daysWithReading).toBe(1); // Only Mon
+      expect(summary.daysGoalMet).toBe(1); // Mon met 30min goal (40min total)
+    });
+
+    it('correctly calculates weekly goal status', () => {
+      // Set to end of week to test weekly goal calculation
+      vi.setSystemTime(new Date('2024-01-21T12:00:00Z')); // Sunday Jan 21
+
+      // 30min * 7 days = 210min weekly goal
+      const goalsData = createGoalsFileData({
+        goals: { dailyGoalMinutes: 30 },
+      });
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify(goalsData));
+
+      // Provide enough reading to exceed weekly goal (220min) in current week (Jan 15-21)
+      mockScanner.getAll.mockReturnValue([
+        {
+          id: 'book1',
+          frontmatter: {
+            reading_history: [
+              { date: '2024-01-15', duration_ms: 3300000, sessions: 1, pages: 30 }, // 55min Mon
+              { date: '2024-01-16', duration_ms: 3300000, sessions: 1, pages: 30 }, // 55min Tue
+              { date: '2024-01-17', duration_ms: 3300000, sessions: 1, pages: 30 }, // 55min Wed
+              { date: '2024-01-18', duration_ms: 3300000, sessions: 1, pages: 30 }, // 55min Thu = 220min total
+            ],
+          },
+        },
+      ]);
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const summary = service.getWeekSummary();
+      expect(summary.weeklyGoalMet).toBe(true);
+    });
+  });
+
+  describe('getStreakRiskInfo', () => {
+    it('returns null when no streak exists', () => {
+      mockExistsSync.mockReturnValue(false);
+      mockScanner.getAll.mockReturnValue([]);
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const risk = service.getStreakRiskInfo();
+      expect(risk).toBeNull();
+    });
+
+    it('returns not at risk when goal is met today', () => {
+      const goalsData = createGoalsFileData({
+        streak: {
+          currentStreak: 5,
+          lastReadDate: '2024-01-14',
+        },
+      });
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify(goalsData));
+
+      // Goal met (30min of reading today)
+      mockScanner.getAll.mockReturnValue([
+        {
+          id: 'book1',
+          frontmatter: {
+            reading_history: [
+              { date: '2024-01-15', duration_ms: 1800000, sessions: 1, pages: 10 },
+            ],
+          },
+        },
+      ]);
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const risk = service.getStreakRiskInfo();
+      expect(risk).not.toBeNull();
+      expect(risk!.isAtRisk).toBe(false);
+      expect(risk!.minutesRemaining).toBe(0);
+    });
+
+    it('returns at risk when streak exists but goal not met today', () => {
+      const goalsData = createGoalsFileData({
+        streak: {
+          currentStreak: 5,
+          lastReadDate: '2024-01-14',
+        },
+      });
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify(goalsData));
+
+      // Only 15min of reading (50% of 30min goal)
+      mockScanner.getAll.mockReturnValue([
+        {
+          id: 'book1',
+          frontmatter: {
+            reading_history: [
+              { date: '2024-01-15', duration_ms: 900000, sessions: 1, pages: 5 },
+            ],
+          },
+        },
+      ]);
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const risk = service.getStreakRiskInfo();
+      expect(risk).not.toBeNull();
+      expect(risk!.isAtRisk).toBe(true);
+      expect(risk!.minutesRemaining).toBe(15); // Need 15 more minutes
+    });
+
+    it('includes grace days remaining information', () => {
+      const goalsData = createGoalsFileData({
+        goals: { gracePeriodDays: 3 },
+        streak: {
+          currentStreak: 5,
+          lastReadDate: '2024-01-14',
+          graceDaysUsed: 1,
+        },
+      });
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify(goalsData));
+      mockScanner.getAll.mockReturnValue([]); // No reading today
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const risk = service.getStreakRiskInfo();
+      expect(risk).not.toBeNull();
+      expect(risk!.graceDaysRemaining).toBeGreaterThan(0);
+    });
+
+    it('includes hours until midnight', () => {
+      // Set time to 6 PM (18:00)
+      vi.setSystemTime(new Date('2024-01-15T18:00:00Z'));
+
+      const goalsData = createGoalsFileData({
+        streak: {
+          currentStreak: 5,
+          lastReadDate: '2024-01-14',
+        },
+      });
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify(goalsData));
+      mockScanner.getAll.mockReturnValue([]);
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const risk = service.getStreakRiskInfo();
+      expect(risk).not.toBeNull();
+      expect(risk!.hoursUntilMidnight).toBeLessThan(24);
+      expect(risk!.hoursUntilMidnight).toBeGreaterThan(0);
+    });
+  });
+
+  describe('getMonthSummary', () => {
+    it('returns empty summary for month with no reading', () => {
+      mockExistsSync.mockReturnValue(false);
+      mockScanner.getAll.mockReturnValue([]);
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const summary = service.getMonthSummary('2024-01');
+      expect(summary.month).toBe('2024-01');
+      expect(summary.totalDurationMs).toBe(0);
+      expect(summary.totalSessions).toBe(0);
+      expect(summary.booksRead).toBe(0);
+      expect(summary.daysWithReading).toBe(0);
+      expect(summary.booksCompleted).toBe(0);
+    });
+
+    it('aggregates reading data for the specified month', () => {
+      mockExistsSync.mockReturnValue(false);
+      mockScanner.getAll.mockReturnValue([
+        {
+          id: 'book1',
+          dateFinished: null,
+          frontmatter: {
+            reading_history: [
+              { date: '2024-01-10', duration_ms: 1800000, sessions: 1, pages: 10 },
+              { date: '2024-01-15', duration_ms: 1800000, sessions: 1, pages: 10 },
+              { date: '2024-01-20', duration_ms: 1800000, sessions: 1, pages: 10 },
+              { date: '2024-02-01', duration_ms: 1800000, sessions: 1, pages: 10 }, // Different month
+            ],
+          },
+        },
+        {
+          id: 'book2',
+          dateFinished: null,
+          frontmatter: {
+            reading_history: [
+              { date: '2024-01-15', duration_ms: 600000, sessions: 1, pages: 5 },
+            ],
+          },
+        },
+      ]);
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const summary = service.getMonthSummary('2024-01');
+      expect(summary.month).toBe('2024-01');
+      expect(summary.totalDurationMs).toBe(6000000); // 100 min (Jan only)
+      expect(summary.totalSessions).toBe(4);
+      expect(summary.booksRead).toBe(2);
+      expect(summary.daysWithReading).toBe(3); // Jan 10, 15, 20
+    });
+
+    it('counts books completed in the month', () => {
+      mockExistsSync.mockReturnValue(false);
+      mockScanner.getAll.mockReturnValue([
+        {
+          id: 'book1',
+          dateFinished: '2024-01-20T10:00:00Z', // Completed in January
+          frontmatter: {
+            reading_history: [
+              { date: '2024-01-15', duration_ms: 1800000, sessions: 1, pages: 10 },
+            ],
+          },
+        },
+        {
+          id: 'book2',
+          dateFinished: '2024-01-25T10:00:00Z', // Also completed in January
+          frontmatter: {
+            reading_history: [
+              { date: '2024-01-20', duration_ms: 1800000, sessions: 1, pages: 10 },
+            ],
+          },
+        },
+        {
+          id: 'book3',
+          dateFinished: '2024-02-05T10:00:00Z', // Completed in February
+          frontmatter: {
+            reading_history: [
+              { date: '2024-01-25', duration_ms: 1800000, sessions: 1, pages: 10 },
+            ],
+          },
+        },
+      ]);
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const summary = service.getMonthSummary('2024-01');
+      expect(summary.booksCompleted).toBe(2);
+    });
+
+    it('defaults to current month when no month specified', () => {
+      vi.setSystemTime(new Date('2024-01-15T12:00:00Z'));
+
+      mockExistsSync.mockReturnValue(false);
+      mockScanner.getAll.mockReturnValue([
+        {
+          id: 'book1',
+          dateFinished: null,
+          frontmatter: {
+            reading_history: [
+              { date: '2024-01-15', duration_ms: 1800000, sessions: 1, pages: 10 },
+            ],
+          },
+        },
+      ]);
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const summary = service.getMonthSummary(); // No month specified
+      expect(summary.month).toBe('2024-01');
+      expect(summary.totalDurationMs).toBe(1800000);
+    });
+
+    it('calculates days goal met correctly', () => {
+      mockExistsSync.mockReturnValue(false);
+      mockScanner.getAll.mockReturnValue([
+        {
+          id: 'book1',
+          dateFinished: null,
+          frontmatter: {
+            reading_history: [
+              { date: '2024-01-10', duration_ms: 1800000, sessions: 1, pages: 10 }, // 30min - goal met
+              { date: '2024-01-11', duration_ms: 900000, sessions: 1, pages: 5 },   // 15min - goal NOT met
+              { date: '2024-01-12', duration_ms: 2400000, sessions: 1, pages: 15 }, // 40min - goal met
+            ],
+          },
+        },
+      ]);
+
+      const service = new ReadingGoalsService(
+        createMockConfig() as any,
+        mockScanner as any
+      );
+
+      const summary = service.getMonthSummary('2024-01');
+      expect(summary.daysGoalMet).toBe(2); // Jan 10 and Jan 12
+    });
+  });
 });

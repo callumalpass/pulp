@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import type { ReadingGoalsUpdate, ReadingGoalsResponse } from '@pulp/shared';
+import type { ReadingGoalsUpdate, ReadingGoalsResponse, MonthlyReadingSummary } from '@pulp/shared';
 import type { ReadingGoalsService } from '../services/reading-goals.js';
 
 interface ReadingGoalsRouteOptions {
@@ -16,6 +16,8 @@ export const readingGoalsRoutes: FastifyPluginAsync<ReadingGoalsRouteOptions> = 
       streak: goalsService.getStreak(),
       todayProgress: goalsService.getTodayProgress(),
       weekHistory: goalsService.getWeekHistory(),
+      weekSummary: goalsService.getWeekSummary(),
+      streakAtRisk: goalsService.getStreakRiskInfo(),
     };
 
     return response;
@@ -56,5 +58,21 @@ export const readingGoalsRoutes: FastifyPluginAsync<ReadingGoalsRouteOptions> = 
       success: true,
       streak,
     };
+  });
+
+  // GET /api/reading-goals/monthly - Get monthly reading statistics
+  fastify.get<{
+    Querystring: { month?: string };
+  }>('/api/reading-goals/monthly', {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          month: { type: 'string', pattern: '^\\d{4}-\\d{2}$' },
+        },
+      },
+    },
+  }, async (request): Promise<MonthlyReadingSummary> => {
+    return goalsService.getMonthSummary(request.query.month);
   });
 };

@@ -203,12 +203,46 @@ export interface DailyReadingSummary {
   goalMet: boolean;          // Whether daily goal was met
 }
 
+// Weekly reading summary
+export interface WeeklyReadingSummary {
+  weekStartDate: string;       // ISO date (YYYY-MM-DD) of week start (Monday)
+  totalDurationMs: number;     // Total reading across the week
+  totalSessions: number;       // Total sessions across the week
+  booksRead: number;           // Number of distinct books read
+  daysWithReading: number;     // Number of days with any reading
+  daysGoalMet: number;         // Number of days where daily goal was met
+  weeklyGoalMet: boolean;      // Whether weekly goal was met (if set)
+  averageDailyMs: number;      // Average reading time per day (of days with reading)
+}
+
+// Monthly reading summary
+export interface MonthlyReadingSummary {
+  month: string;               // ISO month (YYYY-MM)
+  totalDurationMs: number;     // Total reading across the month
+  totalSessions: number;       // Total sessions across the month
+  booksRead: number;           // Number of distinct books read
+  daysWithReading: number;     // Number of days with any reading
+  daysGoalMet: number;         // Number of days where daily goal was met
+  averageDailyMs: number;      // Average reading time per day (of days with reading)
+  booksCompleted: number;      // Books finished this month
+}
+
 // Combined response for reading goals API
 export interface ReadingGoalsResponse {
   goals: ReadingGoals;
   streak: ReadingStreak;
   todayProgress: DailyReadingSummary;
   weekHistory: DailyReadingSummary[];  // Last 7 days
+  weekSummary: WeeklyReadingSummary;   // Current week aggregated stats
+  streakAtRisk: StreakRiskInfo | null; // Info about streak risk status
+}
+
+// Information about streak risk status
+export interface StreakRiskInfo {
+  isAtRisk: boolean;           // Whether the streak is at risk today
+  minutesRemaining: number;    // Minutes of reading needed to save streak
+  hoursUntilMidnight: number;  // Hours until midnight (deadline)
+  graceDaysRemaining: number;  // Grace days still available
 }
 
 // Aggregated library statistics

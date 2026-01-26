@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { ReadingGoalsResponse, ReadingStreak, DailyReadingSummary } from '@pulp/shared';
+import type { ReadingGoalsResponse, ReadingStreak, DailyReadingSummary, StreakRiskInfo, WeeklyReadingSummary } from '@pulp/shared';
 import { api } from '../../../lib/api';
 import { useReadingStatsStore } from '../../../stores/readingStats';
 
@@ -88,7 +88,7 @@ export function ReadingGoalsPanel({ onClose }: ReadingGoalsPanelProps) {
     );
   }
 
-  const { goals, streak, todayProgress, weekHistory } = data;
+  const { goals, streak, todayProgress, weekHistory, weekSummary, streakAtRisk } = data;
 
   // Calculate today's progress including current session
   const todayTotalMs = todayProgress.totalDurationMs + sessionDuration;
@@ -155,6 +155,15 @@ export function ReadingGoalsPanel({ onClose }: ReadingGoalsPanelProps) {
               <div className="text-center text-sm text-text-secondary">
                 {getFormattedReadingTime(Math.max(0, goalMs - todayTotalMs))} to go
               </div>
+            )}
+
+            {/* Streak at risk warning */}
+            {!goalMet && streakAtRisk && streakAtRisk.isAtRisk && (
+              <StreakRiskWarning
+                streakAtRisk={streakAtRisk}
+                currentStreak={streak.currentStreak}
+                getFormattedReadingTime={getFormattedReadingTime}
+              />
             )}
 
             {/* Edit goal */}
@@ -226,7 +235,7 @@ export function ReadingGoalsPanel({ onClose }: ReadingGoalsPanelProps) {
             Reading Streak
           </h3>
           <div className="bg-bg-deep rounded-lg p-4">
-            <StreakDisplay streak={streak} goalMetToday={goalMet} />
+            <StreakDisplay streak={streak} goalMetToday={goalMet} streakAtRisk={streakAtRisk} />
           </div>
         </section>
 
@@ -242,22 +251,13 @@ export function ReadingGoalsPanel({ onClose }: ReadingGoalsPanelProps) {
 
         {/* Week Stats */}
         <section>
-          <div className="grid grid-cols-2 gap-3">
-            <StatCard
-              label="Week total"
-              value={getFormattedReadingTime(
-                weekHistory.reduce((sum, day) => sum + day.totalDurationMs, 0) + sessionDuration
-              )}
-            />
-            <StatCard
-              label="Days met goal"
-              value={`${weekHistory.filter((d, i) => {
-                // For today (last entry), use live goalMet status
-                const isToday = i === weekHistory.length - 1;
-                return isToday ? goalMet : d.goalMet;
-              }).length}/${weekHistory.length}`}
-            />
-          </div>
+          <WeekSummarySection
+            weekSummary={weekSummary}
+            weekHistory={weekHistory}
+            goalMet={goalMet}
+            sessionDuration={sessionDuration}
+            getFormattedReadingTime={getFormattedReadingTime}
+          />
         </section>
       </div>
     </aside>
@@ -336,9 +336,10 @@ function CircularProgress({ progress, size, strokeWidth, goalMet, children }: Ci
 interface StreakDisplayProps {
   streak: ReadingStreak;
   goalMetToday: boolean;
+  streakAtRisk: StreakRiskInfo | null;
 }
 
-function StreakDisplay({ streak, goalMetToday }: StreakDisplayProps) {
+function StreakDisplay({ streak, goalMetToday, streakAtRisk }: StreakDisplayProps) {
   const { currentStreak, longestStreak, graceDaysUsed } = streak;
 
   // Determine if streak is at risk (goal not met today and it's not a fresh streak)
@@ -370,6 +371,16 @@ function StreakDisplay({ streak, goalMetToday }: StreakDisplayProps) {
           </div>
         </div>
       </div>
+
+      {/* Grace days remaining indicator */}
+      {streakAtRisk && currentStreak > 0 && streakAtRisk.graceDaysRemaining > 0 && !goalMetToday && (
+        <div className="flex items-center justify-between text-xs pt-2 border-t border-text-secondary/10">
+          <span className="text-text-secondary">Grace days available</span>
+          <span className="text-accent-secondary font-medium">
+            {streakAtRisk.graceDaysRemaining} {streakAtRisk.graceDaysRemaining === 1 ? 'day' : 'days'}
+          </span>
+        </div>
+      )}
 
       {/* Longest streak */}
       {longestStreak > 0 && (
@@ -435,11 +446,109 @@ function WeekActivityGrid({ history, todayMs, goalMs }: WeekActivityGridProps) {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
-    <div className="bg-bg-deep rounded-lg p-3">
-      <div className="text-lg font-semibold text-text-primary">{value}</div>
+    <div className={`rounded-lg p-3 ${highlight ? 'bg-green-500/10' : 'bg-bg-deep'}`}>
+      <div className={`text-lg font-semibold ${highlight ? 'text-green-500' : 'text-text-primary'}`}>{value}</div>
       <div className="text-xs text-text-secondary">{label}</div>
+    </div>
+  );
+}
+
+interface StreakRiskWarningProps {
+  streakAtRisk: StreakRiskInfo;
+  currentStreak: number;
+  getFormattedReadingTime: (ms: number) => string;
+}
+
+function StreakRiskWarning({ streakAtRisk, currentStreak, getFormattedReadingTime }: StreakRiskWarningProps) {
+  const hoursLeft = Math.floor(streakAtRisk.hoursUntilMidnight);
+  const minutesLeft = Math.round((streakAtRisk.hoursUntilMidnight - hoursLeft) * 60);
+
+  return (
+    <div className="mt-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+      <div className="flex items-center gap-2 text-yellow-500 mb-1">
+        <AlertIcon />
+        <span className="text-sm font-medium">Streak at risk!</span>
+      </div>
+      <div className="text-xs text-text-secondary space-y-1">
+        <p>
+          Read {getFormattedReadingTime(streakAtRisk.minutesRemaining * 60000)} more to maintain your{' '}
+          <span className="text-text-primary font-medium">{currentStreak} day</span> streak.
+        </p>
+        <p className="text-text-secondary/70">
+          {hoursLeft > 0 ? `${hoursLeft}h ${minutesLeft}m` : `${minutesLeft}m`} until midnight
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function AlertIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  );
+}
+
+interface WeekSummarySectionProps {
+  weekSummary: WeeklyReadingSummary;
+  weekHistory: DailyReadingSummary[];
+  goalMet: boolean;
+  sessionDuration: number;
+  getFormattedReadingTime: (ms: number) => string;
+}
+
+function WeekSummarySection({
+  weekSummary,
+  weekHistory,
+  goalMet,
+  sessionDuration,
+  getFormattedReadingTime,
+}: WeekSummarySectionProps) {
+  // Calculate live values including current session
+  const totalWithSession = weekSummary.totalDurationMs + sessionDuration;
+  const daysGoalMetLive = weekHistory.filter((d, i) => {
+    const isToday = i === weekHistory.length - 1;
+    return isToday ? goalMet : d.goalMet;
+  }).length;
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <StatCard
+          label="Week total"
+          value={getFormattedReadingTime(totalWithSession)}
+        />
+        <StatCard
+          label="Days met goal"
+          value={`${daysGoalMetLive}/${weekHistory.length}`}
+          highlight={daysGoalMetLive === weekHistory.length}
+        />
+      </div>
+
+      {/* Additional week stats */}
+      <div className="grid grid-cols-2 gap-3">
+        <StatCard
+          label="Books read"
+          value={String(weekSummary.booksRead)}
+        />
+        <StatCard
+          label="Avg per day"
+          value={getFormattedReadingTime(weekSummary.averageDailyMs)}
+        />
+      </div>
+
+      {/* Weekly goal progress (if set) */}
+      {weekSummary.weeklyGoalMet && (
+        <div className="flex items-center justify-center gap-2 p-2 bg-green-500/10 rounded-lg text-green-500">
+          <CheckIcon />
+          <span className="text-sm font-medium">Weekly goal achieved!</span>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ReadingGoals, ReadingStreak, DailyReadingSummary } from '@pulp/shared';
+import type { ReadingGoals, ReadingStreak, DailyReadingSummary, WeeklyReadingSummary, StreakRiskInfo, MonthlyReadingSummary } from '@pulp/shared';
 import type { Config } from '../config/schema.js';
 import type { LibraryScanner } from './library-scanner.js';
 import { getDailyReadingHistory } from './frontmatter-parser.js';
@@ -26,6 +26,9 @@ const MAX_GRACE_PERIOD_DAYS = 7;
 /** Maximum days to look back when recalculating streaks */
 const STREAK_LOOKBACK_DAYS = 365;
 
+/** Days in a week */
+const DAYS_IN_WEEK = 7;
+
 interface GoalsFileData {
   goals: ReadingGoals;
   streak: ReadingStreak;
@@ -35,16 +38,48 @@ function getToday(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-// getYesterday is no longer used after grace period refactoring
-// function getYesterday(): string {
-//   const date = new Date();
-//   date.setDate(date.getDate() - 1);
-//   return date.toISOString().split('T')[0];
-// }
-
 function getDaysAgo(days: number): string {
   const date = new Date();
   date.setDate(date.getDate() - days);
+  return date.toISOString().split('T')[0];
+}
+
+/**
+ * Get the start of the current week (Monday).
+ */
+function getWeekStart(): string {
+  const date = new Date();
+  const day = date.getDay();
+  // Adjust for Monday as start of week (Sunday = 0, so Monday = 1)
+  const diff = day === 0 ? 6 : day - 1;
+  date.setDate(date.getDate() - diff);
+  return date.toISOString().split('T')[0];
+}
+
+/**
+ * Get hours remaining until midnight (local time).
+ */
+function getHoursUntilMidnight(): number {
+  const now = new Date();
+  const midnight = new Date(now);
+  midnight.setDate(midnight.getDate() + 1);
+  midnight.setHours(0, 0, 0, 0);
+  return (midnight.getTime() - now.getTime()) / (1000 * 60 * 60);
+}
+
+/**
+ * Get the month string (YYYY-MM) for a date.
+ */
+function getMonthString(date: string): string {
+  return date.slice(0, 7);
+}
+
+/**
+ * Get a date N days after a given date string.
+ */
+function getDatePlusDays(dateStr: string, days: number): string {
+  const date = new Date(dateStr + 'T12:00:00');
+  date.setDate(date.getDate() + days);
   return date.toISOString().split('T')[0];
 }
 
@@ -351,5 +386,210 @@ export class ReadingGoalsService {
    */
   reload(): void {
     this.data = this.loadOrCreateGoalsFile();
+  }
+
+  /**
+   * Get weekly summary for the current week (Monday to Sunday).
+   */
+  getWeekSummary(): WeeklyReadingSummary {
+    const weekStart = getWeekStart();
+    const today = getToday();
+
+    let totalDurationMs = 0;
+    let totalSessions = 0;
+    let daysWithReading = 0;
+    let daysGoalMet = 0;
+    const booksReadSet = new Set<string>();
+
+    const goalMs = this.data.goals.dailyGoalMinutes * 60 * 1000;
+
+    // Iterate through each day of the current week (Mon-Sun)
+    for (let i = 0; i < DAYS_IN_WEEK; i++) {
+      const date = getDatePlusDays(weekStart, i);
+
+      // Don't include future dates
+      if (date > today) continue;
+
+      const summary = this.getDaySummaryWithBooks(date);
+
+      if (summary.totalDurationMs > 0) {
+        totalDurationMs += summary.totalDurationMs;
+        totalSessions += summary.totalSessions;
+        daysWithReading++;
+
+        for (const bookId of summary.bookIds) {
+          booksReadSet.add(bookId);
+        }
+      }
+
+      if (summary.totalDurationMs >= goalMs) {
+        daysGoalMet++;
+      }
+    }
+
+    // Check weekly goal
+    const weeklyGoalMs = this.data.goals.weeklyGoalMinutes
+      ? this.data.goals.weeklyGoalMinutes * 60 * 1000
+      : this.data.goals.dailyGoalMinutes * DAYS_IN_WEEK * 60 * 1000;
+
+    return {
+      weekStartDate: weekStart,
+      totalDurationMs,
+      totalSessions,
+      booksRead: booksReadSet.size,
+      daysWithReading,
+      daysGoalMet,
+      weeklyGoalMet: totalDurationMs >= weeklyGoalMs,
+      averageDailyMs: daysWithReading > 0 ? totalDurationMs / daysWithReading : 0,
+    };
+  }
+
+  /**
+   * Get day summary with book IDs included for tracking unique books.
+   */
+  private getDaySummaryWithBooks(date: string): DailyReadingSummary & { bookIds: string[] } {
+    const notes = this.scanner.getAll();
+    let totalDurationMs = 0;
+    let totalSessions = 0;
+    const bookIds: string[] = [];
+
+    for (const note of notes) {
+      const history = getDailyReadingHistory(note.frontmatter, this.config.reading_history_key);
+      const dayEntry = history.find(e => e.date === date);
+
+      if (dayEntry && dayEntry.durationMs > 0) {
+        totalDurationMs += dayEntry.durationMs;
+        totalSessions += dayEntry.sessions;
+        bookIds.push(note.id);
+      }
+    }
+
+    const goalMs = this.data.goals.dailyGoalMinutes * 60 * 1000;
+
+    return {
+      date,
+      totalDurationMs,
+      totalSessions,
+      booksRead: bookIds.length,
+      goalMet: totalDurationMs >= goalMs,
+      bookIds,
+    };
+  }
+
+  /**
+   * Get streak risk information.
+   * Returns info about whether the current streak is at risk and what's needed to save it.
+   */
+  getStreakRiskInfo(): StreakRiskInfo | null {
+    const todaySummary = this.getTodayProgress();
+    const streak = this.getStreak();
+
+    // No streak to be at risk
+    if (streak.currentStreak === 0 && !streak.lastReadDate) {
+      return null;
+    }
+
+    // Goal already met today
+    if (todaySummary.goalMet) {
+      return {
+        isAtRisk: false,
+        minutesRemaining: 0,
+        hoursUntilMidnight: getHoursUntilMidnight(),
+        graceDaysRemaining: this.data.goals.gracePeriodDays - (streak.graceDaysUsed || 0),
+      };
+    }
+
+    const today = getToday();
+    const lastRead = streak.lastReadDate;
+    const gracePeriodDays = this.data.goals.gracePeriodDays || 1;
+
+    // Calculate days since last goal was met
+    const daysSinceLastRead = lastRead ? this.daysBetween(lastRead, today) : 0;
+
+    // If we already missed enough days to exceed grace period, streak would break
+    // unless we read today
+    const graceDaysRemaining = Math.max(0, gracePeriodDays - daysSinceLastRead + 1);
+
+    // Streak is at risk if:
+    // 1. We have a streak going (currentStreak > 0 or we read yesterday/within grace)
+    // 2. Today's goal isn't met yet
+    const isAtRisk = streak.currentStreak > 0 || (lastRead && daysSinceLastRead <= gracePeriodDays);
+
+    const goalMs = this.data.goals.dailyGoalMinutes * 60 * 1000;
+    const remainingMs = Math.max(0, goalMs - todaySummary.totalDurationMs);
+    const minutesRemaining = Math.ceil(remainingMs / 60000);
+
+    return {
+      isAtRisk: isAtRisk || false,
+      minutesRemaining,
+      hoursUntilMidnight: getHoursUntilMidnight(),
+      graceDaysRemaining,
+    };
+  }
+
+  /**
+   * Get monthly reading summary for a specific month.
+   */
+  getMonthSummary(monthString?: string): MonthlyReadingSummary {
+    const targetMonth = monthString || getMonthString(getToday());
+    const notes = this.scanner.getAll();
+
+    let totalDurationMs = 0;
+    let totalSessions = 0;
+    const booksReadSet = new Set<string>();
+    const daysWithReadingSet = new Set<string>();
+    let daysGoalMet = 0;
+    let booksCompleted = 0;
+
+    const goalMs = this.data.goals.dailyGoalMinutes * 60 * 1000;
+
+    // Track daily totals for goal checking
+    const dailyTotals = new Map<string, number>();
+
+    for (const note of notes) {
+      const history = getDailyReadingHistory(note.frontmatter, this.config.reading_history_key);
+
+      for (const entry of history) {
+        // Check if this entry is in the target month
+        if (getMonthString(entry.date) !== targetMonth) continue;
+
+        if (entry.durationMs > 0) {
+          totalDurationMs += entry.durationMs;
+          totalSessions += entry.sessions;
+          booksReadSet.add(note.id);
+          daysWithReadingSet.add(entry.date);
+
+          // Track daily total for goal checking
+          const current = dailyTotals.get(entry.date) || 0;
+          dailyTotals.set(entry.date, current + entry.durationMs);
+        }
+      }
+
+      // Check if book was completed this month
+      if (note.dateFinished) {
+        const finishedMonth = getMonthString(note.dateFinished.split('T')[0]);
+        if (finishedMonth === targetMonth) {
+          booksCompleted++;
+        }
+      }
+    }
+
+    // Count days where goal was met
+    for (const [, duration] of dailyTotals) {
+      if (duration >= goalMs) {
+        daysGoalMet++;
+      }
+    }
+
+    return {
+      month: targetMonth,
+      totalDurationMs,
+      totalSessions,
+      booksRead: booksReadSet.size,
+      daysWithReading: daysWithReadingSet.size,
+      daysGoalMet,
+      averageDailyMs: daysWithReadingSet.size > 0 ? totalDurationMs / daysWithReadingSet.size : 0,
+      booksCompleted,
+    };
   }
 }
