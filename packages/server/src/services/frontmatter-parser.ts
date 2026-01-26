@@ -287,6 +287,7 @@ export function getTotalPages(
 export interface ParsedBookmark {
   id: string;
   label: string;
+  notes?: string;      // Optional notes/context about this bookmark
   page?: number;
   cfi?: string;
   createdAt: string;
@@ -294,11 +295,15 @@ export interface ParsedBookmark {
 
 /**
  * Parse bookmarks from frontmatter.
- * Bookmarks are stored as wikilinks:
- * - PDF: [[source.pdf#page=18|Chapter 3]]
- * - EPUB: [[source.epub#cfi=epubcfi(/6/4)|Introduction]]
+ * Supports two formats for backward compatibility:
  *
- * Can also include a timestamp suffix: [[source.pdf#page=18|Chapter 3|2024-01-15]]
+ * 1. Legacy wikilink format (string array):
+ *    - PDF: [[source.pdf#page=18|Chapter 3]]
+ *    - EPUB: [[source.epub#cfi=epubcfi(/6/4)|Introduction]]
+ *    - With timestamp: [[source.pdf#page=18|Chapter 3|2024-01-15]]
+ *
+ * 2. New object format (with notes support):
+ *    - { link: "[[source.pdf#page=18|Chapter 3|2024-01-15]]", notes: "My thoughts..." }
  */
 export function getBookmarks(
   frontmatter: Record<string, unknown>,
@@ -311,10 +316,26 @@ export function getBookmarks(
   const parsed: ParsedBookmark[] = [];
 
   for (const bookmark of bookmarks) {
-    if (typeof bookmark !== 'string') continue;
+    let wikilink: string;
+    let notes: string | undefined;
+
+    // Handle both string (legacy) and object (new) formats
+    if (typeof bookmark === 'string') {
+      wikilink = bookmark;
+    } else if (bookmark && typeof bookmark === 'object') {
+      const bookmarkObj = bookmark as Record<string, unknown>;
+      if (typeof bookmarkObj.link === 'string') {
+        wikilink = bookmarkObj.link;
+        notes = typeof bookmarkObj.notes === 'string' && bookmarkObj.notes.trim() ? bookmarkObj.notes.trim() : undefined;
+      } else {
+        continue;
+      }
+    } else {
+      continue;
+    }
 
     // Parse wikilink format: [[path#fragment|label]] or [[path#fragment|label|timestamp]]
-    const wikiMatch = bookmark.match(/^\[\[([^\]|]+)(?:\|([^\]|]+))?(?:\|([^\]]+))?\]\]$/);
+    const wikiMatch = wikilink.match(/^\[\[([^\]|]+)(?:\|([^\]|]+))?(?:\|([^\]]+))?\]\]$/);
     if (!wikiMatch) continue;
 
     const [, pathWithFragment, label, timestamp] = wikiMatch;
@@ -328,6 +349,7 @@ export function getBookmarks(
     const parsedBookmark: ParsedBookmark = {
       id: `bm-${Buffer.from(pathWithFragment).toString('base64').slice(0, 12)}`,
       label: label || 'Bookmark',
+      notes,
       createdAt: timestamp || new Date().toISOString(),
     };
 
@@ -374,6 +396,25 @@ export function bookmarkToWikilink(
   const timestamp = bookmark.createdAt || new Date().toISOString();
 
   return `[[${sourceRelative}${fragment}|${bookmark.label}|${timestamp}]]`;
+}
+
+/**
+ * Convert a bookmark to frontmatter storage format.
+ * Returns a string (wikilink) for bookmarks without notes,
+ * or an object with link and notes for bookmarks with notes.
+ */
+export function bookmarkToFrontmatter(
+  sourceRelative: string,
+  bookmark: { label: string; notes?: string; page?: number; cfi?: string; createdAt?: string }
+): string | { link: string; notes: string } {
+  const wikilink = bookmarkToWikilink(sourceRelative, bookmark);
+
+  // Only use object format if notes are present
+  if (bookmark.notes?.trim()) {
+    return { link: wikilink, notes: bookmark.notes.trim() };
+  }
+
+  return wikilink;
 }
 
 export interface ParsedReadingStats {
@@ -737,6 +778,21 @@ export function getCurrentChapter(
   const chapter = frontmatter[currentChapterKey];
   if (typeof chapter === 'string' && chapter.trim()) {
     return chapter.trim();
+  }
+  return null;
+}
+
+/**
+ * Get book notes from frontmatter.
+ * Notes are stored as a simple string.
+ */
+export function getBookNotes(
+  frontmatter: Record<string, unknown>,
+  bookNotesKey: string
+): string | null {
+  const notes = frontmatter[bookNotesKey];
+  if (typeof notes === 'string' && notes.trim()) {
+    return notes.trim();
   }
   return null;
 }

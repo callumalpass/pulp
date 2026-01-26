@@ -87,3 +87,34 @@ export function getEstimatedTimeRemaining({
     return `${hours}h`;
   }
 }
+
+/**
+ * Format an estimated completion date as a relative string
+ * Returns null for dates in the past or invalid dates
+ */
+export function formatEstimatedCompletion(isoDate: string | null): string | null {
+  if (!isoDate) return null;
+
+  const date = new Date(isoDate);
+  if (isNaN(date.getTime())) return null;
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+  // Don't show dates in the past
+  if (target < today) return null;
+
+  const diffMs = target.getTime() - today.getTime();
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Tomorrow';
+  if (diffDays < 7) return `In ${diffDays} days`;
+  if (diffDays < 14) return 'Next week';
+  if (diffDays < 30) return `In ${Math.round(diffDays / 7)} weeks`;
+  if (diffDays < 60) return 'Next month';
+
+  // For longer estimates, show the month
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}

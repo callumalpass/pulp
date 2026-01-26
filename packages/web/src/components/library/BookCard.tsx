@@ -7,7 +7,7 @@ import { usePinned } from '../../hooks/usePinned';
 import { useRating } from '../../hooks/useRating';
 import { useReadingStatsStore } from '../../stores/readingStats';
 import { api } from '../../lib/api';
-import { formatLastRead, getEstimatedTimeRemaining } from '../../lib/format';
+import { formatLastRead, getEstimatedTimeRemaining, formatEstimatedCompletion } from '../../lib/format';
 
 interface BookCardProps {
   note: LiteratureNoteSummary;
@@ -116,6 +116,8 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
     pagesPerHour: bookStats?.pagesPerHour,
   });
 
+  const estimatedCompletion = formatEstimatedCompletion(bookStats?.estimatedCompletionDate ?? null);
+
   return (
     <Link to={`/read/${note.id}`}>
       <Card hover className="flex flex-col group relative">
@@ -155,8 +157,12 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
 
           {/* Estimated time remaining badge - visible on mobile, hover-only on desktop */}
           {estimatedTime && (
-            <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-bg-surface/80 backdrop-blur-sm text-xs text-text-primary md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+            <div
+              className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-bg-surface/80 backdrop-blur-sm text-xs text-text-primary md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+              title={estimatedCompletion ? `Est. finish: ${estimatedCompletion}` : 'Time remaining'}
+            >
               {estimatedTime}
+              {estimatedCompletion && <span className="text-text-secondary ml-1">({estimatedCompletion})</span>}
             </div>
           )}
 

@@ -22,6 +22,7 @@ import {
   getTotalPages,
   getReaderPreferences,
   getCurrentChapter,
+  getBookNotes,
 } from './frontmatter-parser.js';
 import { parseHighlightsFromNote } from './highlight-parser.js';
 
@@ -143,6 +144,7 @@ export class LibraryScanner {
         totalPages: getTotalPages(frontmatter, this.config.total_pages_key),
         readerPreferences: getReaderPreferences(frontmatter, this.config.reader_preferences_key),
         currentChapter: getCurrentChapter(frontmatter, this.config.current_chapter_key),
+        bookNotes: getBookNotes(frontmatter, this.config.book_notes_key),
         frontmatter,
       };
 

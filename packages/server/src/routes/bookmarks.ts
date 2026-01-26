@@ -4,7 +4,7 @@ import matter from 'gray-matter';
 import type { Bookmark, CreateBookmarkRequest, UpdateBookmarkRequest } from '@pulp/shared';
 import type { LibraryScanner } from '../services/library-scanner.js';
 import type { Config } from '../config/schema.js';
-import { bookmarkToWikilink, getBookmarks } from '../services/frontmatter-parser.js';
+import { bookmarkToWikilink, bookmarkToFrontmatter, getBookmarks } from '../services/frontmatter-parser.js';
 
 interface BookmarkRouteOptions {
   scanner: LibraryScanner;
@@ -106,6 +106,7 @@ export const bookmarkRoutes: FastifyPluginAsync<BookmarkRouteOptions> = async (f
         required: ['label'],
         properties: {
           label: { type: 'string' },
+          notes: { type: 'string' },
           page: { type: 'number' },
           cfi: { type: 'string' },
         },
@@ -118,7 +119,7 @@ export const bookmarkRoutes: FastifyPluginAsync<BookmarkRouteOptions> = async (f
       return reply.code(404).send({ error: 'Note not found' });
     }
 
-    const { label, page, cfi } = request.body;
+    const { label, notes, page, cfi } = request.body;
 
     // Validate label
     const labelResult = validateLabel(label);
@@ -146,6 +147,7 @@ export const bookmarkRoutes: FastifyPluginAsync<BookmarkRouteOptions> = async (f
     const newBookmark: Bookmark = {
       id,
       label: labelResult.label,
+      notes: notes?.trim() || undefined,
       page,
       cfi,
       createdAt: now,
@@ -158,11 +160,11 @@ export const bookmarkRoutes: FastifyPluginAsync<BookmarkRouteOptions> = async (f
 
       // Get existing bookmarks array or create new one
       const existingBookmarks = frontmatter[config.bookmarks_key];
-      const bookmarksArray: string[] = Array.isArray(existingBookmarks) ? [...existingBookmarks] : [];
+      const bookmarksArray: (string | { link: string; notes: string })[] = Array.isArray(existingBookmarks) ? [...existingBookmarks] : [];
 
-      // Convert bookmark to wikilink and add
-      const wikilink = bookmarkToWikilink(note.sourceRelative, newBookmark);
-      bookmarksArray.push(wikilink);
+      // Convert bookmark to frontmatter format (string or object based on whether notes exist)
+      const bookmarkEntry = bookmarkToFrontmatter(note.sourceRelative, newBookmark);
+      bookmarksArray.push(bookmarkEntry);
 
       // Update frontmatter
       frontmatter[config.bookmarks_key] = bookmarksArray;
@@ -186,7 +188,7 @@ export const bookmarkRoutes: FastifyPluginAsync<BookmarkRouteOptions> = async (f
     }
   });
 
-  // PATCH /api/library/:id/bookmarks/:bookmarkId - Update a bookmark's label
+  // PATCH /api/library/:id/bookmarks/:bookmarkId - Update a bookmark's label and/or notes
   fastify.patch<{
     Params: { id: string; bookmarkId: string };
     Body: UpdateBookmarkRequest;
@@ -204,6 +206,7 @@ export const bookmarkRoutes: FastifyPluginAsync<BookmarkRouteOptions> = async (f
         type: 'object',
         properties: {
           label: { type: 'string' },
+          notes: { type: 'string' },
         },
       },
     },
@@ -215,7 +218,7 @@ export const bookmarkRoutes: FastifyPluginAsync<BookmarkRouteOptions> = async (f
     }
 
     const { bookmarkId } = request.params;
-    const { label } = request.body;
+    const { label, notes } = request.body;
 
     // Find the bookmark in the current list
     const bookmarkIndex = note.bookmarks.findIndex(b => b.id === bookmarkId);
@@ -246,19 +249,31 @@ export const bookmarkRoutes: FastifyPluginAsync<BookmarkRouteOptions> = async (f
         return reply.code(500).send({ error: 'Bookmarks not found in frontmatter' });
       }
 
-      // Create updated bookmark
+      // Create updated bookmark - handle notes (empty string or undefined means remove)
+      const updatedNotes = notes !== undefined
+        ? (notes.trim() || undefined)
+        : existingBookmark.notes;
+
       const updatedBookmark: Bookmark = {
         ...existingBookmark,
         label: validatedLabel ?? existingBookmark.label,
+        notes: updatedNotes,
       };
 
-      // Replace the old wikilink with the updated one
+      // Find and replace the old bookmark entry (handles both string and object formats)
       const oldWikilink = bookmarkToWikilink(note.sourceRelative, existingBookmark);
-      const newWikilink = bookmarkToWikilink(note.sourceRelative, updatedBookmark);
+      const newEntry = bookmarkToFrontmatter(note.sourceRelative, updatedBookmark);
 
-      const newBookmarksArray = bookmarksArray.map((bm: string) =>
-        bm === oldWikilink ? newWikilink : bm
-      );
+      const newBookmarksArray = bookmarksArray.map((bm: unknown) => {
+        // Check if this is the bookmark we're looking for
+        if (typeof bm === 'string' && bm === oldWikilink) {
+          return newEntry;
+        }
+        if (bm && typeof bm === 'object' && (bm as { link?: string }).link === oldWikilink) {
+          return newEntry;
+        }
+        return bm;
+      });
 
       // Update frontmatter
       frontmatter[config.bookmarks_key] = newBookmarksArray;
@@ -322,9 +337,17 @@ export const bookmarkRoutes: FastifyPluginAsync<BookmarkRouteOptions> = async (f
         return reply.code(500).send({ error: 'Bookmarks not found in frontmatter' });
       }
 
-      // Remove the bookmark wikilink
+      // Remove the bookmark (handles both string and object formats)
       const wikilinkToRemove = bookmarkToWikilink(note.sourceRelative, bookmark);
-      const newBookmarksArray = bookmarksArray.filter((bm: string) => bm !== wikilinkToRemove);
+      const newBookmarksArray = bookmarksArray.filter((bm: unknown) => {
+        if (typeof bm === 'string') {
+          return bm !== wikilinkToRemove;
+        }
+        if (bm && typeof bm === 'object' && (bm as { link?: string }).link) {
+          return (bm as { link: string }).link !== wikilinkToRemove;
+        }
+        return true;
+      });
 
       // Update frontmatter (remove key if empty)
       if (newBookmarksArray.length === 0) {

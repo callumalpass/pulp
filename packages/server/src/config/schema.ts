@@ -21,6 +21,7 @@ export const configSchema = z.object({
   collections_key: z.string().default('collections'),
   reader_preferences_key: z.string().default('reader_preferences'),
   current_chapter_key: z.string().default('current_chapter'),
+  book_notes_key: z.string().default('book_notes'),
 
   // Highlight templates
   // Available variables: source, page, pageLabel, selection, category, text, note, createdAt

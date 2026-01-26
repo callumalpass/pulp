@@ -12,11 +12,13 @@ import {
   getPinned,
   getBookmarks,
   bookmarkToWikilink,
+  bookmarkToFrontmatter,
   getReadingStats,
   createReadingStatsForFrontmatter,
   getDailyReadingHistory,
   createDailyReadingEntryForFrontmatter,
   updateDailyReadingHistory,
+  getBookNotes,
 } from '../frontmatter-parser.js';
 
 describe('hasTag', () => {
@@ -673,5 +675,127 @@ describe('getCollections', () => {
     expect(getCollections({ collections: 123 }, 'collections')).toEqual([]);
     expect(getCollections({ collections: true }, 'collections')).toEqual([]);
     expect(getCollections({ collections: {} }, 'collections')).toEqual([]);
+  });
+});
+
+describe('getBookNotes', () => {
+  it('returns null when key is missing', () => {
+    expect(getBookNotes({}, 'book_notes')).toBeNull();
+  });
+
+  it('returns null for empty string', () => {
+    expect(getBookNotes({ book_notes: '' }, 'book_notes')).toBeNull();
+    expect(getBookNotes({ book_notes: '   ' }, 'book_notes')).toBeNull();
+  });
+
+  it('returns trimmed string value', () => {
+    expect(getBookNotes({ book_notes: 'My notes about this book' }, 'book_notes'))
+      .toBe('My notes about this book');
+  });
+
+  it('trims whitespace from notes', () => {
+    expect(getBookNotes({ book_notes: '  My notes  ' }, 'book_notes'))
+      .toBe('My notes');
+  });
+
+  it('returns null for non-string values', () => {
+    expect(getBookNotes({ book_notes: 123 }, 'book_notes')).toBeNull();
+    expect(getBookNotes({ book_notes: true }, 'book_notes')).toBeNull();
+    expect(getBookNotes({ book_notes: ['note1', 'note2'] }, 'book_notes')).toBeNull();
+  });
+});
+
+describe('getBookmarks (with notes support)', () => {
+  it('parses bookmarks with notes in object format', () => {
+    const bookmarks = getBookmarks({
+      bookmarks: [
+        { link: '[[test.pdf#page=5|Chapter 3|2024-01-15]]', notes: 'Important chapter' },
+      ],
+    }, 'bookmarks');
+
+    expect(bookmarks).toHaveLength(1);
+    expect(bookmarks[0].label).toBe('Chapter 3');
+    expect(bookmarks[0].page).toBe(5);
+    expect(bookmarks[0].notes).toBe('Important chapter');
+  });
+
+  it('parses mixed format (legacy wikilinks and new objects)', () => {
+    const bookmarks = getBookmarks({
+      bookmarks: [
+        '[[test.pdf#page=1|Start|2024-01-10]]',
+        { link: '[[test.pdf#page=10|Middle|2024-01-15]]', notes: 'Some notes' },
+        '[[test.pdf#page=20|End|2024-01-20]]',
+      ],
+    }, 'bookmarks');
+
+    expect(bookmarks).toHaveLength(3);
+    expect(bookmarks[0].notes).toBeUndefined();
+    expect(bookmarks[1].notes).toBe('Some notes');
+    expect(bookmarks[2].notes).toBeUndefined();
+  });
+
+  it('handles empty notes in object format', () => {
+    const bookmarks = getBookmarks({
+      bookmarks: [
+        { link: '[[test.pdf#page=5|Chapter|2024-01-15]]', notes: '' },
+        { link: '[[test.pdf#page=6|Chapter 2|2024-01-15]]', notes: '   ' },
+      ],
+    }, 'bookmarks');
+
+    expect(bookmarks).toHaveLength(2);
+    expect(bookmarks[0].notes).toBeUndefined();
+    expect(bookmarks[1].notes).toBeUndefined();
+  });
+});
+
+describe('bookmarkToFrontmatter', () => {
+  it('returns wikilink string when no notes', () => {
+    const result = bookmarkToFrontmatter('test.pdf', {
+      label: 'Chapter 1',
+      page: 10,
+      createdAt: '2024-01-15T00:00:00Z',
+    });
+
+    expect(typeof result).toBe('string');
+    expect(result).toBe('[[test.pdf#page=10|Chapter 1|2024-01-15T00:00:00Z]]');
+  });
+
+  it('returns object with link and notes when notes present', () => {
+    const result = bookmarkToFrontmatter('test.pdf', {
+      label: 'Chapter 1',
+      notes: 'Important chapter',
+      page: 10,
+      createdAt: '2024-01-15T00:00:00Z',
+    });
+
+    expect(typeof result).toBe('object');
+    expect(result).toEqual({
+      link: '[[test.pdf#page=10|Chapter 1|2024-01-15T00:00:00Z]]',
+      notes: 'Important chapter',
+    });
+  });
+
+  it('returns wikilink string when notes is empty', () => {
+    const result = bookmarkToFrontmatter('test.pdf', {
+      label: 'Chapter 1',
+      notes: '   ',
+      page: 10,
+    });
+
+    expect(typeof result).toBe('string');
+  });
+
+  it('handles EPUB CFI bookmarks with notes', () => {
+    const result = bookmarkToFrontmatter('test.epub', {
+      label: 'Introduction',
+      notes: 'Start of the story',
+      cfi: 'epubcfi(/6/4!/4)',
+      createdAt: '2024-01-15T00:00:00Z',
+    });
+
+    expect(typeof result).toBe('object');
+    const obj = result as { link: string; notes: string };
+    expect(obj.link).toContain('cfi=');
+    expect(obj.notes).toBe('Start of the story');
   });
 });

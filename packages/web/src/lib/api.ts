@@ -7,6 +7,7 @@ import type {
   PinUpdate,
   RatingUpdate,
   CollectionsUpdate,
+  BookNotesUpdate,
   CreateHighlightRequest,
   UpdateHighlightRequest,
   CreateBookmarkRequest,
@@ -354,6 +355,22 @@ export const api = {
         {
           method: 'PATCH',
           body: JSON.stringify({ chapter }),
+        }
+      );
+    },
+  },
+
+  bookNotes: {
+    get(noteId: string) {
+      return fetchJSON<{ notes: string | null }>(`/library/${noteId}/notes`);
+    },
+
+    update(noteId: string, data: BookNotesUpdate) {
+      return fetchJSON<{ success: boolean; notes: string | null }>(
+        `/library/${noteId}/notes`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(data),
         }
       );
     },

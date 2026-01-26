@@ -29,6 +29,7 @@ vi.mock('../frontmatter-parser.js', () => ({
   getTotalPages: vi.fn(),
   getReaderPreferences: vi.fn(),
   getCurrentChapter: vi.fn(),
+  getBookNotes: vi.fn(),
 }));
 
 // Mock highlight-parser
@@ -61,6 +62,7 @@ const mockGetRating = vi.mocked(frontmatterParser.getRating);
 const mockGetTotalPages = vi.mocked(frontmatterParser.getTotalPages);
 const mockGetReaderPreferences = vi.mocked(frontmatterParser.getReaderPreferences);
 const mockGetCurrentChapter = vi.mocked(frontmatterParser.getCurrentChapter);
+const mockGetBookNotes = vi.mocked(frontmatterParser.getBookNotes);
 const mockParseHighlightsFromNote = vi.mocked(highlightParser.parseHighlightsFromNote);
 
 // Helper to create mock config
@@ -83,6 +85,7 @@ function createMockConfig(overrides: Partial<Config> = {}): Config {
     total_pages_key: 'total_pages',
     reader_preferences_key: 'reader_preferences',
     current_chapter_key: 'current_chapter',
+    book_notes_key: 'book_notes',
     exclude_folders: ['.obsidian', '.trash', 'templates'],
     highlight_template: '',
     highlight_template_epub: '',
@@ -141,6 +144,7 @@ function setupDefaultNoteMocks() {
   mockGetTotalPages.mockReturnValue(null);
   mockGetReaderPreferences.mockReturnValue(null);
   mockGetCurrentChapter.mockReturnValue(null);
+  mockGetBookNotes.mockReturnValue(null);
   mockParseHighlightsFromNote.mockReturnValue([]);
 }
 
@@ -1134,6 +1138,7 @@ describe('LibraryScanner', () => {
       mockGetTotalPages.mockReturnValue(350);
       mockGetReaderPreferences.mockReturnValue({ zoomLevel: 1.5, theme: 'dark' });
       mockGetCurrentChapter.mockReturnValue('Chapter 10');
+      mockGetBookNotes.mockReturnValue('My personal notes about this book.');
       mockGetBookmarks.mockReturnValue([
         { id: 'b1', label: 'Start', page: 1, createdAt: '2024-01-01' },
       ]);
@@ -1160,6 +1165,7 @@ describe('LibraryScanner', () => {
       expect(note.totalPages).toBe(350);
       expect(note.readerPreferences).toEqual({ zoomLevel: 1.5, theme: 'dark' });
       expect(note.currentChapter).toBe('Chapter 10');
+      expect(note.bookNotes).toBe('My personal notes about this book.');
       expect(note.bookmarks).toHaveLength(1);
       expect(note.highlights).toHaveLength(1);
       expect(note.notePath).toBe('/test/vault/note.md');

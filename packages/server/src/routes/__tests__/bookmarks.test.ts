@@ -36,6 +36,7 @@ const testConfig: Config = {
   collections_key: 'collections',
   reader_preferences_key: 'reader_preferences',
   current_chapter_key: 'current_chapter',
+  book_notes_key: 'book_notes',
   highlight_template: '> {{text}}\n- [[{{source}}#page={{page}}&selection={{selection}}|p. {{pageLabel}}]]',
   highlight_template_epub: '> {{text}}\n- [[{{source}}#cfi={{cfi}}|loc]]',
   progress_debounce_ms: 5000,
@@ -78,6 +79,7 @@ function createTestNote(overrides: Partial<LiteratureNote> = {}): LiteratureNote
     totalPages: 100,
     readerPreferences: null,
     currentChapter: null,
+    bookNotes: null,
     frontmatter: {},
     ...overrides,
   };
@@ -428,6 +430,130 @@ Content`);
       expect(response.statusCode).toBe(200);
       const body = response.json();
       expect(body.label).toBe('Updated Label');
+    });
+
+    it('can add notes to a bookmark', async () => {
+      const existingBookmark: Bookmark = {
+        id: 'bm-test123',
+        label: 'Chapter 3',
+        page: 5,
+        createdAt: '2024-01-01T00:00:00Z',
+      };
+      const testNote = createTestNote({ bookmarks: [existingBookmark] });
+      notes.set('test-note', testNote);
+
+      mockReadFileSync.mockReturnValue(`---
+title: Test
+bookmarks:
+  - "[[books/test.pdf#page=5|Chapter 3|2024-01-01T00:00:00Z]]"
+---
+Content`);
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/bookmarks/bm-test123',
+        payload: {
+          notes: 'This is where the protagonist is introduced.',
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.notes).toBe('This is where the protagonist is introduced.');
+    });
+
+    it('can update both label and notes together', async () => {
+      const existingBookmark: Bookmark = {
+        id: 'bm-test123',
+        label: 'Original',
+        notes: 'Old notes',
+        page: 5,
+        createdAt: '2024-01-01T00:00:00Z',
+      };
+      const testNote = createTestNote({ bookmarks: [existingBookmark] });
+      notes.set('test-note', testNote);
+
+      mockReadFileSync.mockReturnValue(`---
+title: Test
+bookmarks:
+  - link: "[[books/test.pdf#page=5|Original|2024-01-01T00:00:00Z]]"
+    notes: Old notes
+---
+Content`);
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/bookmarks/bm-test123',
+        payload: {
+          label: 'New Label',
+          notes: 'New notes',
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.label).toBe('New Label');
+      expect(body.notes).toBe('New notes');
+    });
+
+    it('can clear notes by setting empty string', async () => {
+      const existingBookmark: Bookmark = {
+        id: 'bm-test123',
+        label: 'Chapter 3',
+        notes: 'Some notes',
+        page: 5,
+        createdAt: '2024-01-01T00:00:00Z',
+      };
+      const testNote = createTestNote({ bookmarks: [existingBookmark] });
+      notes.set('test-note', testNote);
+
+      mockReadFileSync.mockReturnValue(`---
+title: Test
+bookmarks:
+  - link: "[[books/test.pdf#page=5|Chapter 3|2024-01-01T00:00:00Z]]"
+    notes: Some notes
+---
+Content`);
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/bookmarks/bm-test123',
+        payload: {
+          notes: '',
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.notes).toBeUndefined();
+    });
+  });
+
+  describe('POST /api/library/:id/bookmarks (with notes)', () => {
+    it('can create bookmark with notes', async () => {
+      const testNote = createTestNote();
+      notes.set('test-note', testNote);
+
+      mockReadFileSync.mockReturnValue(`---
+title: Test
+---
+Content`);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/library/test-note/bookmarks',
+        payload: {
+          label: 'Important Page',
+          notes: 'Remember to revisit this section.',
+          page: 42,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.label).toBe('Important Page');
+      expect(body.notes).toBe('Remember to revisit this section.');
+      expect(body.page).toBe(42);
     });
   });
 });

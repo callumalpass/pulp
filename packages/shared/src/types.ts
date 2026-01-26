@@ -37,6 +37,7 @@ export interface LiteratureNote {
   totalPages: number | null;   // Total pages in document
   readerPreferences: ReaderPreferences | null; // Per-book reader display preferences
   currentChapter: string | null; // Current chapter/section name for context
+  bookNotes: string | null;      // Personal notes about the book
   frontmatter: Record<string, unknown>;
 }
 
@@ -187,6 +188,10 @@ export interface CollectionsUpdate {
   collections: string[];       // Full list of collections this book belongs to
 }
 
+export interface BookNotesUpdate {
+  notes: string | null;        // Personal notes about the book (null to clear)
+}
+
 export interface CreateHighlightRequest {
   type: 'pdf' | 'epub';
   page?: number;
@@ -207,6 +212,7 @@ export interface UpdateHighlightRequest {
 export interface Bookmark {
   id: string;
   label: string;
+  notes?: string;      // Optional notes/context about this bookmark
   page?: number;       // For PDFs
   cfi?: string;        // For EPUBs
   createdAt: string;
@@ -214,12 +220,14 @@ export interface Bookmark {
 
 export interface CreateBookmarkRequest {
   label: string;
+  notes?: string;      // Optional notes/context about this bookmark
   page?: number;
   cfi?: string;
 }
 
 export interface UpdateBookmarkRequest {
   label?: string;
+  notes?: string;      // Optional notes/context about this bookmark
 }
 
 // Reading statistics types - stored in frontmatter
