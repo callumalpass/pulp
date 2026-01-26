@@ -22,6 +22,9 @@ interface ReaderState {
   scrollToPage: number | null;
   isLoading: boolean;
 
+  // Page labels (logical page numbers like "iv", "12", "A-3")
+  pageLabels: string[] | null;
+
   // Search state
   searchQuery: string;
   searchResults: SearchMatch[];
@@ -32,8 +35,12 @@ interface ReaderState {
   pdfViewMode: PDFViewMode;
   pdfColorMode: PDFColorMode;
 
+  // Mobile state
+  mobileMenuOpen: boolean;
+
   setCurrentPage: (page: number) => void;
   setTotalPages: (total: number) => void;
+  setPageLabels: (labels: string[] | null) => void;
   setZoom: (zoom: number) => void;
   setZoomMode: (mode: ZoomMode) => void;
   zoomIn: () => void;
@@ -58,6 +65,10 @@ interface ReaderState {
   setPdfColorMode: (mode: PDFColorMode) => void;
   togglePdfColorMode: () => void;
 
+  // Mobile actions
+  setMobileMenuOpen: (open: boolean) => void;
+  toggleMobileMenu: () => void;
+
   reset: () => void;
 }
 
@@ -71,6 +82,9 @@ export const useReaderStore = create<ReaderState>((set) => ({
   scrollToPage: null,
   isLoading: true,
 
+  // Page labels
+  pageLabels: null,
+
   // Search state
   searchQuery: '',
   searchResults: [],
@@ -81,8 +95,12 @@ export const useReaderStore = create<ReaderState>((set) => ({
   pdfViewMode: 'single',
   pdfColorMode: 'light',
 
+  // Mobile state
+  mobileMenuOpen: false,
+
   setCurrentPage: (page) => set({ currentPage: page }),
   setTotalPages: (total) => set({ totalPages: total }),
+  setPageLabels: (labels) => set({ pageLabels: labels }),
   setZoom: (zoom) => set({ zoom: Math.max(0.5, Math.min(3, zoom)), zoomMode: 'custom' }),
   setZoomMode: (mode) => set({ zoomMode: mode }),
   zoomIn: () => set((state) => ({ zoom: Math.min(3, state.zoom + 0.25), zoomMode: 'custom' })),
@@ -117,6 +135,10 @@ export const useReaderStore = create<ReaderState>((set) => ({
     pdfColorMode: state.pdfColorMode === 'light' ? 'dark' : 'light',
   })),
 
+  // Mobile actions
+  setMobileMenuOpen: (open) => set({ mobileMenuOpen: open }),
+  toggleMobileMenu: () => set((state) => ({ mobileMenuOpen: !state.mobileMenuOpen })),
+
   reset: () => set({
     currentPage: 1,
     totalPages: 0,
@@ -126,11 +148,13 @@ export const useReaderStore = create<ReaderState>((set) => ({
     markdownPanelOpen: false,
     scrollToPage: null,
     isLoading: true,
+    pageLabels: null,
     searchQuery: '',
     searchResults: [],
     currentMatchIndex: 0,
     isSearchOpen: false,
     pdfViewMode: 'single',
     pdfColorMode: 'light',
+    mobileMenuOpen: false,
   }),
 }));

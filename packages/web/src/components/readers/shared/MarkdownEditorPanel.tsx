@@ -4,6 +4,7 @@ import { EditorState } from '@codemirror/state';
 import { markdown } from '@codemirror/lang-markdown';
 import { defaultKeymap } from '@codemirror/commands';
 import { useNoteContent, useUpdateNoteContent } from '../../../hooks/useNoteContent';
+import { useMobile } from '../../../hooks/useMobile';
 
 interface MarkdownEditorPanelProps {
   noteId: string;
@@ -13,6 +14,7 @@ interface MarkdownEditorPanelProps {
 type SaveStatus = 'saved' | 'unsaved' | 'saving';
 
 export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProps) {
+  const isMobile = useMobile();
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
@@ -154,19 +156,19 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
     }
   };
 
-  return (
-    <div className="markdown-editor-panel">
+  const panelContent = (
+    <>
       {/* Header */}
-      <div className="panel-header">
+      <div className={isMobile ? 'h-14 flex items-center justify-between px-4 border-b border-text-secondary/10 shrink-0' : 'panel-header'}>
         <div className="flex items-center gap-2">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width={isMobile ? 20 : 16} height={isMobile ? 20 : 16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14 2 14 8 20 8" />
             <line x1="16" y1="13" x2="8" y2="13" />
             <line x1="16" y1="17" x2="8" y2="17" />
             <polyline points="10 9 9 9 8 9" />
           </svg>
-          <span className="font-medium">Notes</span>
+          <span className={isMobile ? 'text-base font-semibold' : 'font-medium'}>Notes</span>
         </div>
 
         <div className="flex items-center gap-3">
@@ -176,10 +178,13 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
 
           <button
             onClick={onClose}
-            className="w-6 h-6 rounded flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-stoody"
+            className={isMobile
+              ? 'touch-target rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-stoody'
+              : 'w-6 h-6 rounded flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-stoody'
+            }
             title="Close (Esc)"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width={isMobile ? 22 : 14} height={isMobile ? 22 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>
@@ -187,7 +192,7 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
       </div>
 
       {/* Editor */}
-      <div className="panel-content">
+      <div className={isMobile ? 'flex-1 overflow-hidden bg-bg-deep' : 'panel-content'}>
         {isLoading ? (
           <div className="flex items-center justify-center h-full">
             <div className="w-6 h-6 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" />
@@ -196,6 +201,22 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
           <div ref={editorRef} className="h-full" />
         )}
       </div>
+    </>
+  );
+
+  // Mobile: Full-screen modal
+  if (isMobile) {
+    return (
+      <div className="mobile-fullscreen-modal animate-slide-up">
+        {panelContent}
+      </div>
+    );
+  }
+
+  // Desktop: Side panel
+  return (
+    <div className="markdown-editor-panel">
+      {panelContent}
     </div>
   );
 }

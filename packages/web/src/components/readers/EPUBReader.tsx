@@ -5,6 +5,8 @@ import { useReaderStore } from '../../stores/reader';
 import { usePreferencesStore } from '../../stores/preferences';
 import { useProgress } from '../../hooks/useProgress';
 import { useHighlights } from '../../hooks/useNote';
+import { useMobile } from '../../hooks/useMobile';
+import { useSwipeGesture } from '../../hooks/useSwipeGesture';
 import { ReaderControls } from './shared/ReaderControls';
 import { HighlightPopup } from './shared/HighlightPopup';
 import { HighlightEditPopup } from './shared/HighlightEditPopup';
@@ -34,6 +36,15 @@ export function EPUBReader({ note }: EPUBReaderProps) {
   const [selection, setSelection] = useState<Selection | null>(null);
   const [editingHighlight, setEditingHighlight] = useState<{ highlight: EPUBHighlight; position: { x: number; y: number } } | null>(null);
   const [locations, setLocations] = useState<string[]>([]);
+
+  // Mobile support
+  const isMobile = useMobile();
+  const swipeHandlers = useSwipeGesture({
+    onSwipeLeft: () => renditionRef.current?.next(),
+    onSwipeRight: () => renditionRef.current?.prev(),
+    enabled: isMobile,
+    threshold: 50,
+  });
 
   // Load EPUB
   useEffect(() => {
@@ -269,10 +280,12 @@ export function EPUBReader({ note }: EPUBReaderProps) {
 
       <div
         ref={containerRef}
-        className="flex-1 overflow-hidden"
+        className={`flex-1 overflow-hidden ${isMobile ? 'hide-scrollbar-mobile' : ''}`}
         style={{
           background: readerTheme === 'sepia' ? '#f4ecd8' : readerTheme === 'light' ? '#ffffff' : '#2d3436',
         }}
+        onTouchStart={swipeHandlers.handleTouchStart}
+        onTouchEnd={swipeHandlers.handleTouchEnd}
       />
 
       {selection && (
