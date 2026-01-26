@@ -29,6 +29,7 @@ npm-debug.log*
 coverage/
 playwright-report/
 test-results/
+**/tests/screenshots/
 
 # Cache
 .pulp-cache/
@@ -36,3 +37,6 @@ test-results/
 
 # PWA generated
 dev-dist/
+
+# External references
+obsidian-pdf-plus/
