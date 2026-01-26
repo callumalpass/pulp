@@ -130,6 +130,10 @@ export interface ReadingStats {
   averageSessionMs: number;
   firstReadDate: string | null;
   // lastReadDate is already tracked via last_read_key
+  // Reading speed metrics
+  pagesPerHour: number | null;           // Calculated pages per hour
+  totalPagesRead: number;                 // Cumulative pages read across all sessions
+  longestSessionMs: number | null;        // Personal best session duration
 }
 
 export interface ReadingStatsUpdate {
