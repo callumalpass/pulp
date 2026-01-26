@@ -231,6 +231,9 @@ export interface ReadingStats {
   pagesPerHour: number | null;           // Calculated pages per hour
   totalPagesRead: number;                 // Cumulative pages read across all sessions
   longestSessionMs: number | null;        // Personal best session duration
+  // Completion estimation (recalculated on each session)
+  estimatedCompletionDate: string | null; // Predicted completion date based on reading pace
+  averageDailyReadingMs: number | null;   // Average daily reading time (over last 14 days of activity)
 }
 
 export interface ReadingStatsUpdate {
@@ -333,6 +336,25 @@ export interface StreakRiskInfo {
   graceDaysRemaining: number;  // Grace days still available
 }
 
+// Breakdown of highlights by category
+export interface HighlightCategoryBreakdown {
+  highlight: number;
+  important: number;
+  question: number;
+  todo: number;
+  definition: number;
+}
+
+// Breakdown of books by rating
+export interface RatingBreakdown {
+  rated5: number;
+  rated4: number;
+  rated3: number;
+  rated2: number;
+  rated1: number;
+  unrated: number;
+}
+
 // Aggregated library statistics
 export interface LibraryStatistics {
   totalBooks: number;
@@ -346,6 +368,16 @@ export interface LibraryStatistics {
   booksUnread: number;
   averageProgress: number;
   collectionsCount: number;
+  // Detailed statistics
+  totalPagesRead: number;
+  totalSessions: number;
+  averageReadingSpeedPagesPerHour: number | null;
+  averageSessionDurationMs: number | null;
+  longestSessionMs: number | null;
+  highlightsByCategory: HighlightCategoryBreakdown;
+  booksByRating: RatingBreakdown;
+  booksWithEstimatedCompletion: number;
+  averageDaysToComplete: number | null;
 }
 
 // WebSocket event types

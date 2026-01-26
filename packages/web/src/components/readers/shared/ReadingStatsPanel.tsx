@@ -164,6 +164,13 @@ export function ReadingStatsPanel({ noteId, currentPage, totalPages, dateFinishe
                   value={formatDate(bookStats.firstReadDate)}
                 />
               )}
+              {bookStats.estimatedCompletionDate && !dateFinished && (
+                <StatCard
+                  label="Est. completion"
+                  value={formatDate(bookStats.estimatedCompletionDate)}
+                  secondary
+                />
+              )}
               {dateFinished && (
                 <StatCard
                   label="Completed"
@@ -286,10 +293,10 @@ function ReadingHistoryChart({ history, sessionDuration, getFormattedReadingTime
   );
 }
 
-function StatCard({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function StatCard({ label, value, highlight, secondary }: { label: string; value: string; highlight?: boolean; secondary?: boolean }) {
   return (
-    <div className={`rounded-lg p-3 ${highlight ? 'bg-green-600/20' : 'bg-bg-deep'}`}>
-      <div className={`text-lg font-semibold ${highlight ? 'text-green-500' : 'text-text-primary'}`}>{value}</div>
+    <div className={`rounded-lg p-3 ${highlight ? 'bg-green-600/20' : secondary ? 'bg-accent-primary/10' : 'bg-bg-deep'}`}>
+      <div className={`text-lg font-semibold ${highlight ? 'text-green-500' : secondary ? 'text-accent-primary' : 'text-text-primary'}`}>{value}</div>
       <div className="text-xs text-text-secondary">{label}</div>
     </div>
   );

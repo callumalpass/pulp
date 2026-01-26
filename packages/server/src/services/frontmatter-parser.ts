@@ -384,6 +384,8 @@ export interface ParsedReadingStats {
   pagesPerHour: number | null;
   totalPagesRead: number;
   longestSessionMs: number | null;
+  estimatedCompletionDate: string | null;
+  averageDailyReadingMs: number | null;
 }
 
 /**
@@ -437,6 +439,25 @@ export function getReadingStats(
     ? statsObj.longest_session_ms
     : null;
 
+  // Parse estimated completion date
+  let estimatedCompletionDate: string | null = null;
+  if (statsObj.estimated_completion) {
+    if (statsObj.estimated_completion instanceof Date) {
+      estimatedCompletionDate = statsObj.estimated_completion.toISOString().split('T')[0];
+    } else if (typeof statsObj.estimated_completion === 'string') {
+      // Accept either ISO date or YYYY-MM-DD
+      const dateStr = statsObj.estimated_completion.split('T')[0];
+      const date = new Date(dateStr + 'T12:00:00');
+      if (!isNaN(date.getTime())) {
+        estimatedCompletionDate = dateStr;
+      }
+    }
+  }
+
+  const averageDailyReadingMs = typeof statsObj.avg_daily_reading_ms === 'number'
+    ? statsObj.avg_daily_reading_ms
+    : null;
+
   return {
     totalReadingTimeMs,
     totalSessions,
@@ -445,6 +466,8 @@ export function getReadingStats(
     pagesPerHour,
     totalPagesRead,
     longestSessionMs,
+    estimatedCompletionDate,
+    averageDailyReadingMs,
   };
 }
 
@@ -469,6 +492,12 @@ export function createReadingStatsForFrontmatter(
   }
   if (stats.longestSessionMs !== null) {
     result.longest_session_ms = stats.longestSessionMs;
+  }
+  if (stats.estimatedCompletionDate !== null) {
+    result.estimated_completion = stats.estimatedCompletionDate;
+  }
+  if (stats.averageDailyReadingMs !== null) {
+    result.avg_daily_reading_ms = stats.averageDailyReadingMs;
   }
 
   return result;

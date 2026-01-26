@@ -11,10 +11,9 @@ vi.mock('node:fs', () => ({
   writeFileSync: vi.fn(),
 }));
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 
 const mockReadFileSync = vi.mocked(readFileSync);
-const mockWriteFileSync = vi.mocked(writeFileSync);
 
 // Test configuration
 const testConfig: Config = {

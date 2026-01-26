@@ -105,16 +105,6 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
         sessionDurationMs
       );
 
-      const newStats = {
-        totalReadingTimeMs,
-        totalSessions,
-        averageSessionMs,
-        firstReadDate: existingStats?.firstReadDate || now,
-        pagesPerHour,
-        totalPagesRead,
-        longestSessionMs,
-      };
-
       // Update daily reading history
       const existingHistory = getDailyReadingHistory(frontmatter, config.reading_history_key);
       const updatedHistory = updateDailyReadingHistory(
@@ -123,6 +113,57 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
         sessionDurationMs,
         pagesRead
       );
+
+      // Calculate average daily reading time from recent history (last 14 days with activity)
+      const recentHistory = updatedHistory.filter(h => h.durationMs > 0).slice(0, 14);
+      let averageDailyReadingMs: number | null = null;
+      if (recentHistory.length >= 2) {
+        const totalRecentMs = recentHistory.reduce((sum, h) => sum + h.durationMs, 0);
+        averageDailyReadingMs = Math.round(totalRecentMs / recentHistory.length);
+      }
+
+      // Calculate estimated completion date
+      let estimatedCompletionDate: string | null = null;
+      if (
+        pagesPerHour !== null &&
+        pagesPerHour > 0 &&
+        averageDailyReadingMs !== null &&
+        averageDailyReadingMs > 0 &&
+        note.totalPages !== null &&
+        note.progress < 100
+      ) {
+        // Calculate remaining pages
+        const currentPage = Math.round((note.progress / 100) * note.totalPages);
+        const remainingPages = note.totalPages - currentPage;
+
+        if (remainingPages > 0) {
+          // Pages per day = (pages per hour) * (hours read per day)
+          const hoursPerDay = averageDailyReadingMs / (1000 * 60 * 60);
+          const pagesPerDay = pagesPerHour * hoursPerDay;
+
+          if (pagesPerDay > 0) {
+            // Days to complete
+            const daysToComplete = Math.ceil(remainingPages / pagesPerDay);
+
+            // Calculate the target date
+            const targetDate = new Date();
+            targetDate.setDate(targetDate.getDate() + daysToComplete);
+            estimatedCompletionDate = targetDate.toISOString().split('T')[0];
+          }
+        }
+      }
+
+      const newStats = {
+        totalReadingTimeMs,
+        totalSessions,
+        averageSessionMs,
+        firstReadDate: existingStats?.firstReadDate || now,
+        pagesPerHour,
+        totalPagesRead,
+        longestSessionMs,
+        estimatedCompletionDate,
+        averageDailyReadingMs,
+      };
 
       // Add individual session record
       const existingSessions = getReadingSessions(frontmatter, config.reading_sessions_key);
@@ -288,6 +329,106 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
 
     return {
       sessions: sessions.slice(0, limit),
+      totalSessions: sessions.length,
+    };
+  });
+
+  // GET /api/library/:id/reading-pace - Get reading pace over time (pages per hour by session)
+  fastify.get<{
+    Params: { id: string };
+    Querystring: { limit?: string };
+  }>('/api/library/:id/reading-pace', {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string' },
+        },
+      },
+      querystring: {
+        type: 'object',
+        properties: {
+          limit: { type: 'string' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const note = scanner.getById(request.params.id);
+
+    if (!note) {
+      return reply.code(404).send({ error: 'Note not found' });
+    }
+
+    // Parse limit from query (default 20 sessions)
+    const limit = Math.min(100, parseInt(request.query.limit || '20', 10) || 20);
+
+    // Get reading sessions from frontmatter
+    const sessions = getReadingSessions(note.frontmatter, config.reading_sessions_key);
+
+    // Calculate pages per hour for each session
+    const paceData: Array<{
+      date: string;
+      pagesPerHour: number | null;
+      pagesRead: number;
+      durationMs: number;
+    }> = [];
+
+    for (const session of sessions.slice(0, limit)) {
+      const date = session.startTime.split('T')[0];
+      const durationHours = session.durationMs / (1000 * 60 * 60);
+
+      let pagesPerHour: number | null = null;
+      if (durationHours >= 0.0167 && session.pagesRead > 0) { // At least 1 minute
+        pagesPerHour = Math.round((session.pagesRead / durationHours) * 10) / 10;
+      }
+
+      paceData.push({
+        date,
+        pagesPerHour,
+        pagesRead: session.pagesRead,
+        durationMs: session.durationMs,
+      });
+    }
+
+    // Calculate trend (is pace improving?)
+    const validPaces = paceData.filter(p => p.pagesPerHour !== null).map(p => p.pagesPerHour!);
+    let trend: 'improving' | 'declining' | 'stable' | null = null;
+
+    if (validPaces.length >= 3) {
+      const recentHalf = validPaces.slice(0, Math.floor(validPaces.length / 2));
+      const olderHalf = validPaces.slice(Math.floor(validPaces.length / 2));
+
+      const recentAvg = recentHalf.reduce((a, b) => a + b, 0) / recentHalf.length;
+      const olderAvg = olderHalf.reduce((a, b) => a + b, 0) / olderHalf.length;
+
+      const percentChange = ((recentAvg - olderAvg) / olderAvg) * 100;
+
+      if (percentChange > 10) {
+        trend = 'improving';
+      } else if (percentChange < -10) {
+        trend = 'declining';
+      } else {
+        trend = 'stable';
+      }
+    }
+
+    // Calculate current reading speed (last 5 sessions average)
+    const recentSessions = validPaces.slice(0, 5);
+    const currentPace = recentSessions.length > 0
+      ? Math.round((recentSessions.reduce((a, b) => a + b, 0) / recentSessions.length) * 10) / 10
+      : null;
+
+    // Calculate overall average
+    const overallAverage = validPaces.length > 0
+      ? Math.round((validPaces.reduce((a, b) => a + b, 0) / validPaces.length) * 10) / 10
+      : null;
+
+    return {
+      paceData: paceData.reverse(), // Return chronologically (oldest first)
+      trend,
+      currentPace,
+      overallAverage,
       totalSessions: sessions.length,
     };
   });

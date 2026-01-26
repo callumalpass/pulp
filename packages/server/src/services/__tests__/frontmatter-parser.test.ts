@@ -416,6 +416,8 @@ describe('createReadingStatsForFrontmatter', () => {
       pagesPerHour: null,
       totalPagesRead: 0,
       longestSessionMs: null,
+      estimatedCompletionDate: null,
+      averageDailyReadingMs: null,
     });
 
     expect(result.total_time_ms).toBe(3600000);
@@ -424,6 +426,8 @@ describe('createReadingStatsForFrontmatter', () => {
     expect(result.pages_per_hour).toBeUndefined();
     expect(result.total_pages).toBeUndefined();
     expect(result.longest_session_ms).toBeUndefined();
+    expect(result.estimated_completion).toBeUndefined();
+    expect(result.avg_daily_reading_ms).toBeUndefined();
   });
 
   it('includes optional fields when present', () => {
@@ -435,11 +439,15 @@ describe('createReadingStatsForFrontmatter', () => {
       pagesPerHour: 30,
       totalPagesRead: 150,
       longestSessionMs: 1800000,
+      estimatedCompletionDate: '2024-02-15',
+      averageDailyReadingMs: 1800000,
     });
 
     expect(result.pages_per_hour).toBe(30);
     expect(result.total_pages).toBe(150);
     expect(result.longest_session_ms).toBe(1800000);
+    expect(result.estimated_completion).toBe('2024-02-15');
+    expect(result.avg_daily_reading_ms).toBe(1800000);
   });
 });
 

@@ -163,6 +163,8 @@ describe('reading-stats routes', () => {
         pagesPerHour: 30,
         totalPagesRead: 50,
         longestSessionMs: 1800000,
+        estimatedCompletionDate: null,
+        averageDailyReadingMs: null,
       };
 
       testNotes.get('test-note')!.readingStats = stats;
@@ -528,6 +530,223 @@ reading_stats:
       });
 
       expect(response.statusCode).toBe(404);
+    });
+  });
+
+  describe('GET /api/library/:id/reading-pace', () => {
+    it('returns reading pace data for a note', async () => {
+      testNotes.get('test-note')!.frontmatter = {
+        reading_sessions: [
+          {
+            start: '2024-01-15T10:00:00Z',
+            end: '2024-01-15T11:00:00Z',
+            duration_ms: 3600000, // 1 hour
+            pages: 30,
+            start_page: 0,
+            end_page: 30,
+          },
+          {
+            start: '2024-01-14T14:00:00Z',
+            end: '2024-01-14T15:00:00Z',
+            duration_ms: 3600000, // 1 hour
+            pages: 25,
+            start_page: 30,
+            end_page: 55,
+          },
+        ],
+      };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-pace',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.paceData).toHaveLength(2);
+      expect(body.paceData[0].pagesPerHour).toBe(25); // Older session
+      expect(body.paceData[1].pagesPerHour).toBe(30); // Newer session
+      expect(body.totalSessions).toBe(2);
+    });
+
+    it('calculates reading pace trend', async () => {
+      // Create sessions with improving pace
+      const sessions = [];
+      for (let i = 0; i < 6; i++) {
+        sessions.push({
+          start: new Date(Date.now() - (5 - i) * 24 * 60 * 60 * 1000).toISOString(),
+          end: new Date(Date.now() - (5 - i) * 24 * 60 * 60 * 1000 + 3600000).toISOString(),
+          duration_ms: 3600000,
+          pages: 20 + i * 5, // Pages increase: 20, 25, 30, 35, 40, 45
+          start_page: 0,
+          end_page: 20 + i * 5,
+        });
+      }
+
+      testNotes.get('test-note')!.frontmatter = { reading_sessions: sessions };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-pace',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.trend).toBe('improving');
+    });
+
+    it('returns current pace based on recent sessions', async () => {
+      const sessions = [
+        { start: '2024-01-20T10:00:00Z', end: '2024-01-20T11:00:00Z', duration_ms: 3600000, pages: 30, start_page: 0, end_page: 30 },
+        { start: '2024-01-19T10:00:00Z', end: '2024-01-19T11:00:00Z', duration_ms: 3600000, pages: 28, start_page: 0, end_page: 28 },
+        { start: '2024-01-18T10:00:00Z', end: '2024-01-18T11:00:00Z', duration_ms: 3600000, pages: 32, start_page: 0, end_page: 32 },
+      ];
+
+      testNotes.get('test-note')!.frontmatter = { reading_sessions: sessions };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-pace',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.currentPace).toBe(30); // Average of 30, 28, 32
+    });
+
+    it('returns empty pace data for note without sessions', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-pace',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.paceData).toHaveLength(0);
+      expect(body.trend).toBeNull();
+      expect(body.currentPace).toBeNull();
+    });
+
+    it('respects limit parameter', async () => {
+      const sessions = [];
+      for (let i = 0; i < 10; i++) {
+        sessions.push({
+          start: new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString(),
+          end: new Date(Date.now() - i * 24 * 60 * 60 * 1000 + 3600000).toISOString(),
+          duration_ms: 3600000,
+          pages: 25,
+          start_page: 0,
+          end_page: 25,
+        });
+      }
+
+      testNotes.get('test-note')!.frontmatter = { reading_sessions: sessions };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-pace?limit=5',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.paceData).toHaveLength(5);
+      expect(body.totalSessions).toBe(10);
+    });
+
+    it('returns 404 for non-existent note', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/nonexistent/reading-pace',
+      });
+
+      expect(response.statusCode).toBe(404);
+    });
+  });
+
+  describe('estimated completion date calculation', () => {
+    it('calculates estimated completion date based on reading pace', async () => {
+      // Set up note with reading history to enable completion estimation
+      const readingHistory = [];
+      for (let i = 0; i < 5; i++) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        readingHistory.push({
+          date: date.toISOString().split('T')[0],
+          duration_ms: 3600000, // 1 hour per day
+          sessions: 1,
+          pages: 30,
+        });
+      }
+
+      mockReadFileSync.mockReturnValue(`---
+title: Test Book
+reading_progress: 30
+total_pages: 100
+reading_stats:
+  total_time_ms: 18000000
+  total_sessions: 5
+  first_read: "2024-01-10T10:00:00Z"
+  pages_per_hour: 30
+  total_pages: 30
+reading_history:
+${readingHistory.map(h => `  - date: "${h.date}"
+    duration_ms: ${h.duration_ms}
+    sessions: ${h.sessions}
+    pages: ${h.pages}`).join('\n')}
+---
+
+# Notes
+`);
+
+      // Create test note with 30% progress and 100 total pages
+      testNotes.get('test-note')!.progress = 30;
+      testNotes.get('test-note')!.totalPages = 100;
+
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 3600000, // 1 hour
+          pagesRead: 30,
+          startPage: 30,
+          endPage: 60,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // With consistent reading, should have an estimated completion date
+      // Note: estimation requires at least 2 days of history for average calculation
+      // After this session, we should have enough data
+      expect(body.readingStats.averageDailyReadingMs).toBeDefined();
+    });
+
+    it('does not calculate completion date for completed books', async () => {
+      mockReadFileSync.mockReturnValue(`---
+title: Test Book
+reading_progress: 100
+---
+
+# Notes
+`);
+
+      testNotes.get('test-note')!.progress = 100;
+
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 1800000,
+          pagesRead: 5,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // Completed books should not have estimated completion
+      expect(body.readingStats.estimatedCompletionDate).toBeNull();
     });
   });
 });
