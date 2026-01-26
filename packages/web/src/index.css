@@ -28,6 +28,30 @@
   --color-text-secondary: #636e72;
 }
 
+/* Thin scrollbar utility */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(178, 190, 195, 0.3) transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  height: 4px;
+  width: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(178, 190, 195, 0.3);
+  border-radius: 2px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(178, 190, 195, 0.5);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -283,6 +307,23 @@ body {
   animation: popup-fade-slide 150ms ease-out forwards;
 }
 
+/* Rating menu popup animation */
+@keyframes rating-menu-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.rating-menu-enter {
+  animation: rating-menu-enter 150ms cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+  transform-origin: top center;
+}
+
 /* PDF Search Highlights */
 .pdf-search-highlight {
   position: absolute;
@@ -428,9 +469,64 @@ body {
   color: var(--color-text-primary);
 }
 
+/* Toolbar with scroll fade indicators */
+.markdown-editor-toolbar {
+  position: relative;
+}
+
+.markdown-editor-toolbar-inner {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Fade indicators for scrollable toolbar */
+.markdown-editor-toolbar::before,
+.markdown-editor-toolbar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  pointer-events: none;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.markdown-editor-toolbar::before {
+  left: 0;
+  background: linear-gradient(to right, var(--color-bg-surface), transparent);
+}
+
+.markdown-editor-toolbar::after {
+  right: 0;
+  background: linear-gradient(to left, var(--color-bg-surface), transparent);
+}
+
+.markdown-editor-toolbar.scroll-start::after,
+.markdown-editor-toolbar.scroll-middle::before,
+.markdown-editor-toolbar.scroll-middle::after {
+  opacity: 1;
+}
+
+.markdown-editor-toolbar.scroll-end::before {
+  opacity: 1;
+}
+
+/* E-ink toolbar fade indicators */
+.eink-markdown-panel .markdown-editor-toolbar::before {
+  background: linear-gradient(to right, #f5f5f5, transparent);
+}
+
+.eink-markdown-panel .markdown-editor-toolbar::after {
+  background: linear-gradient(to left, #f5f5f5, transparent);
+}
+
 .markdown-editor-panel .panel-content {
   flex: 1;
-  overflow: hidden;
+  overflow: auto;
   background-color: var(--color-bg-deep);
 }
 
@@ -502,170 +598,224 @@ body {
 }
 
 /* Prose styling for markdown preview (dark theme) */
+/* Markdown Preview Prose Styles - using !important to override Tailwind resets */
 .markdown-editor-panel .prose {
-  color: var(--color-text-primary);
+  color: var(--color-text-primary) !important;
+  font-size: 0.9375rem !important;
+  line-height: 1.7 !important;
+  /* Ensure content isn't clipped at edges */
+  padding-left: 1.5rem;
+  padding-right: 0.5rem;
+  overflow-x: visible;
 }
 
+/* Remove top margin from first child to prevent overflow */
+.markdown-editor-panel .prose > *:first-child {
+  margin-top: 0 !important;
+}
+
+/* Headings with clear visual hierarchy */
 .markdown-editor-panel .prose h1,
 .markdown-editor-panel .prose h2,
 .markdown-editor-panel .prose h3 {
-  color: var(--color-text-primary);
-  font-weight: 700;
-  margin-top: 1.5em;
-  margin-bottom: 0.5em;
+  color: var(--color-text-primary) !important;
+  font-weight: 700 !important;
+  margin-top: 1.5em !important;
+  margin-bottom: 0.5em !important;
+  overflow: visible;
+  line-height: 1.3 !important;
 }
 
 .markdown-editor-panel .prose h1 {
-  font-size: 1.75rem;
+  font-size: 1.75rem !important;
+  border-bottom: 1px solid rgba(162, 155, 254, 0.3);
+  padding-bottom: 0.3em;
 }
 
 .markdown-editor-panel .prose h2 {
-  font-size: 1.4rem;
+  font-size: 1.4rem !important;
+  color: var(--color-accent-primary) !important;
 }
 
 .markdown-editor-panel .prose h3 {
-  font-size: 1.15rem;
+  font-size: 1.15rem !important;
+  color: var(--color-text-secondary) !important;
 }
 
 .markdown-editor-panel .prose p {
-  margin-bottom: 1em;
-  line-height: 1.6;
+  margin-bottom: 1em !important;
+  line-height: 1.7 !important;
+  overflow: visible;
 }
 
 .markdown-editor-panel .prose a {
-  color: var(--color-accent-primary);
-  text-decoration: underline;
+  color: var(--color-accent-primary) !important;
+  text-decoration: underline !important;
+  text-underline-offset: 2px;
 }
 
 .markdown-editor-panel .prose a:hover {
-  color: var(--color-accent-secondary);
+  color: var(--color-accent-secondary) !important;
 }
 
 .markdown-editor-panel .prose strong {
-  font-weight: 700;
+  font-weight: 700 !important;
+  color: var(--color-text-primary) !important;
 }
 
 .markdown-editor-panel .prose em {
-  font-style: italic;
+  font-style: italic !important;
 }
 
 .markdown-editor-panel .prose del {
-  text-decoration: line-through;
+  text-decoration: line-through !important;
   opacity: 0.7;
 }
 
+/* Inline code styling */
 .markdown-editor-panel .prose code {
-  background-color: var(--color-bg-surface);
-  color: var(--color-accent-secondary);
-  padding: 0.15em 0.3em;
-  border-radius: 4px;
-  font-family: var(--font-mono);
-  font-size: 0.875em;
+  background-color: rgba(162, 155, 254, 0.15) !important;
+  color: var(--color-accent-secondary) !important;
+  padding: 0.2em 0.4em !important;
+  border-radius: 4px !important;
+  font-family: var(--font-mono) !important;
+  font-size: 0.875em !important;
+  font-weight: 500 !important;
 }
 
+/* Code blocks */
 .markdown-editor-panel .prose pre {
-  background-color: var(--color-bg-surface);
-  border-radius: 8px;
-  padding: 1em;
+  background-color: var(--color-bg-deep) !important;
+  border: 1px solid rgba(178, 190, 195, 0.2) !important;
+  border-radius: 8px !important;
+  padding: 1em !important;
   overflow-x: auto;
-  margin: 1em 0;
+  overflow-y: visible;
+  margin: 1em 0 !important;
 }
 
 .markdown-editor-panel .prose pre code {
-  background: none;
-  padding: 0;
-  color: var(--color-text-primary);
+  background: none !important;
+  padding: 0 !important;
+  color: var(--color-text-primary) !important;
+  font-weight: 400 !important;
 }
 
+/* Blockquotes with clear visual styling */
 .markdown-editor-panel .prose blockquote {
-  border-left: 4px solid var(--color-accent-primary);
-  padding-left: 1em;
-  margin: 1em 0;
-  color: var(--color-text-secondary);
-  font-style: italic;
+  border-left: 4px solid var(--color-accent-primary) !important;
+  padding-left: 1em !important;
+  margin: 1em 0 !important;
+  margin-left: 0 !important;
+  color: var(--color-text-secondary) !important;
+  font-style: italic !important;
+  background-color: rgba(162, 155, 254, 0.05);
+  padding: 0.75em 1em !important;
+  border-radius: 0 8px 8px 0;
 }
 
+/* Lists - override Tailwind's list-style: none reset */
 .markdown-editor-panel .prose ul,
 .markdown-editor-panel .prose ol {
-  padding-left: 2em;
-  margin: 1em 0;
-  display: block;
+  padding-left: 1.5em !important;
+  margin: 1em 0 !important;
+  display: block !important;
 }
 
 .markdown-editor-panel .prose ul {
-  list-style-type: disc;
-  list-style-position: outside;
+  list-style-type: disc !important;
+  list-style-position: outside !important;
 }
 
 .markdown-editor-panel .prose ol {
-  list-style-type: decimal;
-  list-style-position: outside;
+  list-style-type: decimal !important;
+  list-style-position: outside !important;
 }
 
 .markdown-editor-panel .prose li {
-  margin-bottom: 0.5em;
-  line-height: 1.5;
-  display: list-item;
+  margin-bottom: 0.5em !important;
+  line-height: 1.6 !important;
+  display: list-item !important;
+  padding-left: 0.25em;
 }
 
 .markdown-editor-panel .prose li::marker {
-  color: var(--color-accent-primary);
+  color: var(--color-accent-primary) !important;
 }
 
-/* Ensure list styles aren't overridden */
+/* Ensure nested list styles work */
 .markdown-editor-panel .prose ul li {
-  list-style-type: disc;
+  list-style-type: disc !important;
 }
 
 .markdown-editor-panel .prose ol li {
-  list-style-type: decimal;
+  list-style-type: decimal !important;
+}
+
+.markdown-editor-panel .prose ul ul {
+  list-style-type: circle !important;
+  margin-top: 0.5em !important;
+  margin-bottom: 0.5em !important;
 }
 
 .markdown-editor-panel .prose hr {
-  border: none;
-  border-top: 1px solid var(--color-text-secondary);
-  margin: 1.5em 0;
+  border: none !important;
+  border-top: 1px solid var(--color-text-secondary) !important;
+  margin: 1.5em 0 !important;
   opacity: 0.3;
 }
 
 .markdown-editor-panel .prose img {
-  max-width: 100%;
-  height: auto;
-  border-radius: 8px;
-  margin: 1em 0;
+  max-width: 100% !important;
+  height: auto !important;
+  border-radius: 8px !important;
+  margin: 1em 0 !important;
 }
 
 /* E-ink prose styling for markdown preview */
 .eink-markdown-panel .prose {
-  color: #000000;
+  color: #000000 !important;
 }
 
 .eink-markdown-panel .prose h1,
 .eink-markdown-panel .prose h2,
 .eink-markdown-panel .prose h3 {
-  color: #000000;
-  font-weight: 700;
+  color: #000000 !important;
+  font-weight: 700 !important;
+}
+
+.eink-markdown-panel .prose h1 {
+  border-bottom: 1px solid #666666;
+}
+
+.eink-markdown-panel .prose h2 {
+  color: #333333 !important;
 }
 
 .eink-markdown-panel .prose a {
-  color: #000000;
-  text-decoration: underline;
+  color: #000000 !important;
+  text-decoration: underline !important;
 }
 
 .eink-markdown-panel .prose code {
-  background-color: #f0f0f0;
-  color: #000000;
-  border: 1px solid #cccccc;
+  background-color: #f0f0f0 !important;
+  color: #000000 !important;
+  border: 1px solid #cccccc !important;
 }
 
 .eink-markdown-panel .prose pre {
-  background-color: #f5f5f5;
-  border: 1px solid #cccccc;
+  background-color: #f5f5f5 !important;
+  border: 1px solid #cccccc !important;
 }
 
 .eink-markdown-panel .prose blockquote {
-  border-left: 4px solid #666666;
-  color: #333333;
+  border-left: 4px solid #666666 !important;
+  color: #333333 !important;
+  background-color: #f9f9f9;
+}
+
+.eink-markdown-panel .prose li::marker {
+  color: #333333 !important;
 }
 
 /* E-ink overlay mode - no shadows, just border */
@@ -857,13 +1007,412 @@ body {
   animation: shimmer 2s ease-in-out infinite;
 }
 
-/* Library card performance */
+/* Library card performance optimizations */
 .library-card {
   content-visibility: auto;
   contain-intrinsic-size: 240px 360px;
+  /* Prevent layout recalculations during animations */
+  contain: layout style;
+  /* GPU acceleration for smooth hover transitions */
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* Remove will-change after hover completes to free GPU memory */
+.library-card:not(:hover) {
+  will-change: auto;
+}
+
+/* Optimize grid layout for large lists */
+.library-grid-optimized {
+  contain: layout style;
 }
 
 /* Disable browser pinch-zoom to allow custom handling */
 .touch-none {
   touch-action: none;
+}
+
+/* Skeleton loader shimmer effect */
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-surface) 0%,
+    rgba(255, 255, 255, 0.05) 20%,
+    rgba(255, 255, 255, 0.1) 50%,
+    rgba(255, 255, 255, 0.05) 80%,
+    var(--color-bg-surface) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: 8px;
+}
+
+/* Smooth page transitions */
+@keyframes page-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-transition {
+  animation: page-fade-in 200ms ease-out;
+}
+
+/* Fun floating animation for empty states */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Pulse glow effect */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(162, 155, 254, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(162, 155, 254, 0.4);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Animated gradient border effect */
+@keyframes gradient-x {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.animate-gradient-x {
+  background-size: 200% 200%;
+  animation: gradient-x 3s ease infinite;
+}
+
+/* Continue reading card glow */
+.continue-reading-glow {
+  position: relative;
+}
+
+.continue-reading-glow::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  background: linear-gradient(90deg,
+    var(--color-accent-primary),
+    var(--color-accent-secondary),
+    var(--color-accent-primary)
+  );
+  background-size: 200% 100%;
+  border-radius: 18px;
+  opacity: 0.3;
+  z-index: -1;
+  animation: gradient-x 4s linear infinite;
+}
+
+/* Card entrance animation */
+@keyframes card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.card-enter {
+  animation: card-enter 0.4s ease-out forwards;
+  opacity: 0;
+}
+
+/* Staggered card animations */
+.card-stagger-1 { animation-delay: 0ms; }
+.card-stagger-2 { animation-delay: 40ms; }
+.card-stagger-3 { animation-delay: 80ms; }
+.card-stagger-4 { animation-delay: 120ms; }
+.card-stagger-5 { animation-delay: 160ms; }
+.card-stagger-6 { animation-delay: 200ms; }
+.card-stagger-7 { animation-delay: 240ms; }
+.card-stagger-8 { animation-delay: 280ms; }
+.card-stagger-9 { animation-delay: 320ms; }
+.card-stagger-10 { animation-delay: 360ms; }
+.card-stagger-11 { animation-delay: 400ms; }
+.card-stagger-12 { animation-delay: 440ms; }
+
+/* Improved filter button styling */
+.filter-btn-group {
+  background: linear-gradient(135deg, var(--color-bg-surface) 0%, rgba(45, 52, 54, 0.8) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.filter-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+.filter-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, transparent 0%, rgba(255, 255, 255, 0.03) 100%);
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.filter-btn:hover::after {
+  opacity: 1;
+}
+
+.filter-btn-active {
+  background: linear-gradient(135deg, rgba(162, 155, 254, 0.25) 0%, rgba(162, 155, 254, 0.15) 100%);
+  box-shadow: inset 0 0 12px rgba(162, 155, 254, 0.2);
+}
+
+/* Collection dropdown styling */
+.collection-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23b2bec3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 32px;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.collection-select:hover {
+  border-color: var(--color-accent-primary);
+  background-color: var(--color-bg-deep);
+}
+
+.collection-select:focus {
+  border-color: var(--color-accent-primary);
+  box-shadow: 0 0 0 2px rgba(162, 155, 254, 0.2);
+}
+
+/* ================================================
+   Performance Optimizations
+   ================================================ */
+
+/* Reduce paint on frequently animated elements */
+.perf-optimize {
+  contain: layout style;
+  will-change: transform, opacity;
+}
+
+/* High-performance hover transitions using only transform/opacity */
+.hover-lift {
+  transition: transform 200ms cubic-bezier(0.25, 0.8, 0.25, 1),
+              box-shadow 200ms ease-out;
+}
+
+.hover-lift:hover {
+  transform: translateY(-4px) scale(1.01);
+  box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.25);
+}
+
+.hover-lift:active {
+  transform: translateY(-2px) scale(0.99);
+  transition-duration: 50ms;
+}
+
+/* GPU-accelerated fade animations */
+.fade-in-up {
+  animation: fade-in-up 300ms cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+  will-change: transform, opacity;
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Smooth scroll for better UX */
+.scroll-smooth {
+  scroll-behavior: smooth;
+}
+
+/* Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .library-card {
+    will-change: auto;
+    transform: none;
+  }
+
+  .progress-shimmer::after {
+    animation: none;
+  }
+
+  .animate-float,
+  .animate-pulse-glow,
+  .animate-gradient-x {
+    animation: none;
+  }
+}
+
+/* ================================================
+   Enhanced Focus States for Accessibility
+   ================================================ */
+
+/* High-visibility focus ring for keyboard navigation */
+.focus-ring {
+  outline: none;
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* Interactive element focus styles */
+.interactive-focus {
+  outline: none;
+  transition: box-shadow 150ms ease;
+}
+
+.interactive-focus:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-bg-deep),
+              0 0 0 4px var(--color-accent-primary);
+}
+
+/* Skip link for keyboard navigation */
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  padding: 12px 24px;
+  background: var(--color-accent-primary);
+  color: var(--color-bg-deep);
+  border-radius: 8px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: top 150ms ease;
+}
+
+.skip-link:focus {
+  top: 16px;
+}
+
+/* ================================================
+   Enhanced Touch Interactions
+   ================================================ */
+
+/* Larger touch targets on mobile */
+@media (hover: none) and (pointer: coarse) {
+  .touch-target-enhanced {
+    min-width: 48px;
+    min-height: 48px;
+  }
+
+  /* Disable hover effects on touch devices */
+  .hover-lift:hover {
+    transform: none;
+    box-shadow: inherit;
+  }
+
+  .hover-lift:active {
+    transform: scale(0.97);
+    transition-duration: 100ms;
+  }
+}
+
+/* Ripple effect for material-style touch feedback */
+.ripple-container {
+  position: relative;
+  overflow: hidden;
+}
+
+.ripple-container::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 70%);
+  opacity: 0;
+  transform: scale(0);
+  transition: opacity 400ms ease, transform 400ms ease;
+  pointer-events: none;
+}
+
+.ripple-container:active::after {
+  opacity: 1;
+  transform: scale(2);
+  transition-duration: 100ms;
+}
+
+/* ================================================
+   Loading States
+   ================================================ */
+
+/* Pulse loading animation */
+.loading-pulse {
+  animation: loading-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes loading-pulse {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Smooth content loading */
+.content-loading {
+  opacity: 0;
+  animation: content-appear 200ms ease-out forwards;
+}
+
+@keyframes content-appear {
+  to {
+    opacity: 1;
+  }
 }

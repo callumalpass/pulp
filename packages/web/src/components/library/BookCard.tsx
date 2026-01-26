@@ -118,13 +118,23 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
 
   const estimatedCompletion = formatEstimatedCompletion(bookStats?.estimatedCompletionDate ?? null);
 
+  // Build accessible label for screen readers
+  const accessibleLabel = [
+    note.title,
+    note.author && `by ${note.author}`,
+    note.progress === 100 ? 'completed' : note.progress > 0 ? `${Math.round(note.progress)}% complete` : 'unread',
+    note.rating && `rated ${note.rating} out of 5 stars`,
+    estimatedTime && `${estimatedTime} remaining`,
+  ].filter(Boolean).join(', ');
+
   return (
     <Link
       to={`/read/${note.id}`}
-      className="group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-deep rounded-md"
+      className="group block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-deep rounded-xl"
+      aria-label={accessibleLabel}
     >
-      <Card hover className="library-card flex flex-col relative transition-transform duration-150 active:scale-[0.98]">
-        <div className="aspect-[2/3] bg-bg-deep relative overflow-hidden">
+      <Card hover className="library-card flex flex-col relative active:scale-[0.98]">
+        <div className="aspect-[2/3] bg-bg-deep relative overflow-hidden rounded-t-xl">
           {note.cover && !imageError ? (
             <img
               src={api.covers.getUrl(note.id)}
@@ -144,8 +154,8 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
             type="button"
             aria-label={note.pinned ? 'Unpin' : 'Pin'}
             aria-pressed={note.pinned}
-            className={`absolute top-2 right-2 p-1.5 rounded-full bg-bg-surface/80 backdrop-blur-sm transition-opacity focus-visible:ring-2 focus-visible:ring-accent-primary/60 ${
-              note.pinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+            className={`absolute top-1 right-1 w-9 h-9 flex items-center justify-center rounded-full bg-bg-surface/90 backdrop-blur-sm transition-all duration-200 focus-visible:ring-2 focus-visible:ring-accent-primary/60 hover:bg-bg-surface active:scale-90 ${
+              note.pinned ? 'opacity-100 shadow-md' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
             }`}
             title={note.pinned ? 'Unpin' : 'Pin'}
           >
@@ -254,7 +264,7 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
         {showRatingMenu && (
           <div
             ref={ratingMenuRef}
-            className="absolute top-full left-0 right-0 mt-1 z-50 bg-bg-surface border border-text-secondary/20 rounded-lg shadow-lg p-2"
+            className="absolute top-full left-0 right-0 mt-1 z-50 bg-bg-surface border border-text-secondary/20 rounded-lg shadow-lg p-2 rating-menu-enter"
             onClick={(e) => e.stopPropagation()}
             onKeyDown={handleRatingKeyDown}
             role="radiogroup"
@@ -338,10 +348,16 @@ function PinIcon({ filled }: { filled: boolean }) {
 
 function DefaultCover({ title, type }: { title: string; type: 'pdf' | 'epub' }) {
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-gradient-to-br from-accent-primary/30 via-bg-surface to-accent-secondary/20">
-      <div className="p-3 rounded-xl bg-bg-surface/60 backdrop-blur-sm mb-3 shadow-sm">
+    <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-gradient-to-br from-accent-primary/20 via-bg-deep to-accent-secondary/10 relative overflow-hidden">
+      {/* Decorative pattern */}
+      <div className="absolute inset-0 opacity-[0.03]" style={{
+        backgroundImage: `radial-gradient(circle at 2px 2px, currentColor 1px, transparent 0)`,
+        backgroundSize: '16px 16px'
+      }} />
+
+      <div className="relative p-4 rounded-2xl bg-bg-surface/70 backdrop-blur-sm mb-3 shadow-lg shadow-black/10 border border-white/[0.05] group-hover:shadow-xl group-hover:scale-105 transition-all duration-200">
         {type === 'pdf' ? (
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent-primary">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent-primary">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14 2 14 8 20 8" />
             <line x1="16" y1="13" x2="8" y2="13" />
@@ -349,7 +365,7 @@ function DefaultCover({ title, type }: { title: string; type: 'pdf' | 'epub' }) 
             <line x1="10" y1="9" x2="8" y2="9" />
           </svg>
         ) : (
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent-primary">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent-primary">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
             <line x1="8" y1="6" x2="16" y2="6" />
@@ -357,7 +373,7 @@ function DefaultCover({ title, type }: { title: string; type: 'pdf' | 'epub' }) 
           </svg>
         )}
       </div>
-      <p className="text-xs text-center text-text-primary/80 line-clamp-3 font-medium leading-tight">{title}</p>
+      <p className="relative text-xs text-center text-text-primary/90 line-clamp-3 font-medium leading-snug px-2">{title}</p>
     </div>
   );
 }
