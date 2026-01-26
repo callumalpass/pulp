@@ -749,7 +749,7 @@ export function EPUBReader({ note }: EPUBReaderProps) {
             </svg>
           </button>
           <span className="min-w-[4rem] text-center tabular-nums" aria-live="polite" aria-atomic="true">
-            <span className="sr-only">Page </span>{currentPage}<span className="sr-only"> of </span><span aria-hidden="true"> / </span>{totalPages}
+            <span className="sr-only">Page </span>{currentPage}<span className="sr-only"> of </span><span aria-hidden="true"> / </span>{totalPages > 0 ? totalPages : '...'}
           </span>
           <button
             onClick={() => goToPage(currentPage + 1)}
@@ -1005,24 +1005,33 @@ export function EPUBReader({ note }: EPUBReaderProps) {
             {/* Theme */}
             <fieldset className="mb-6">
               <legend className="text-sm opacity-70 block mb-2">Theme</legend>
-              <div className="flex gap-2" role="radiogroup" aria-label="Reader theme">
-                {(['light', 'dark', 'sepia', 'eink'] as EPUBTheme[]).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setReaderTheme(t)}
-                    className={`flex-1 h-10 rounded-lg border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-current/50 ${
-                      theme === t ? 'border-current' : 'border-transparent'
-                    }`}
-                    style={{ background: THEME_STYLES[t].bg }}
-                    role="radio"
-                    aria-checked={theme === t}
-                    aria-label={`${t === 'eink' ? 'E-ink' : t.charAt(0).toUpperCase() + t.slice(1)} theme`}
-                  >
-                    <span style={{ color: THEME_STYLES[t].text }} className="text-xs" aria-hidden="true">
-                      A
-                    </span>
-                  </button>
-                ))}
+              <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label="Reader theme">
+                {(['light', 'dark', 'sepia', 'eink'] as EPUBTheme[]).map((t) => {
+                  const label = t === 'eink' ? 'E-ink' : t.charAt(0).toUpperCase() + t.slice(1);
+                  return (
+                    <button
+                      key={t}
+                      onClick={() => setReaderTheme(t)}
+                      className={`flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-current/50 ${
+                        theme === t ? 'border-current' : 'border-transparent hover:border-current/30'
+                      }`}
+                      role="radio"
+                      aria-checked={theme === t}
+                      aria-label={`${label} theme`}
+                    >
+                      <span
+                        className="w-8 h-8 rounded-md border border-current/20 flex items-center justify-center text-xs font-medium"
+                        style={{ background: THEME_STYLES[t].bg, color: THEME_STYLES[t].text }}
+                        aria-hidden="true"
+                      >
+                        Aa
+                      </span>
+                      <span className="text-[10px] opacity-70" aria-hidden="true">
+                        {label}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </fieldset>
 

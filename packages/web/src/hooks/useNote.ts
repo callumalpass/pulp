@@ -7,6 +7,14 @@ export function useNote(id: string | undefined) {
     queryKey: ['note', id],
     queryFn: () => api.library.get(id!),
     enabled: !!id,
+    retry: (failureCount, error) => {
+      // Don't retry on 404 errors
+      if (error instanceof Error && (error.message.includes('404') || error.message.toLowerCase().includes('not found'))) {
+        return false;
+      }
+      // Retry other errors up to 2 times
+      return failureCount < 2;
+    },
   });
 }
 

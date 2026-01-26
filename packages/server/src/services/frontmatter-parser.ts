@@ -258,7 +258,54 @@ export function getAuthor(
 
   // Handle array format (multiple authors)
   if (Array.isArray(author) && author.length > 0) {
-    return author.map(a => String(a).trim()).join(', ');
+    return author.map(a => formatAuthorValue(a)).filter(Boolean).join(', ') || null;
+  }
+
+  // Handle object format (e.g., {first: "John", last: "Doe"} from citation managers)
+  if (author && typeof author === 'object' && !Array.isArray(author)) {
+    return formatAuthorValue(author);
+  }
+
+  return null;
+}
+
+/**
+ * Format a single author value which could be a string or an object.
+ * Handles common citation manager formats like {first: "John", last: "Doe"}.
+ */
+function formatAuthorValue(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim();
+  }
+
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+
+    // Handle {first: "...", last: "..."} format
+    if (typeof obj.first === 'string' || typeof obj.last === 'string') {
+      const parts = [obj.first, obj.last].filter(p => typeof p === 'string' && p.trim());
+      if (parts.length > 0) {
+        return parts.join(' ').trim();
+      }
+    }
+
+    // Handle {given: "...", family: "..."} format (CSL-JSON)
+    if (typeof obj.given === 'string' || typeof obj.family === 'string') {
+      const parts = [obj.given, obj.family].filter(p => typeof p === 'string' && p.trim());
+      if (parts.length > 0) {
+        return parts.join(' ').trim();
+      }
+    }
+
+    // Handle {name: "..."} format
+    if (typeof obj.name === 'string' && obj.name.trim()) {
+      return obj.name.trim();
+    }
+
+    // Handle {literal: "..."} format (CSL-JSON)
+    if (typeof obj.literal === 'string' && obj.literal.trim()) {
+      return obj.literal.trim();
+    }
   }
 
   return null;

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import type { SortOption, SortOrder, TypeFilter, ProgressFilter } from '../../stores/libraryFilters';
 
 const SORT_LABELS: Record<SortOption, string> = {
@@ -17,6 +18,7 @@ const PROGRESS_LABELS: Record<ProgressFilter, string> = {
 };
 
 interface MobileLibraryFiltersProps {
+  dialogId?: string;
   typeFilter: TypeFilter;
   progressFilter: ProgressFilter;
   sort: SortOption;
@@ -31,6 +33,7 @@ interface MobileLibraryFiltersProps {
 }
 
 export function MobileLibraryFilters({
+  dialogId = 'mobile-library-filters',
   typeFilter,
   progressFilter,
   sort,
@@ -43,6 +46,23 @@ export function MobileLibraryFilters({
   hasActiveFilters,
   onClose,
 }: MobileLibraryFiltersProps) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose]);
+
   const handleTypeSelect = (type: TypeFilter) => {
     onTypeChange(type);
   };
@@ -66,17 +86,37 @@ export function MobileLibraryFilters({
       <div
         className="mobile-bottom-sheet-backdrop animate-fade-in"
         onClick={onClose}
+        aria-hidden="true"
       />
 
       {/* Bottom Sheet */}
-      <div className="mobile-bottom-sheet animate-slide-up pb-safe">
+      <div
+        className="mobile-bottom-sheet animate-slide-up pb-safe"
+        id={dialogId}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Library filters"
+      >
         {/* Handle */}
-        <div className="flex justify-center pt-3 pb-2">
+        <div className="flex justify-center pt-3 pb-1">
           <div className="w-10 h-1 bg-text-secondary/30 rounded-full" />
         </div>
 
+        {/* Header with title and close button */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-text-secondary/10">
+          <h2 className="text-base font-semibold text-text-primary">Filters</h2>
+          <button
+            onClick={onClose}
+            type="button"
+            className="px-4 py-1.5 text-sm font-semibold bg-accent-primary text-white rounded-lg transition-all duration-150 hover:bg-accent-primary/90 active:scale-95"
+            aria-label="Close filters"
+          >
+            Done
+          </button>
+        </div>
+
         {/* Menu Content */}
-        <div className="px-4 pb-6">
+        <div className="px-4 py-4 pb-6 max-h-[60vh] overflow-y-auto">
           {/* Type Filter */}
           <div className="mb-6">
             <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-3">
@@ -153,7 +193,9 @@ export function MobileLibraryFilters({
             {/* Sort Order Toggle */}
             <button
               onClick={onSortOrderToggle}
-              className="mt-3 w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-bg-deep text-text-primary"
+              type="button"
+              className="mt-3 w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-bg-deep text-text-primary transition-all duration-150 active:scale-[0.98] active:bg-accent-primary/10"
+              aria-label={`Sort order: ${sortOrder === 'asc' ? 'ascending' : 'descending'}`}
             >
               {sortOrder === 'asc' ? (
                 <>
@@ -177,7 +219,8 @@ export function MobileLibraryFilters({
           {hasActiveFilters && (
             <button
               onClick={handleClearAndClose}
-              className="w-full py-3 px-4 rounded-xl bg-accent-primary/20 text-accent-primary font-medium text-sm"
+              type="button"
+              className="w-full py-3 px-4 rounded-xl bg-accent-primary/20 text-accent-primary font-medium text-sm transition-all duration-150 active:scale-[0.98] active:bg-accent-primary/30"
             >
               Clear All Filters
             </button>
@@ -198,11 +241,13 @@ interface FilterButtonProps {
 function FilterButton({ children, onClick, active, icon }: FilterButtonProps) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`touch-target flex flex-col items-center justify-center gap-1 p-3 rounded-xl transition-colors ${
+      aria-pressed={active}
+      className={`touch-target flex flex-col items-center justify-center gap-1 p-3 rounded-xl transition-all duration-150 select-none active:scale-95 ${
         active
           ? 'bg-accent-primary/20 text-accent-primary'
-          : 'bg-bg-deep text-text-primary hover:bg-bg-deep/80'
+          : 'bg-bg-deep text-text-primary hover:bg-bg-deep/80 active:bg-accent-primary/10'
       }`}
     >
       {icon}

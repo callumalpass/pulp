@@ -31,7 +31,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'npm run dev:server',
+      command: 'cd packages/server && node --import tsx/esm src/index.ts',
       url: 'http://localhost:3000/health',
       reuseExistingServer: !process.env.CI,
     },

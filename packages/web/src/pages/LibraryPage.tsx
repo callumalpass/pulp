@@ -1,8 +1,9 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useDeferredValue, useCallback } from 'react';
 import { useLibrary } from '../hooks/useLibrary';
 import { useSearch, useSearchStatus } from '../hooks/useSearch';
 import { useCollections } from '../hooks/useCollections';
 import { useMobile } from '../hooks/useMobile';
+import { useConnection } from '../contexts/ConnectionContext';
 import { LibraryGrid } from '../components/library/LibraryGrid';
 import { SearchResults } from '../components/library/SearchResults';
 import { MobileLibraryFilters } from '../components/library/MobileLibraryFilters';
@@ -49,9 +50,25 @@ export function LibraryPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const deferredQuery = useDeferredValue(searchQuery);
+
+  // Filter changes update immediately for instant button feedback
+  // The expensive filtering is already deferred via useMemo
+  const handleTypeFilter = useCallback((value: typeof typeFilter) => {
+    setTypeFilter(value);
+  }, [setTypeFilter]);
+
+  const handleProgressFilter = useCallback((value: typeof progressFilter) => {
+    setProgressFilter(value);
+  }, [setProgressFilter]);
+
+  const handleSortChange = useCallback((value: typeof sort) => {
+    setSort(value);
+  }, [setSort]);
 
   const isMobile = useMobile();
-  const { data: notes, isLoading, error, refetch } = useLibrary(sort, sortOrder);
+  const { status: connectionStatus } = useConnection();
+  const { data: notes, isLoading, error, refetch, isFetching } = useLibrary(sort, sortOrder);
   const { data: collectionsData } = useCollections();
   const { data: searchStatus } = useSearchStatus();
   const { data: searchResults, isLoading: isSearching } = useSearch(debouncedQuery, {
@@ -70,12 +87,13 @@ export function LibraryPage() {
   const filteredNotes = useMemo(() => {
     if (!notes) return [];
 
+    const normalizedQuery = deferredQuery.trim().toLowerCase();
+
     return notes.filter((note: LiteratureNoteSummary) => {
       // Search filter (only for title mode)
-      if (searchMode === 'title' && searchQuery) {
-        const query = searchQuery.toLowerCase();
-        const matchesTitle = note.title.toLowerCase().includes(query);
-        const matchesCitekey = note.citekey?.toLowerCase().includes(query);
+      if (searchMode === 'title' && normalizedQuery) {
+        const matchesTitle = note.title.toLowerCase().includes(normalizedQuery);
+        const matchesCitekey = note.citekey?.toLowerCase().includes(normalizedQuery);
         if (!matchesTitle && !matchesCitekey) {
           return false;
         }
@@ -101,7 +119,7 @@ export function LibraryPage() {
 
       return true;
     });
-  }, [notes, searchQuery, typeFilter, progressFilter, collectionFilter, searchMode]);
+  }, [notes, deferredQuery, typeFilter, progressFilter, collectionFilter, searchMode]);
 
   const hasActiveFilters = Boolean(searchQuery) || typeFilter !== 'all' || progressFilter !== 'all' || collectionFilter !== null;
 
@@ -143,18 +161,62 @@ export function LibraryPage() {
     return sorted[0];
   }, [notes]);
 
-  if (isLoading) {
+  // Show connection error when disconnected and fetching or no data
+  const showConnectionError = connectionStatus === 'disconnected' && (isFetching || !notes);
+
+  if (isLoading && !showConnectionError) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" />
+      <div className="p-6">
+        {/* Search bar skeleton */}
+        <div className="flex flex-col gap-4 mb-6">
+          <div className="flex gap-2">
+            <div className="flex-1 h-10 bg-bg-surface rounded-lg animate-pulse" />
+            <div className="w-24 h-10 bg-bg-surface rounded-lg animate-pulse" />
+          </div>
+          {/* Filter row skeleton */}
+          {!isMobile && (
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="w-32 h-8 bg-bg-surface rounded-lg animate-pulse" />
+              <div className="w-48 h-8 bg-bg-surface rounded-lg animate-pulse" />
+              <div className="flex-1" />
+              <div className="w-64 h-8 bg-bg-surface rounded-lg animate-pulse" />
+            </div>
+          )}
+        </div>
+
+        {/* Continue Reading skeleton */}
+        <div className="mb-8">
+          <div className="w-32 h-4 bg-bg-surface rounded animate-pulse mb-3" />
+          <ContinueReadingCardSkeleton />
+        </div>
+
+        {/* Library grid skeleton */}
+        <div className="w-20 h-4 bg-bg-surface rounded animate-pulse mb-3" />
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <div key={i} className="flex flex-col gap-2">
+              <div className="aspect-[2/3] bg-bg-surface rounded-lg animate-pulse" />
+              <div className="h-4 bg-bg-surface rounded animate-pulse w-3/4" />
+              <div className="h-3 bg-bg-surface rounded animate-pulse w-1/2" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
 
-  if (error) {
+  if (error || showConnectionError) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-text-secondary">
-        <p className="mb-4">Failed to load library</p>
+        <DisconnectedIcon className="w-16 h-16 mb-4 opacity-50" />
+        <p className="text-lg text-text-primary mb-2">
+          {showConnectionError ? 'Connection Lost' : 'Failed to load library'}
+        </p>
+        <p className="text-sm mb-4 text-center max-w-md">
+          {showConnectionError
+            ? 'Unable to connect to the server. Please check your connection and try again.'
+            : 'Something went wrong while loading your library.'}
+        </p>
         <Button variant="secondary" onClick={() => refetch()}>
           Retry
         </Button>
@@ -171,7 +233,7 @@ export function LibraryPage() {
           <div className="relative flex-1">
             <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary" />
             <input
-              type="text"
+              type="search"
               placeholder={searchMode === 'title' ? 'Search by title...' : 'Search document contents...'}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -180,6 +242,8 @@ export function LibraryPage() {
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
+                type="button"
+                aria-label="Clear search"
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary"
               >
                 <XIcon className="w-4 h-4" />
@@ -191,24 +255,28 @@ export function LibraryPage() {
           <div className="flex rounded-lg bg-bg-surface border border-text-secondary/20 overflow-hidden">
             <button
               onClick={() => setSearchMode('title')}
+              type="button"
               className={`px-3 py-2 text-sm transition-colors flex items-center gap-1.5 ${
                 searchMode === 'title'
                   ? 'bg-accent-primary/20 text-accent-primary'
                   : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'
               }`}
               title="Search by title"
+              aria-pressed={searchMode === 'title'}
             >
               <TitleIcon className="w-4 h-4" />
               <span className="hidden sm:inline">Title</span>
             </button>
             <button
               onClick={() => setSearchMode('content')}
+              type="button"
               className={`px-3 py-2 text-sm transition-colors flex items-center gap-1.5 ${
                 searchMode === 'content'
                   ? 'bg-accent-primary/20 text-accent-primary'
                   : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'
               }`}
               title="Search document contents"
+              aria-pressed={searchMode === 'content'}
             >
               <ContentIcon className="w-4 h-4" />
               <span className="hidden sm:inline">Content</span>
@@ -218,7 +286,11 @@ export function LibraryPage() {
 
         {/* Indexing status indicator (only show when content search is active and indexing) */}
         {searchMode === 'content' && searchStatus && !searchStatus.isComplete && (
-          <div className="flex items-center gap-2 text-sm text-text-secondary bg-bg-surface border border-text-secondary/20 rounded-lg px-3 py-2">
+          <div
+            className="flex items-center gap-2 text-sm text-text-secondary bg-bg-surface border border-text-secondary/20 rounded-lg px-3 py-2"
+            role="status"
+            aria-live="polite"
+          >
             <div className="w-4 h-4 border-2 border-accent-primary/50 border-t-accent-primary rounded-full animate-spin" />
             <span>
               Indexing documents for search... {searchStatus.percentComplete}% ({searchStatus.indexedDocuments}/{searchStatus.totalDocuments})
@@ -233,6 +305,10 @@ export function LibraryPage() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setShowMobileFilters(true)}
+                aria-haspopup="dialog"
+                aria-expanded={showMobileFilters}
+                aria-controls="library-filters-sheet"
+                type="button"
                 className="flex items-center gap-2 px-4 py-2 bg-bg-surface border border-text-secondary/20 rounded-lg text-text-primary"
               >
                 <FilterIcon className="w-4 h-4" />
@@ -246,8 +322,11 @@ export function LibraryPage() {
               {/* Sort order button on mobile */}
               <button
                 onClick={toggleSortOrder}
+                type="button"
                 className="p-2 rounded-lg bg-bg-surface border border-text-secondary/20 text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-colors"
                 title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+                aria-label={`Sort order: ${sortOrder === 'asc' ? 'ascending' : 'descending'}`}
+                aria-pressed={sortOrder === 'asc'}
               >
                 {sortOrder === 'asc' ? (
                   <SortAscIcon className="w-4 h-4" />
@@ -265,19 +344,19 @@ export function LibraryPage() {
                 <div className="flex rounded-lg bg-bg-surface border border-text-secondary/20 overflow-hidden">
                   <FilterButton
                     active={typeFilter === 'all'}
-                    onClick={() => setTypeFilter('all')}
+                    onClick={() => handleTypeFilter('all')}
                   >
                     All
                   </FilterButton>
                   <FilterButton
                     active={typeFilter === 'pdf'}
-                    onClick={() => setTypeFilter('pdf')}
+                    onClick={() => handleTypeFilter('pdf')}
                   >
                     PDF
                   </FilterButton>
                   <FilterButton
                     active={typeFilter === 'epub'}
-                    onClick={() => setTypeFilter('epub')}
+                    onClick={() => handleTypeFilter('epub')}
                   >
                     EPUB
                   </FilterButton>
@@ -292,7 +371,7 @@ export function LibraryPage() {
                     <FilterButton
                       key={key}
                       active={progressFilter === key}
-                      onClick={() => setProgressFilter(key)}
+                      onClick={() => handleProgressFilter(key)}
                     >
                       {PROGRESS_LABELS[key]}
                     </FilterButton>
@@ -330,7 +409,7 @@ export function LibraryPage() {
                     <FilterButton
                       key={key}
                       active={sort === key}
-                      onClick={() => setSort(key)}
+                      onClick={() => handleSortChange(key)}
                     >
                       {SORT_LABELS[key]}
                     </FilterButton>
@@ -338,8 +417,11 @@ export function LibraryPage() {
                 </div>
                 <button
                   onClick={toggleSortOrder}
+                  type="button"
                   className="p-1.5 rounded-lg bg-bg-surface border border-text-secondary/20 text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-colors"
                   title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+                  aria-label={`Sort order: ${sortOrder === 'asc' ? 'ascending' : 'descending'}`}
+                  aria-pressed={sortOrder === 'asc'}
                 >
                   {sortOrder === 'asc' ? (
                     <SortAscIcon className="w-4 h-4" />
@@ -358,13 +440,14 @@ export function LibraryPage() {
             <span className="text-text-secondary">
               Showing {filteredNotes.length} of {notes?.length || 0} items
             </span>
-            <button
-              onClick={handleClearFilters}
-              className="text-accent-primary hover:underline transition-colors"
-            >
-              Clear filters
-            </button>
-          </div>
+              <button
+                onClick={handleClearFilters}
+                type="button"
+                className="text-accent-primary hover:underline transition-colors"
+              >
+                Clear filters
+              </button>
+            </div>
         )}
       </div>
 
@@ -401,13 +484,21 @@ export function LibraryPage() {
               Library
             </h2>
           )}
-          <LibraryGrid notes={filteredNotes} />
+          {filteredNotes.length === 0 && (notes?.length ?? 0) > 0 ? (
+            <FilteredEmptyState
+              query={searchQuery}
+              onClear={handleClearFilters}
+            />
+          ) : (
+            <LibraryGrid notes={filteredNotes} />
+          )}
         </>
       )}
 
       {/* Mobile filters bottom sheet */}
       {showMobileFilters && (
         <MobileLibraryFilters
+          dialogId="library-filters-sheet"
           typeFilter={typeFilter}
           progressFilter={progressFilter}
           sort={sort}
@@ -436,15 +527,42 @@ function FilterButton({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`px-3 py-1.5 text-sm transition-colors ${
+      aria-pressed={active}
+      className={`px-3 py-1.5 text-sm transition-all duration-150 select-none ${
         active
           ? 'bg-accent-primary/20 text-accent-primary'
-          : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'
+          : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep active:bg-accent-primary/10 active:scale-95'
       }`}
     >
       {children}
     </button>
+  );
+}
+
+function FilteredEmptyState({
+  query,
+  onClear,
+}: {
+  query: string;
+  onClear: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-text-secondary">
+      <SearchIcon className="w-12 h-12 mb-3 opacity-40" />
+      <p className="text-lg text-text-primary">No matches found</p>
+      <p className="text-sm mt-1">
+        {query ? `No titles match "${query}".` : 'Try adjusting your filters.'}
+      </p>
+      <button
+        type="button"
+        onClick={onClear}
+        className="mt-4 px-4 py-2 rounded-lg bg-accent-primary/20 text-accent-primary text-sm font-medium"
+      >
+        Clear filters
+      </button>
+    </div>
   );
 }
 
@@ -500,6 +618,14 @@ function FilterIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+    </svg>
+  );
+}
+
+function DisconnectedIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
     </svg>
   );
 }

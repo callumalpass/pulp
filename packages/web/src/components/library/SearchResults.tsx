@@ -10,7 +10,7 @@ interface SearchResultsProps {
 export function SearchResults({ results, query, isLoading }: SearchResultsProps) {
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-8">
+      <div className="flex items-center justify-center py-8" role="status" aria-live="polite">
         <div className="w-6 h-6 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" />
         <span className="ml-2 text-text-secondary">Searching...</span>
       </div>
@@ -19,7 +19,7 @@ export function SearchResults({ results, query, isLoading }: SearchResultsProps)
 
   if (results.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-text-secondary">
+      <div className="flex flex-col items-center justify-center py-12 text-text-secondary" role="status" aria-live="polite">
         <SearchIcon className="w-12 h-12 mb-3 opacity-50" />
         <p className="text-lg">No results found</p>
         <p className="text-sm mt-1">Try different search terms</p>
@@ -29,7 +29,7 @@ export function SearchResults({ results, query, isLoading }: SearchResultsProps)
 
   return (
     <div className="space-y-4">
-      <div className="text-sm text-text-secondary mb-4">
+      <div className="text-sm text-text-secondary mb-4" role="status" aria-live="polite">
         Found {results.reduce((sum, r) => sum + r.totalMatches, 0)} matches in {results.length} document{results.length !== 1 ? 's' : ''}
       </div>
 
@@ -111,7 +111,7 @@ function MatchRow({
   return (
     <Link
       to={link}
-      className="block px-4 py-3 hover:bg-bg-deep/50 transition-colors"
+      className="block px-4 py-3 hover:bg-bg-deep/50 active:bg-bg-deep transition-all duration-150"
     >
       <div className="flex items-start gap-3">
         {/* Location indicator */}

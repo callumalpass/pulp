@@ -119,8 +119,11 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
   const estimatedCompletion = formatEstimatedCompletion(bookStats?.estimatedCompletionDate ?? null);
 
   return (
-    <Link to={`/read/${note.id}`}>
-      <Card hover className="flex flex-col group relative">
+    <Link
+      to={`/read/${note.id}`}
+      className="group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-deep rounded-md"
+    >
+      <Card hover className="library-card flex flex-col relative transition-transform duration-150 active:scale-[0.98]">
         <div className="aspect-[2/3] bg-bg-deep relative overflow-hidden">
           {note.cover && !imageError ? (
             <img
@@ -128,6 +131,7 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
               alt={note.title}
               className="w-full h-full object-cover"
               loading="lazy"
+              decoding="async"
               onError={() => setImageError(true)}
             />
           ) : (
@@ -137,8 +141,11 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
           {/* Top-right actions: Pin button */}
           <button
             onClick={handlePinClick}
-            className={`absolute top-2 right-2 p-1.5 rounded-full bg-bg-surface/80 backdrop-blur-sm transition-opacity ${
-              note.pinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+            type="button"
+            aria-label={note.pinned ? 'Unpin' : 'Pin'}
+            aria-pressed={note.pinned}
+            className={`absolute top-2 right-2 p-1.5 rounded-full bg-bg-surface/80 backdrop-blur-sm transition-opacity focus-visible:ring-2 focus-visible:ring-accent-primary/60 ${
+              note.pinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
             }`}
             title={note.pinned ? 'Unpin' : 'Pin'}
           >
@@ -204,7 +211,8 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
               ref={ratingButtonRef}
               onClick={handleRatingClick}
               onKeyDown={handleRatingKeyDown}
-              className={`flex items-center gap-0.5 text-xs hover:bg-bg-deep rounded px-1 py-0.5 -mx-1 -my-0.5 transition-colors ${isRatingPending ? 'opacity-50' : ''}`}
+              type="button"
+              className={`flex items-center gap-0.5 text-xs hover:bg-bg-deep rounded px-1 py-0.5 -mx-1 -my-0.5 transition-colors focus-visible:ring-2 focus-visible:ring-accent-primary/60 ${isRatingPending ? 'opacity-50' : ''}`}
               title={note.rating ? `Rating: ${note.rating}/5` : 'Add rating'}
               aria-label={note.rating ? `Rating: ${note.rating} out of 5 stars. Press to change.` : 'Add rating'}
               aria-haspopup="true"
@@ -214,7 +222,7 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
               {note.rating ? (
                 <StarRating rating={note.rating} size={10} />
               ) : (
-                <span className="text-text-secondary opacity-0 group-hover:opacity-100 transition-opacity">
+                <span className="text-text-secondary opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                   Rate
                 </span>
               )}
@@ -292,6 +300,7 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
             {note.rating && (
               <button
                 onClick={(e) => handleSetRating(e, null)}
+                type="button"
                 className={`w-full text-xs text-text-secondary hover:text-text-primary hover:bg-bg-deep rounded px-2 py-1 transition-colors ${isRatingPending ? 'opacity-50 cursor-not-allowed' : ''}`}
                 disabled={isRatingPending}
               >
@@ -329,9 +338,26 @@ function PinIcon({ filled }: { filled: boolean }) {
 
 function DefaultCover({ title, type }: { title: string; type: 'pdf' | 'epub' }) {
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-gradient-to-br from-accent-primary/20 to-accent-secondary/20">
-      <div className="text-4xl mb-2">{type === 'pdf' ? '📄' : '📚'}</div>
-      <p className="text-xs text-center text-text-secondary line-clamp-3">{title}</p>
+    <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-gradient-to-br from-accent-primary/30 via-bg-surface to-accent-secondary/20">
+      <div className="p-3 rounded-xl bg-bg-surface/60 backdrop-blur-sm mb-3 shadow-sm">
+        {type === 'pdf' ? (
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent-primary">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="16" y1="13" x2="8" y2="13" />
+            <line x1="16" y1="17" x2="8" y2="17" />
+            <line x1="10" y1="9" x2="8" y2="9" />
+          </svg>
+        ) : (
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent-primary">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+            <line x1="8" y1="6" x2="16" y2="6" />
+            <line x1="8" y1="10" x2="14" y2="10" />
+          </svg>
+        )}
+      </div>
+      <p className="text-xs text-center text-text-primary/80 line-clamp-3 font-medium leading-tight">{title}</p>
     </div>
   );
 }

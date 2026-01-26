@@ -501,6 +501,140 @@ body {
   border-left-color: #000000;
 }
 
+/* Prose styling for markdown preview (dark theme) */
+.markdown-editor-panel .prose {
+  color: var(--color-text-primary);
+}
+
+.markdown-editor-panel .prose h1,
+.markdown-editor-panel .prose h2,
+.markdown-editor-panel .prose h3 {
+  color: var(--color-text-primary);
+  font-weight: 700;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.markdown-editor-panel .prose h1 {
+  font-size: 1.75rem;
+}
+
+.markdown-editor-panel .prose h2 {
+  font-size: 1.4rem;
+}
+
+.markdown-editor-panel .prose h3 {
+  font-size: 1.15rem;
+}
+
+.markdown-editor-panel .prose p {
+  margin-bottom: 1em;
+  line-height: 1.6;
+}
+
+.markdown-editor-panel .prose a {
+  color: var(--color-accent-primary);
+  text-decoration: underline;
+}
+
+.markdown-editor-panel .prose a:hover {
+  color: var(--color-accent-secondary);
+}
+
+.markdown-editor-panel .prose strong {
+  font-weight: 700;
+}
+
+.markdown-editor-panel .prose em {
+  font-style: italic;
+}
+
+.markdown-editor-panel .prose del {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.markdown-editor-panel .prose code {
+  background-color: var(--color-bg-surface);
+  color: var(--color-accent-secondary);
+  padding: 0.15em 0.3em;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+
+.markdown-editor-panel .prose pre {
+  background-color: var(--color-bg-surface);
+  border-radius: 8px;
+  padding: 1em;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+.markdown-editor-panel .prose pre code {
+  background: none;
+  padding: 0;
+  color: var(--color-text-primary);
+}
+
+.markdown-editor-panel .prose blockquote {
+  border-left: 4px solid var(--color-accent-primary);
+  padding-left: 1em;
+  margin: 1em 0;
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.markdown-editor-panel .prose ul,
+.markdown-editor-panel .prose ol {
+  padding-left: 2em;
+  margin: 1em 0;
+  display: block;
+}
+
+.markdown-editor-panel .prose ul {
+  list-style-type: disc;
+  list-style-position: outside;
+}
+
+.markdown-editor-panel .prose ol {
+  list-style-type: decimal;
+  list-style-position: outside;
+}
+
+.markdown-editor-panel .prose li {
+  margin-bottom: 0.5em;
+  line-height: 1.5;
+  display: list-item;
+}
+
+.markdown-editor-panel .prose li::marker {
+  color: var(--color-accent-primary);
+}
+
+/* Ensure list styles aren't overridden */
+.markdown-editor-panel .prose ul li {
+  list-style-type: disc;
+}
+
+.markdown-editor-panel .prose ol li {
+  list-style-type: decimal;
+}
+
+.markdown-editor-panel .prose hr {
+  border: none;
+  border-top: 1px solid var(--color-text-secondary);
+  margin: 1.5em 0;
+  opacity: 0.3;
+}
+
+.markdown-editor-panel .prose img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 1em 0;
+}
+
 /* E-ink prose styling for markdown preview */
 .eink-markdown-panel .prose {
   color: #000000;
@@ -643,6 +777,31 @@ body {
   justify-content: center;
 }
 
+/* Touch feedback animation for mobile devices */
+@media (hover: none) and (pointer: coarse) {
+  .touch-feedback {
+    transition: transform 100ms ease-out, background-color 100ms ease-out;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .touch-feedback:active {
+    transform: scale(0.97);
+  }
+}
+
+/* Improved button press feedback */
+.btn-press {
+  transition: transform 150ms cubic-bezier(0.25, 0.8, 0.25, 1),
+              background-color 150ms ease-out,
+              box-shadow 150ms ease-out;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn-press:active {
+  transform: scale(0.96);
+}
+
 /* Mobile Bottom Navigation */
 .mobile-bottom-nav {
   position: fixed;
@@ -696,6 +855,12 @@ body {
     transparent 100%
   );
   animation: shimmer 2s ease-in-out infinite;
+}
+
+/* Library card performance */
+.library-card {
+  content-visibility: auto;
+  contain-intrinsic-size: 240px 360px;
 }
 
 /* Disable browser pinch-zoom to allow custom handling */
