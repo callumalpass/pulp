@@ -145,41 +145,71 @@ export class CoverExtractor {
   }
 
   private async extractEPUBCoverFallback(epub: EPub): Promise<Buffer | null> {
-    // Look for common cover image names in manifest
-    const coverPatterns = ['cover', 'Cover', 'cover-image', 'coverimage'];
-
+    // First, check for EPUB 3 cover-image property
     for (const [id, item] of Object.entries(epub.manifest)) {
-      const href = (item as { href: string }).href.toLowerCase();
-      const mediaType = (item as { 'media-type': string })['media-type'];
-
-      if (
-        mediaType.startsWith('image/') &&
-        (coverPatterns.some(p => id.toLowerCase().includes(p)) ||
-         coverPatterns.some(p => href.includes(p)))
-      ) {
-        return new Promise((resolve) => {
-          epub.getImage(id, async (error, data) => {
-            if (error || !data) {
-              resolve(null);
-              return;
-            }
-
-            try {
-              const resized = await sharp(data)
-                .resize(COVER_WIDTH, COVER_HEIGHT, { fit: 'cover' })
-                .webp({ quality: 80 })
-                .toBuffer();
-
-              resolve(resized);
-            } catch {
-              resolve(null);
-            }
-          });
-        });
+      const properties = (item as { properties?: string }).properties;
+      if (properties && properties.includes('cover-image')) {
+        const result = await this.tryGetEpubImage(epub, id);
+        if (result) return result;
       }
     }
 
+    // Look for common cover image names in manifest
+    const coverPatterns = ['cover', 'cover-image', 'coverimage', 'frontcover'];
+    const images: Array<{ id: string; href: string }> = [];
+
+    for (const [id, item] of Object.entries(epub.manifest)) {
+      const href = (item as { href: string }).href;
+      const mediaType = (item as { 'media-type': string })['media-type'];
+
+      if (mediaType && mediaType.startsWith('image/')) {
+        images.push({ id, href });
+      }
+    }
+
+    // Try pattern matching first
+    for (const { id, href } of images) {
+      const idLower = id.toLowerCase();
+      const hrefLower = href.toLowerCase();
+
+      if (
+        coverPatterns.some(p => idLower.includes(p)) ||
+        coverPatterns.some(p => hrefLower.includes(p))
+      ) {
+        const result = await this.tryGetEpubImage(epub, id);
+        if (result) return result;
+      }
+    }
+
+    // Last resort: try the first image in the manifest
+    if (images.length > 0) {
+      const result = await this.tryGetEpubImage(epub, images[0].id);
+      if (result) return result;
+    }
+
     return null;
+  }
+
+  private async tryGetEpubImage(epub: EPub, imageId: string): Promise<Buffer | null> {
+    return new Promise((resolve) => {
+      epub.getImage(imageId, async (error, data) => {
+        if (error || !data) {
+          resolve(null);
+          return;
+        }
+
+        try {
+          const resized = await sharp(data)
+            .resize(COVER_WIDTH, COVER_HEIGHT, { fit: 'cover' })
+            .webp({ quality: 80 })
+            .toBuffer();
+
+          resolve(resized);
+        } catch {
+          resolve(null);
+        }
+      });
+    });
   }
 
   async invalidateCache(noteId: string): Promise<void> {

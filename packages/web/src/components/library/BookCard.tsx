@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { LiteratureNoteSummary } from '@pulp/shared';
 import { Card } from '../ui/Card';
@@ -9,20 +10,19 @@ interface BookCardProps {
 }
 
 export function BookCard({ note }: BookCardProps) {
+  const [imageError, setImageError] = useState(false);
+
   return (
     <Link to={`/read/${note.id}`}>
       <Card hover className="flex flex-col">
         <div className="aspect-[2/3] bg-bg-deep relative overflow-hidden">
-          {note.cover ? (
+          {note.cover && !imageError ? (
             <img
               src={api.covers.getUrl(note.id)}
               alt={note.title}
               className="w-full h-full object-cover"
               loading="lazy"
-              onError={(e) => {
-                // Hide broken image and show fallback
-                e.currentTarget.style.display = 'none';
-              }}
+              onError={() => setImageError(true)}
             />
           ) : (
             <DefaultCover title={note.title} type={note.sourceType} />
