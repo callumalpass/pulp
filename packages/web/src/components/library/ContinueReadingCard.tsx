@@ -111,3 +111,40 @@ function PlayIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+
+export function ContinueReadingCardSkeleton() {
+  return (
+    <div className="flex gap-4 p-4 bg-bg-surface rounded-xl animate-pulse">
+      {/* Cover thumbnail skeleton */}
+      <div className="w-16 h-24 flex-shrink-0 bg-bg-deep rounded-lg" />
+
+      {/* Book info skeleton */}
+      <div className="flex-1 min-w-0 flex flex-col justify-center">
+        {/* Title skeleton */}
+        <div className="h-5 w-3/4 bg-bg-deep rounded" />
+        {/* Author skeleton */}
+        <div className="h-4 w-1/2 bg-bg-deep rounded mt-1.5" />
+
+        {/* Progress bar skeleton */}
+        <div className="mt-2">
+          <div className="flex items-center justify-between mb-1">
+            <div className="h-3 w-20 bg-bg-deep rounded" />
+            <div className="h-3 w-12 bg-bg-deep rounded" />
+          </div>
+          <div className="w-full h-1.5 bg-bg-deep rounded-full" />
+        </div>
+
+        {/* Stats row skeleton */}
+        <div className="flex items-center gap-3 mt-2">
+          <div className="h-3 w-16 bg-bg-deep rounded" />
+          <div className="h-3 w-24 bg-bg-deep rounded" />
+        </div>
+      </div>
+
+      {/* Continue button skeleton */}
+      <div className="flex items-center">
+        <div className="w-10 h-10 rounded-full bg-bg-deep" />
+      </div>
+    </div>
+  );
+}

@@ -54,6 +54,7 @@ const PAGE_BUFFER = 3; // Number of pages to pre-render above/below viewport
 const VIRTUALIZATION_BUFFER = 8; // Number of pages above/below to keep in DOM
 const ZOOM_DEBOUNCE_MS = 150; // Debounce delay for zoom changes
 const PAGE_DIMENSION_CONCURRENCY = 6; // Parallelism for initial page measurements
+const MAX_TEXT_CACHE_SIZE = 100; // Maximum pages to keep in text content cache
 
 export function PDFReader({ note, initialPage }: PDFReaderProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -134,7 +135,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     }
   }, [note.id, note.readingStats, setBookStats]);
 
-  const { updateProgress, saveImmediately } = useProgress(note.id);
+  const { updateProgress, saveImmediately, saveStatus } = useProgress(note.id);
   const { data: highlights } = useHighlights(note.id);
 
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -164,9 +165,39 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   const scrollDirectionRef = useRef<'up' | 'down' | 'none'>('none');
   const idleCallbackRef = useRef<number | null>(null);
 
-  // Text content cache for search
+  // Text content cache for search (with LRU eviction)
   const textContentCache = useRef<Map<number, string>>(new Map());
+  const textCacheAccessOrder = useRef<number[]>([]); // Track access order for LRU
   const searchLayerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+
+  // LRU cache helper for text content
+  const setTextCacheEntry = useCallback((pageNum: number, text: string) => {
+    const cache = textContentCache.current;
+    const accessOrder = textCacheAccessOrder.current;
+
+    // If already in cache, update access order
+    if (cache.has(pageNum)) {
+      const idx = accessOrder.indexOf(pageNum);
+      if (idx > -1) {
+        accessOrder.splice(idx, 1);
+      }
+      accessOrder.push(pageNum);
+      cache.set(pageNum, text);
+      return;
+    }
+
+    // Evict oldest entries if over limit
+    while (cache.size >= MAX_TEXT_CACHE_SIZE && accessOrder.length > 0) {
+      const oldest = accessOrder.shift();
+      if (oldest !== undefined) {
+        cache.delete(oldest);
+      }
+    }
+
+    // Add new entry
+    cache.set(pageNum, text);
+    accessOrder.push(pageNum);
+  }, []);
 
   // Debounce zoom changes
   useEffect(() => {
@@ -899,7 +930,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
               const pageText = textContent.items
                 .map((item) => ('str' in item ? item.str : ''))
                 .join(' ');
-              textContentCache.current.set(pageNum, pageText);
+              setTextCacheEntry(pageNum, pageText);
 
               const textLayer = new TextLayer({
                 textContentSource: textContent,
@@ -1016,7 +1047,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
       const pageText = textContentData.items
         .map((item) => ('str' in item ? item.str : ''))
         .join(' ');
-      textContentCache.current.set(pageNum, pageText);
+      setTextCacheEntry(pageNum, pageText);
 
       const textLayer = new TextLayer({
         textContentSource: textContentData,
@@ -1214,7 +1245,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
           pageText = textContent.items
             .map((item) => ('str' in item ? item.str : ''))
             .join(' ');
-          textContentCache.current.set(pageNum, pageText);
+          setTextCacheEntry(pageNum, pageText);
         } catch {
           continue;
         }
@@ -1893,6 +1924,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         onViewModeChange={setPdfViewMode}
         onEnterPresentation={enterPresentation}
         hasToc={hasToc}
+        saveStatus={saveStatus}
       />
 
       <div className="flex-1 flex overflow-hidden min-w-0 relative">

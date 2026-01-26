@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type { ReadingStats } from '@pulp/shared';
 import { api } from '../lib/api';
 
@@ -12,6 +13,15 @@ export interface ReadingSession {
   startPage: number;
   endPage: number;
   pagesRead: number;
+}
+
+// Pending session data for offline persistence
+interface PendingSessionData {
+  noteId: string;
+  sessionDurationMs: number;
+  pagesRead: number;
+  timestamp: string;  // When the session ended (for deduplication)
+  retryCount: number;
 }
 
 // Active session tracking (local only, for real-time UI)
@@ -31,6 +41,9 @@ interface ActiveSession {
 
 const MIN_SESSION_DURATION_MS = 10000;  // 10 seconds minimum to count
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;  // 5 minutes of inactivity triggers pause
+const MAX_RETRY_ATTEMPTS = 5;
+const RETRY_DELAY_MS = 2000;
+const MAX_PENDING_SESSIONS = 50;  // Limit stored pending sessions
 
 interface ReadingStatsState {
   // Current active reading session (local only)
@@ -38,6 +51,13 @@ interface ReadingStatsState {
 
   // Cached book stats from API (keyed by noteId)
   bookStatsCache: Record<string, ReadingStats>;
+
+  // Pending sessions waiting to be synced (persisted)
+  pendingSessions: PendingSessionData[];
+
+  // Sync status
+  isSyncing: boolean;
+  lastSyncError: string | null;
 
   // Actions
   startSession: (noteId: string, currentPage: number, totalPages: number) => void;
@@ -51,6 +71,10 @@ interface ReadingStatsState {
   // Cache management
   setBookStats: (noteId: string, stats: ReadingStats | null) => void;
 
+  // Offline sync
+  syncPendingSessions: () => Promise<void>;
+  getPendingSessionCount: () => number;
+
   // Getters
   getBookStats: (noteId: string) => ReadingStats | null;
   getEstimatedTimeRemaining: (noteId: string, currentPage: number, totalPages: number) => number | null;
@@ -59,9 +83,51 @@ interface ReadingStatsState {
   isIdlePaused: () => boolean;
 }
 
-export const useReadingStatsStore = create<ReadingStatsState>()((set, get) => ({
+// Helper to save a session with retry logic
+async function saveSessionWithRetry(
+  noteId: string,
+  sessionDurationMs: number,
+  pagesRead: number,
+  maxRetries: number = MAX_RETRY_ATTEMPTS
+): Promise<{ success: boolean; stats?: ReadingStats; error?: string }> {
+  let lastError: string | null = null;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const result = await api.readingStats.update(noteId, {
+        sessionDurationMs,
+        pagesRead,
+      });
+
+      return { success: true, stats: result.readingStats };
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : 'Unknown error';
+
+      // Don't retry on client errors (4xx) - they won't succeed on retry
+      if (lastError.includes('HTTP 4')) {
+        return { success: false, error: lastError };
+      }
+
+      // Wait before retrying (with exponential backoff)
+      if (attempt < maxRetries - 1) {
+        await new Promise(resolve =>
+          setTimeout(resolve, RETRY_DELAY_MS * Math.pow(2, attempt))
+        );
+      }
+    }
+  }
+
+  return { success: false, error: lastError ?? 'Max retries exceeded' };
+}
+
+export const useReadingStatsStore = create<ReadingStatsState>()(
+  persist(
+    (set, get) => ({
   activeSession: null,
   bookStatsCache: {},
+  pendingSessions: [],
+  isSyncing: false,
+  lastSyncError: null,
 
   startSession: (noteId, currentPage, totalPages) => {
     const now = performance.now();
@@ -203,7 +269,7 @@ export const useReadingStatsStore = create<ReadingStatsState>()((set, get) => ({
   },
 
   endSession: async () => {
-    const { activeSession } = get();
+    const { activeSession, pendingSessions } = get();
     if (!activeSession) return null;
 
     const now = performance.now();
@@ -237,26 +303,46 @@ export const useReadingStatsStore = create<ReadingStatsState>()((set, get) => ({
       pagesRead,
     };
 
-    // Save to API (fire and forget, but update cache on success)
-    try {
-      const result = await api.readingStats.update(activeSession.noteId, {
+    // Try to save with retry logic
+    const result = await saveSessionWithRetry(
+      activeSession.noteId,
+      durationMs,
+      pagesRead,
+      3  // Use fewer retries for immediate saves
+    );
+
+    if (result.success && result.stats) {
+      // Update local cache with new stats from server
+      set((state) => ({
+        bookStatsCache: {
+          ...state.bookStatsCache,
+          [activeSession.noteId]: result.stats!,
+        },
+        lastSyncError: null,
+      }));
+    } else {
+      // Save failed - persist session for later sync
+      console.error('Failed to save reading stats, queueing for later:', result.error);
+
+      const pendingSession: PendingSessionData = {
+        noteId: activeSession.noteId,
         sessionDurationMs: durationMs,
         pagesRead,
-      });
+        timestamp: endTimestamp,
+        retryCount: 0,
+      };
 
-      // Update local cache with new stats from server
-      if (result.readingStats) {
-        set((state) => ({
-          bookStatsCache: {
-            ...state.bookStatsCache,
-            [activeSession.noteId]: result.readingStats,
-          },
-        }));
+      // Add to pending queue (with size limit)
+      const updatedPending = [...pendingSessions, pendingSession];
+      if (updatedPending.length > MAX_PENDING_SESSIONS) {
+        // Remove oldest sessions if over limit
+        updatedPending.splice(0, updatedPending.length - MAX_PENDING_SESSIONS);
       }
-    } catch (error) {
-      console.error('Failed to save reading stats:', error);
-      // Stats will be lost if API fails, but that's acceptable
-      // The session was still tracked locally for the UI
+
+      set({
+        pendingSessions: updatedPending,
+        lastSyncError: result.error ?? 'Failed to sync',
+      });
     }
 
     return session;
@@ -271,6 +357,62 @@ export const useReadingStatsStore = create<ReadingStatsState>()((set, get) => ({
         },
       }));
     }
+  },
+
+  syncPendingSessions: async () => {
+    const { pendingSessions, isSyncing } = get();
+
+    // Don't sync if already syncing or no pending sessions
+    if (isSyncing || pendingSessions.length === 0) return;
+
+    set({ isSyncing: true, lastSyncError: null });
+
+    const stillPending: PendingSessionData[] = [];
+    let lastError: string | null = null;
+
+    // Process each pending session
+    for (const session of pendingSessions) {
+      const result = await saveSessionWithRetry(
+        session.noteId,
+        session.sessionDurationMs,
+        session.pagesRead,
+        MAX_RETRY_ATTEMPTS
+      );
+
+      if (result.success && result.stats) {
+        // Success - update cache
+        set((state) => ({
+          bookStatsCache: {
+            ...state.bookStatsCache,
+            [session.noteId]: result.stats!,
+          },
+        }));
+      } else {
+        // Failed - keep in pending queue with incremented retry count
+        lastError = result.error ?? 'Unknown error';
+        const updatedSession = {
+          ...session,
+          retryCount: session.retryCount + 1,
+        };
+
+        // Only keep if under max retry count
+        if (updatedSession.retryCount < MAX_RETRY_ATTEMPTS) {
+          stillPending.push(updatedSession);
+        } else {
+          console.error('Dropping session after max retries:', session);
+        }
+      }
+    }
+
+    set({
+      pendingSessions: stillPending,
+      isSyncing: false,
+      lastSyncError: stillPending.length > 0 ? lastError : null,
+    });
+  },
+
+  getPendingSessionCount: () => {
+    return get().pendingSessions.length;
   },
 
   getBookStats: (noteId) => {
@@ -331,4 +473,13 @@ export const useReadingStatsStore = create<ReadingStatsState>()((set, get) => ({
     const { activeSession } = get();
     return activeSession?.isIdlePaused ?? false;
   },
-}));
+}),
+    {
+      name: 'pulp-reading-stats',
+      // Only persist pending sessions, not active session or cache
+      partialize: (state) => ({
+        pendingSessions: state.pendingSessions,
+      }),
+    }
+  )
+);

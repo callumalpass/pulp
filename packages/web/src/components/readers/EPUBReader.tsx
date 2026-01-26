@@ -17,6 +17,7 @@ import { ReadingStatsPanel } from './shared/ReadingStatsPanel';
 import { ReadingGoalsPanel } from './shared/ReadingGoalsPanel';
 import { ReadingTimeIndicator } from './shared/ReadingTimeIndicator';
 import { MarkdownEditorPanel } from './shared/MarkdownEditorPanel';
+import { SaveIndicator } from './shared/SaveIndicator';
 import { api } from '../../lib/api';
 import { Link } from 'react-router-dom';
 
@@ -88,7 +89,7 @@ export function EPUBReader({ note }: EPUBReaderProps) {
   }, [note.id, note.readingStats, setBookStats]);
 
   const { readerTheme, fontSize, lineHeight, setFontSize, setLineHeight, setReaderTheme } = usePreferencesStore();
-  const { updateProgress, saveImmediately } = useProgress(note.id);
+  const { updateProgress, saveImmediately, saveStatus } = useProgress(note.id);
   const { data: highlights } = useHighlights(note.id);
 
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -713,6 +714,9 @@ export function EPUBReader({ note }: EPUBReaderProps) {
             </svg>
           </button>
         </nav>
+
+        {/* Save indicator */}
+        <SaveIndicator status={saveStatus} />
 
         {/* Reading time indicator */}
         <ReadingTimeIndicator

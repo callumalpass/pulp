@@ -5,6 +5,8 @@ import { useReaderStore, type ZoomMode, type PDFViewMode } from '../../../stores
 import { useMobile } from '../../../hooks/useMobile';
 import { MobileReaderMenu } from './MobileReaderMenu';
 import { ReadingTimeIndicator } from './ReadingTimeIndicator';
+import { SaveIndicator } from './SaveIndicator';
+import type { SaveStatus } from '../../../hooks/useProgress';
 
 interface ReaderControlsProps {
   noteId: string;
@@ -18,6 +20,7 @@ interface ReaderControlsProps {
   onViewModeChange?: (mode: PDFViewMode) => void;
   onEnterPresentation?: () => void;
   hasToc?: boolean;
+  saveStatus?: SaveStatus;
 }
 
 export function ReaderControls({
@@ -32,6 +35,7 @@ export function ReaderControls({
   onViewModeChange,
   onEnterPresentation,
   hasToc = false,
+  saveStatus = 'idle',
 }: ReaderControlsProps) {
   const isMobile = useMobile();
   const [pageInput, setPageInput] = useState(String(currentPage));
@@ -721,6 +725,9 @@ export function ReaderControls({
         </Button>
 
         <div className="h-6 w-px bg-text-secondary/20" aria-hidden="true" />
+
+        {/* Save indicator */}
+        <SaveIndicator status={saveStatus} />
 
         {/* Progress indicator */}
         <div className="flex items-center gap-2">

@@ -5,7 +5,7 @@ import { useMobile } from '../hooks/useMobile';
 import { LibraryGrid } from '../components/library/LibraryGrid';
 import { SearchResults } from '../components/library/SearchResults';
 import { MobileLibraryFilters } from '../components/library/MobileLibraryFilters';
-import { ContinueReadingCard } from '../components/library/ContinueReadingCard';
+import { ContinueReadingCard, ContinueReadingCardSkeleton } from '../components/library/ContinueReadingCard';
 import { Button } from '../components/ui/Button';
 import { useLibraryFiltersStore, type SortOption, type ProgressFilter } from '../stores/libraryFilters';
 import type { LiteratureNoteSummary } from '@pulp/shared';
@@ -337,13 +337,22 @@ export function LibraryPage() {
       </div>
 
       {/* Continue Reading Section */}
-      {!isShowingSearchResults && !hasActiveFilters && continueReadingBook && (
-        <div className="mb-8">
-          <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-3">
-            Continue Reading
-          </h2>
-          <ContinueReadingCard note={continueReadingBook} />
-        </div>
+      {!isShowingSearchResults && !hasActiveFilters && (
+        isLoading ? (
+          <div className="mb-8">
+            <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-3">
+              Continue Reading
+            </h2>
+            <ContinueReadingCardSkeleton />
+          </div>
+        ) : continueReadingBook ? (
+          <div className="mb-8">
+            <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-3">
+              Continue Reading
+            </h2>
+            <ContinueReadingCard note={continueReadingBook} />
+          </div>
+        ) : null
       )}
 
       {/* Content - either search results or library grid */}

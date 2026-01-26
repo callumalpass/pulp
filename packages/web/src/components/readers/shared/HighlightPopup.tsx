@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import type { TextSelection } from '@pulp/shared';
 import { Button } from '../../ui/Button';
 import { useCreateHighlight } from '../../../hooks/useHighlights';
@@ -30,9 +30,13 @@ interface HighlightPopupProps {
   cfi?: string; // Kept for backwards compatibility
 }
 
+type SaveState = 'idle' | 'saving' | 'error';
+
 export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }: HighlightPopupProps) {
   const [note, setNote] = useState('');
   const [showNoteInput, setShowNoteInput] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>('idle');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -58,7 +62,10 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
     return () => document.removeEventListener('mousedown', handleClick);
   }, [onClose]);
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
+    setSaveState('saving');
+    setErrorMessage(null);
+
     try {
       if (type === 'pdf' && 'selection' in selection) {
         await createHighlight.mutateAsync({
@@ -71,7 +78,11 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
         });
       } else if (type === 'epub') {
         const epubCfi = cfi || ('cfi' in selection ? selection.cfi : undefined);
-        if (!epubCfi) return;
+        if (!epubCfi) {
+          setSaveState('error');
+          setErrorMessage('Missing EPUB position data');
+          return;
+        }
 
         await createHighlight.mutateAsync({
           type: 'epub',
@@ -81,15 +92,19 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
         });
       }
 
-      // Clear selection
+      // Clear selection and close on success
       window.getSelection()?.removeAllRanges();
       showToast('Highlight saved', 'success');
       onClose();
     } catch (error) {
       console.error('Failed to save highlight:', error);
-      showToast('Failed to save highlight. Please try again.', 'error');
+      setSaveState('error');
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Failed to save highlight'
+      );
+      // Don't close popup - let user retry
     }
-  };
+  }, [type, selection, cfi, note, createHighlight, showToast, onClose]);
 
   const handleQuickHighlight = () => {
     handleSave();
@@ -97,6 +112,13 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
 
   const handleAddNote = () => {
     setShowNoteInput(true);
+    // Reset error state when switching to note mode
+    setSaveState('idle');
+    setErrorMessage(null);
+  };
+
+  const handleRetry = () => {
+    handleSave();
   };
 
   return (
@@ -110,19 +132,39 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
     >
       {!showNoteInput ? (
         <>
+          {/* Error state banner */}
+          {saveState === 'error' && errorMessage && (
+            <div className="px-3 py-2 bg-red-500/10 border-b border-red-500/20">
+              <div className="flex items-center gap-2 text-sm text-red-400">
+                <ErrorIcon />
+                <span className="flex-1 truncate">{errorMessage}</span>
+              </div>
+              <button
+                onClick={handleRetry}
+                className="mt-1 text-xs text-red-400 hover:text-red-300 underline"
+              >
+                Try again
+              </button>
+            </div>
+          )}
           <div className="flex">
             <button
               onClick={handleQuickHighlight}
-              className="flex items-center gap-2 px-4 py-3 text-sm text-text-primary hover:bg-accent-primary/20 transition-colors"
-              disabled={createHighlight.isPending}
+              className="flex items-center gap-2 px-4 py-3 text-sm text-text-primary hover:bg-accent-primary/20 transition-colors disabled:opacity-50"
+              disabled={saveState === 'saving'}
             >
-              <HighlightIcon />
-              Highlight
+              {saveState === 'saving' ? (
+                <SpinnerIcon />
+              ) : (
+                <HighlightIcon />
+              )}
+              {saveState === 'saving' ? 'Saving...' : 'Highlight'}
             </button>
             <div className="w-px bg-text-secondary/20" />
             <button
               onClick={handleAddNote}
               className="flex items-center gap-2 px-4 py-3 text-sm text-text-primary hover:bg-accent-primary/20 transition-colors"
+              disabled={saveState === 'saving'}
             >
               <NoteIcon />
               Note
@@ -140,6 +182,16 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
         </>
       ) : (
         <div className="w-64 p-3">
+          {/* Error state in note mode */}
+          {saveState === 'error' && errorMessage && (
+            <div className="mb-2 px-2 py-1.5 bg-red-500/10 rounded border border-red-500/20">
+              <div className="flex items-center gap-1.5 text-xs text-red-400">
+                <ErrorIcon />
+                <span className="flex-1">{errorMessage}</span>
+              </div>
+            </div>
+          )}
+
           <p className="text-xs text-text-secondary mb-2 line-clamp-2 italic">
             &ldquo;{selection.text.slice(0, 100)}{selection.text.length > 100 ? '...' : ''}&rdquo;
           </p>
@@ -150,6 +202,7 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
             onChange={(e) => setNote(e.target.value)}
             placeholder="Add a note..."
             className="w-full h-20 p-2 text-sm bg-bg-deep border border-text-secondary/20 rounded text-text-primary resize-none focus:outline-none focus:border-accent-primary"
+            disabled={saveState === 'saving'}
           />
 
           <div className="flex gap-2 mt-2">
@@ -158,6 +211,7 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
               size="sm"
               onClick={onClose}
               className="flex-1"
+              disabled={saveState === 'saving'}
             >
               Cancel
             </Button>
@@ -165,10 +219,10 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
               variant="primary"
               size="sm"
               onClick={handleSave}
-              disabled={createHighlight.isPending}
+              disabled={saveState === 'saving'}
               className="flex-1"
             >
-              {createHighlight.isPending ? 'Saving...' : 'Save'}
+              {saveState === 'saving' ? 'Saving...' : saveState === 'error' ? 'Retry' : 'Save'}
             </Button>
           </div>
         </div>
@@ -198,6 +252,29 @@ function CloseIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
       <path d="M18 6L6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
+function ErrorIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 8v4M12 16h.01" />
+    </svg>
+  );
+}
+
+function SpinnerIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="animate-spin">
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" strokeOpacity="0.25" />
+      <path
+        d="M12 2a10 10 0 0 1 10 10"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
