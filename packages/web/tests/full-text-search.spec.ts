@@ -220,7 +220,8 @@ test.describe('Full-Text Search', () => {
     await page.waitForTimeout(400);
 
     // Should return to grid view (library cards visible)
-    const libraryGrid = page.locator('.grid');
+    // Use first() since there may be multiple grid elements on the page
+    const libraryGrid = page.locator('.grid').first();
     await expect(libraryGrid).toBeVisible();
   });
 
