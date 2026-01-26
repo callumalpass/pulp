@@ -12,6 +12,7 @@ import { HighlightEditPopup } from './shared/HighlightEditPopup';
 import { PDFTableOfContents } from './shared/PDFTableOfContents';
 import { MarkdownEditorPanel } from './shared/MarkdownEditorPanel';
 import { api } from '../../lib/api';
+import { PdfRenderQueue } from '../../lib/pdf-render-queue';
 
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
@@ -45,6 +46,10 @@ export function PDFReader({ note }: PDFReaderProps) {
   const highlightLayerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const pageContainerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const textLayerTasksRef = useRef<Map<number, TextLayer>>(new Map());
+
+  // Web Worker render queue for off-main-thread rendering
+  const renderQueueRef = useRef<PdfRenderQueue | null>(null);
+  const useWorkerRendering = useRef(true); // Feature flag for worker rendering
 
   const {
     currentPage,
@@ -124,12 +129,20 @@ export function PDFReader({ note }: PDFReaderProps) {
   // Load PDF document
   useEffect(() => {
     reset();
+
+    // Initialize render queue for worker-based rendering
+    if (!renderQueueRef.current) {
+      renderQueueRef.current = new PdfRenderQueue(15); // Cache up to 15 pages
+    }
+
     loadPDF();
 
     return () => {
       // Cleanup on unmount
       saveImmediately();
       textLayerTasksRef.current.forEach(task => task.cancel());
+      renderQueueRef.current?.destroy();
+      renderQueueRef.current = null;
       pdfDocRef.current?.destroy();
     };
   }, [note.id]);
@@ -138,6 +151,10 @@ export function PDFReader({ note }: PDFReaderProps) {
     try {
       setIsLoading(true);
       const pdfUrl = api.files.getUrl(note.id);
+
+      // Set PDF URL for worker-based rendering
+      renderQueueRef.current?.setPdfUrl(pdfUrl);
+
       const loadingTask = pdfjsLib.getDocument(pdfUrl);
       const pdf = await loadingTask.promise;
       pdfDocRef.current = pdf;
@@ -525,18 +542,59 @@ export function PDFReader({ note }: PDFReaderProps) {
     // Cancel existing text layer task for this page
     textLayerTasksRef.current.get(pageNum)?.cancel();
 
+    const canvas = pageCanvasRefs.current.get(pageNum);
+    const textLayerDiv = textLayerRefs.current.get(pageNum);
+    if (!canvas) return;
+
+    const scale = debouncedZoom;
+    const devicePixelRatio = window.devicePixelRatio || 1;
+
     try {
+      // Try worker-based rendering first (off main thread)
+      if (useWorkerRendering.current && renderQueueRef.current) {
+        // Check cache first
+        let bitmap: ImageBitmap | null | undefined = renderQueueRef.current.getCached(pageNum, scale);
+
+        if (!bitmap) {
+          // Request render from worker
+          const results = await renderQueueRef.current.renderVisible([pageNum], scale);
+          bitmap = results.get(pageNum) ?? null;
+        }
+
+        if (bitmap) {
+          // Re-check if page is still in range after async operation
+          if (pageNum < virtualizedRange.start || pageNum > virtualizedRange.end) return;
+
+          // Draw ImageBitmap to canvas (very fast, ~1ms)
+          const width = bitmap.width;
+          const height = bitmap.height;
+
+          canvas.width = width;
+          canvas.height = height;
+          canvas.style.width = `${width / devicePixelRatio}px`;
+          canvas.style.height = `${height / devicePixelRatio}px`;
+
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(bitmap, 0, 0);
+          }
+
+          // Mark page as rendered
+          pageZoomRef.current.set(pageNum, scale);
+          setRenderedPages((prev) => new Set(prev).add(pageNum));
+
+          // Render text layer on main thread (requires DOM)
+          await renderTextLayer(pageNum, textLayerDiv, scale);
+          return;
+        }
+      }
+
+      // Fallback to main thread rendering if worker fails or is disabled
       const page: PDFPageProxy = await pdfDocRef.current.getPage(pageNum);
 
       // Re-check if page is still in range after async operation
       if (pageNum < virtualizedRange.start || pageNum > virtualizedRange.end) return;
 
-      const canvas = pageCanvasRefs.current.get(pageNum);
-      const textLayerDiv = textLayerRefs.current.get(pageNum);
-      if (!canvas) return;
-
-      const scale = debouncedZoom;
-      const devicePixelRatio = window.devicePixelRatio || 1;
       const displayViewport = page.getViewport({ scale });
       const renderViewport = page.getViewport({ scale: scale * devicePixelRatio });
 
@@ -548,7 +606,7 @@ export function PDFReader({ note }: PDFReaderProps) {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Render the page
+      // Render the page on main thread
       const renderTask = page.render({
         canvasContext: ctx,
         viewport: renderViewport,
@@ -556,21 +614,18 @@ export function PDFReader({ note }: PDFReaderProps) {
 
       await renderTask.promise;
 
-      // Mark page as rendered immediately after canvas is ready
-      // Track both the state and the zoom level used
-      pageZoomRef.current.set(pageNum, debouncedZoom);
+      // Mark page as rendered
+      pageZoomRef.current.set(pageNum, scale);
       setRenderedPages((prev) => new Set(prev).add(pageNum));
 
-      // Render text layer in next frame to not block canvas display
+      // Render text layer
       if (textLayerDiv) {
         requestAnimationFrame(() => {
-          // Clear existing text layer content
           textLayerDiv.innerHTML = '';
           textLayerDiv.style.width = `${displayViewport.width}px`;
           textLayerDiv.style.height = `${displayViewport.height}px`;
 
           page.getTextContent().then((textContent) => {
-            // Cache text content for search
             const pageText = textContent.items
               .map((item) => ('str' in item ? item.str : ''))
               .join(' ');
@@ -584,7 +639,6 @@ export function PDFReader({ note }: PDFReaderProps) {
 
             textLayerTasksRef.current.set(pageNum, textLayer);
             textLayer.render().then(() => {
-              // Add data-idx attributes to spans for PDF++ compatibility
               const spans = textLayerDiv.querySelectorAll('span');
               spans.forEach((span, idx) => {
                 span.setAttribute('data-idx', String(idx));
@@ -598,6 +652,49 @@ export function PDFReader({ note }: PDFReaderProps) {
       if ((error as Error).name !== 'RenderingCancelledException') {
         console.error(`Failed to render page ${pageNum}:`, error);
       }
+    }
+  };
+
+  /**
+   * Render text layer for a page (used with worker rendering)
+   */
+  const renderTextLayer = async (pageNum: number, textLayerDiv: HTMLDivElement | undefined, scale: number) => {
+    if (!textLayerDiv || !pdfDocRef.current) return;
+
+    try {
+      const page = await pdfDocRef.current.getPage(pageNum);
+      const displayViewport = page.getViewport({ scale });
+
+      // Clear and size the text layer
+      textLayerDiv.innerHTML = '';
+      textLayerDiv.style.width = `${displayViewport.width}px`;
+      textLayerDiv.style.height = `${displayViewport.height}px`;
+
+      const textContent = await page.getTextContent();
+
+      // Cache text content for search
+      const pageText = textContent.items
+        .map((item) => ('str' in item ? item.str : ''))
+        .join(' ');
+      textContentCache.current.set(pageNum, pageText);
+
+      const textLayer = new TextLayer({
+        textContentSource: textContent,
+        container: textLayerDiv,
+        viewport: displayViewport,
+      });
+
+      textLayerTasksRef.current.set(pageNum, textLayer);
+      await textLayer.render();
+
+      // Add data-idx attributes to spans for PDF++ compatibility
+      const spans = textLayerDiv.querySelectorAll('span');
+      spans.forEach((span, idx) => {
+        span.setAttribute('data-idx', String(idx));
+        span.classList.add('textLayerNode');
+      });
+    } catch (error) {
+      // Ignore errors (page might have been removed from DOM)
     }
   };
 
