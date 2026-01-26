@@ -25,9 +25,12 @@ interface ActiveSession {
   isPaused: boolean;
   pausedAt: number | null;
   totalPausedMs: number;
+  lastActivityTime: number;    // Performance.now() of last user interaction
+  isIdlePaused: boolean;       // True if paused due to inactivity (not manual pause)
 }
 
 const MIN_SESSION_DURATION_MS = 10000;  // 10 seconds minimum to count
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000;  // 5 minutes of inactivity triggers pause
 
 interface ReadingStatsState {
   // Current active reading session (local only)
@@ -42,6 +45,8 @@ interface ReadingStatsState {
   pauseSession: () => void;
   resumeSession: () => void;
   endSession: () => Promise<ReadingSession | null>;
+  recordActivity: () => void;  // Call on user interactions to prevent idle pause
+  checkIdleStatus: () => void; // Called periodically to check for idle timeout
 
   // Cache management
   setBookStats: (noteId: string, stats: ReadingStats | null) => void;
@@ -51,6 +56,7 @@ interface ReadingStatsState {
   getEstimatedTimeRemaining: (noteId: string, currentPage: number, totalPages: number) => number | null;
   getFormattedReadingTime: (ms: number) => string;
   getActiveSessionDuration: () => number;
+  isIdlePaused: () => boolean;
 }
 
 export const useReadingStatsStore = create<ReadingStatsState>()((set, get) => ({
@@ -78,19 +84,37 @@ export const useReadingStatsStore = create<ReadingStatsState>()((set, get) => ({
         isPaused: false,
         pausedAt: null,
         totalPausedMs: 0,
+        lastActivityTime: now,
+        isIdlePaused: false,
       },
     });
   },
 
   updateCurrentPage: (page) => {
+    const now = performance.now();
     set((state) => {
       if (!state.activeSession) return state;
-      return {
-        activeSession: {
-          ...state.activeSession,
-          currentPage: page,
-        },
+
+      // Page change counts as activity
+      let session = {
+        ...state.activeSession,
+        currentPage: page,
+        lastActivityTime: now,
       };
+
+      // If was idle-paused, auto-resume on page change
+      if (state.activeSession.isIdlePaused && state.activeSession.pausedAt) {
+        const pausedDuration = now - state.activeSession.pausedAt;
+        session = {
+          ...session,
+          isPaused: false,
+          isIdlePaused: false,
+          pausedAt: null,
+          totalPausedMs: state.activeSession.totalPausedMs + pausedDuration,
+        };
+      }
+
+      return { activeSession: session };
     });
   },
 
@@ -102,16 +126,18 @@ export const useReadingStatsStore = create<ReadingStatsState>()((set, get) => ({
           ...state.activeSession,
           isPaused: true,
           pausedAt: performance.now(),
+          isIdlePaused: false, // Manual pause, not idle
         },
       };
     });
   },
 
   resumeSession: () => {
+    const now = performance.now();
     set((state) => {
       if (!state.activeSession || !state.activeSession.isPaused) return state;
       const pausedDuration = state.activeSession.pausedAt
-        ? performance.now() - state.activeSession.pausedAt
+        ? now - state.activeSession.pausedAt
         : 0;
       return {
         activeSession: {
@@ -119,9 +145,61 @@ export const useReadingStatsStore = create<ReadingStatsState>()((set, get) => ({
           isPaused: false,
           pausedAt: null,
           totalPausedMs: state.activeSession.totalPausedMs + pausedDuration,
+          lastActivityTime: now, // Reset activity time on resume
+          isIdlePaused: false,
         },
       };
     });
+  },
+
+  recordActivity: () => {
+    const now = performance.now();
+    set((state) => {
+      if (!state.activeSession) return state;
+
+      // If session was idle-paused, auto-resume on activity
+      if (state.activeSession.isIdlePaused && state.activeSession.pausedAt) {
+        const pausedDuration = now - state.activeSession.pausedAt;
+        return {
+          activeSession: {
+            ...state.activeSession,
+            lastActivityTime: now,
+            isPaused: false,
+            isIdlePaused: false,
+            pausedAt: null,
+            totalPausedMs: state.activeSession.totalPausedMs + pausedDuration,
+          },
+        };
+      }
+
+      // Just update activity time
+      return {
+        activeSession: {
+          ...state.activeSession,
+          lastActivityTime: now,
+        },
+      };
+    });
+  },
+
+  checkIdleStatus: () => {
+    const { activeSession } = get();
+    if (!activeSession || activeSession.isPaused) return;
+
+    const now = performance.now();
+    const idleTime = now - activeSession.lastActivityTime;
+
+    if (idleTime >= IDLE_TIMEOUT_MS) {
+      // Pause due to inactivity
+      set({
+        activeSession: {
+          ...activeSession,
+          isPaused: true,
+          pausedAt: now,
+          isIdlePaused: true,
+        },
+      });
+    }
   },
 
   endSession: async () => {
@@ -238,5 +316,10 @@ export const useReadingStatsStore = create<ReadingStatsState>()((set, get) => ({
     }
 
     return Math.max(0, (now - activeSession.startTime) - totalPausedMs);
+  },
+
+  isIdlePaused: () => {
+    const { activeSession } = get();
+    return activeSession?.isIdlePaused ?? false;
   },
 }));

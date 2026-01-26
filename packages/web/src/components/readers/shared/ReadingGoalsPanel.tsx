@@ -224,7 +224,11 @@ export function ReadingGoalsPanel({ onClose }: ReadingGoalsPanelProps) {
             />
             <StatCard
               label="Days met goal"
-              value={`${weekHistory.filter(d => d.goalMet).length + (goalMet ? 0 : 0)}/${weekHistory.length}`}
+              value={`${weekHistory.filter((d, i) => {
+                // For today (last entry), use live goalMet status
+                const isToday = i === weekHistory.length - 1;
+                return isToday ? goalMet : d.goalMet;
+              }).length}/${weekHistory.length}`}
             />
           </div>
         </section>
