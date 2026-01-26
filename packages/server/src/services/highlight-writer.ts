@@ -47,6 +47,8 @@ export class HighlightWriter {
       } satisfies PDFHighlight;
 
       const citekey = (note.frontmatter.id as string) || note.id;
+      // Format createdAt as YYYY-MM-DD for cleaner display in templates
+      const createdAtDate = createdAt.split('T')[0];
 
       formatted = this.pdfTemplate({
         source: note.sourceRelative,
@@ -56,6 +58,7 @@ export class HighlightWriter {
         text: this.formatBlockquote(highlight.text),
         note: highlight.note ? new Handlebars.SafeString(highlight.note) : undefined,
         citekey,
+        createdAt: createdAtDate,
       });
     } else {
       const id = generateEPUBHighlightId(request.cfi!);
@@ -70,6 +73,8 @@ export class HighlightWriter {
       } satisfies EPUBHighlight;
 
       const citekey = (note.frontmatter.id as string) || note.id;
+      // Format createdAt as YYYY-MM-DD for cleaner display in templates
+      const createdAtDate = createdAt.split('T')[0];
 
       formatted = this.epubTemplate({
         source: note.sourceRelative,
@@ -77,6 +82,7 @@ export class HighlightWriter {
         text: this.formatBlockquote(highlight.text),
         note: highlight.note ? new Handlebars.SafeString(highlight.note) : undefined,
         citekey,
+        createdAt: createdAtDate,
       });
     }
 

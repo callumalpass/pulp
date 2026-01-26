@@ -170,4 +170,64 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
       readingStats: note.readingStats,
     };
   });
+
+  // GET /api/library/:id/reading-history - Get per-book reading history
+  fastify.get<{
+    Params: { id: string };
+    Querystring: { days?: string };
+  }>('/api/library/:id/reading-history', {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string' },
+        },
+      },
+      querystring: {
+        type: 'object',
+        properties: {
+          days: { type: 'string' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const note = scanner.getById(request.params.id);
+
+    if (!note) {
+      return reply.code(404).send({ error: 'Note not found' });
+    }
+
+    // Parse days limit from query (default 14 days for the chart)
+    const daysLimit = Math.min(
+      config.reading_history_max_days,
+      parseInt(request.query.days || '14', 10) || 14
+    );
+
+    // Get reading history from frontmatter
+    const history = getDailyReadingHistory(note.frontmatter, config.reading_history_key);
+
+    // Filter to last N days and fill in gaps with zero values
+    const today = new Date();
+    const result: Array<{ date: string; durationMs: number; sessions: number; pagesRead: number }> = [];
+
+    for (let i = daysLimit - 1; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+
+      const entry = history.find(h => h.date === dateStr);
+      result.push({
+        date: dateStr,
+        durationMs: entry?.durationMs || 0,
+        sessions: entry?.sessions || 0,
+        pagesRead: entry?.pagesRead || 0,
+      });
+    }
+
+    return {
+      history: result,
+      daysRequested: daysLimit,
+    };
+  });
 };

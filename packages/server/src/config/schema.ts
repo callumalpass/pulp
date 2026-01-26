@@ -20,11 +20,13 @@ export const configSchema = z.object({
   collections_key: z.string().default('collections'),
 
   // Highlight templates
+  // Available variables: source, page, pageLabel, selection, text, note, createdAt
   highlight_template: z.string().default(
-    '- [[{{source}}#page={{page}}&selection={{selection}}|"{{text}}"]]{{#if note}}\n{{note}}{{/if}}'
+    '- [[{{source}}#page={{page}}&selection={{selection}}|"{{text}}"|p. {{pageLabel}}|{{createdAt}}]]{{#if note}}\n{{note}}{{/if}}'
   ),
+  // Available variables: source, cfi, text, note, createdAt
   highlight_template_epub: z.string().default(
-    '- [[{{source}}#cfi={{cfi}}|"{{text}}"]]{{#if note}}\n{{note}}{{/if}}'
+    '- [[{{source}}#cfi={{cfi}}|"{{text}}"|{{createdAt}}]]{{#if note}}\n{{note}}{{/if}}'
   ),
 
   // Timing and debouncing

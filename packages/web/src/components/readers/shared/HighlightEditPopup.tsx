@@ -1,10 +1,27 @@
 import { useState, useRef, useEffect } from 'react';
-import type { Highlight } from '@pulp/shared';
+import type { Highlight, PDFHighlight } from '@pulp/shared';
 import { Button } from '../../ui/Button';
 import { ConfirmDialog } from '../../ui/ConfirmDialog';
 import { useUpdateHighlight, useDeleteHighlight } from '../../../hooks/useHighlights';
 import { useToast } from '../../../contexts/ToastContext';
 import { DictionaryDefinition } from './DictionaryDefinition';
+
+function formatHighlightDate(isoDate: string): string {
+  const date = new Date(isoDate);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+
+  return date.toLocaleDateString(undefined, {
+    year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
+    month: 'short',
+    day: 'numeric',
+  });
+}
 
 interface HighlightEditPopupProps {
   highlight: Highlight;
@@ -90,8 +107,40 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose }: Hig
         top: position.y,
       }}
     >
-      {/* Highlighted text preview */}
+      {/* Highlighted text preview with metadata */}
       <div className="p-3 border-b border-text-secondary/20">
+        {/* Metadata row: page/location and date */}
+        <div className="flex items-center justify-between mb-2 text-xs text-text-secondary">
+          <span className="flex items-center gap-1.5">
+            {highlight.type === 'pdf' ? (
+              <>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+                <span>
+                  Page {(highlight as PDFHighlight).pageLabel ?? (highlight as PDFHighlight).page}
+                </span>
+              </>
+            ) : (
+              <>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                </svg>
+                <span>EPUB</span>
+              </>
+            )}
+          </span>
+          <span className="flex items-center gap-1.5" title={new Date(highlight.createdAt).toLocaleString()}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+            {formatHighlightDate(highlight.createdAt)}
+          </span>
+        </div>
+
         <p className="text-xs text-text-secondary mb-1">Highlighted text:</p>
         <p className="text-sm text-text-primary line-clamp-3 italic">
           &ldquo;{highlight.text.slice(0, 150)}{highlight.text.length > 150 ? '...' : ''}&rdquo;

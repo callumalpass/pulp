@@ -5,6 +5,7 @@ import {
   parseHighlights,
   extractHighlightContext,
   extractPageLabel,
+  extractTimestamp,
 } from '../highlight-parser.js';
 
 describe('generatePDFHighlightId', () => {
@@ -293,6 +294,51 @@ Just some regular text without any highlights.`;
       expect(() => new Date(highlights[0].createdAt)).not.toThrow();
     });
   });
+
+  describe('timestamp extraction', () => {
+    it('extracts timestamp from PDF highlight link', () => {
+      const content = `> Highlighted text.
+[[books/test.pdf#page=5&selection=0,10,2,25|"text"|p. 5|2024-03-15]]`;
+
+      const highlights = parseHighlights(content, 'books/test.pdf');
+      expect(highlights).toHaveLength(1);
+      expect(highlights[0].createdAt).toBe('2024-03-15T00:00:00.000Z');
+    });
+
+    it('extracts timestamp from EPUB highlight link', () => {
+      const content = `> EPUB highlight.
+[[books/test.epub#cfi=epubcfi(/6/4)|"text"|2024-07-22]]`;
+
+      const highlights = parseHighlights(content, 'books/test.epub');
+      expect(highlights).toHaveLength(1);
+      expect(highlights[0].createdAt).toBe('2024-07-22T00:00:00.000Z');
+    });
+
+    it('uses current date when no timestamp in link', () => {
+      const before = new Date();
+      const content = `> Highlight without timestamp.
+[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]`;
+
+      const highlights = parseHighlights(content, 'books/test.pdf');
+      const after = new Date();
+      const createdAt = new Date(highlights[0].createdAt);
+
+      expect(createdAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
+      expect(createdAt.getTime()).toBeLessThanOrEqual(after.getTime());
+    });
+
+    it('preserves both pageLabel and timestamp when both present', () => {
+      const content = `> Quote text.
+[[books/test.pdf#page=10&selection=0,0,1,10|"text"|p. iv|2024-01-20]]`;
+
+      const highlights = parseHighlights(content, 'books/test.pdf');
+      expect(highlights).toHaveLength(1);
+      if (highlights[0].type === 'pdf') {
+        expect(highlights[0].pageLabel).toBe('iv');
+        expect(highlights[0].createdAt).toBe('2024-01-20T00:00:00.000Z');
+      }
+    });
+  });
 });
 
 describe('extractPageLabel', () => {
@@ -334,6 +380,57 @@ describe('extractPageLabel', () => {
   it('is case insensitive for prefix', () => {
     const linkText = '[[books/test.pdf#page=5&selection=0,0,1,10|P. iv]]';
     expect(extractPageLabel(linkText, 5)).toBe('iv');
+  });
+
+  it('extracts page label when followed by timestamp', () => {
+    const linkText = '[[books/test.pdf#page=5&selection=0,0,1,10|"quote"|p. iv|2024-01-15]]';
+    expect(extractPageLabel(linkText, 5)).toBe('iv');
+  });
+
+  it('extracts page label when timestamp follows without quote', () => {
+    const linkText = '[[books/test.pdf#page=5&selection=0,0,1,10|p. xii|2024-06-20]]';
+    expect(extractPageLabel(linkText, 5)).toBe('xii');
+  });
+});
+
+describe('extractTimestamp', () => {
+  it('extracts timestamp from link ending with date', () => {
+    const linkText = '[[books/test.pdf#page=5&selection=0,0,1,10|"quote"|2024-01-15]]';
+    const timestamp = extractTimestamp(linkText);
+    expect(timestamp).toBe('2024-01-15T00:00:00.000Z');
+  });
+
+  it('extracts timestamp with page label before date', () => {
+    const linkText = '[[books/test.pdf#page=5&selection=0,0,1,10|"quote"|p. 42|2024-06-20]]';
+    const timestamp = extractTimestamp(linkText);
+    expect(timestamp).toBe('2024-06-20T00:00:00.000Z');
+  });
+
+  it('extracts timestamp for EPUB highlights', () => {
+    const linkText = '[[books/test.epub#cfi=epubcfi(/6/4)|"text"|2023-12-25]]';
+    const timestamp = extractTimestamp(linkText);
+    expect(timestamp).toBe('2023-12-25T00:00:00.000Z');
+  });
+
+  it('returns undefined when no timestamp present', () => {
+    const linkText = '[[books/test.pdf#page=5&selection=0,0,1,10|"quote"]]';
+    expect(extractTimestamp(linkText)).toBeUndefined();
+  });
+
+  it('returns undefined for invalid date format', () => {
+    const linkText = '[[books/test.pdf#page=5&selection=0,0,1,10|"quote"|01-15-2024]]';
+    expect(extractTimestamp(linkText)).toBeUndefined();
+  });
+
+  it('returns undefined for partial date', () => {
+    const linkText = '[[books/test.pdf#page=5&selection=0,0,1,10|"quote"|2024-01]]';
+    expect(extractTimestamp(linkText)).toBeUndefined();
+  });
+
+  it('handles dates at year boundary', () => {
+    const linkText = '[[books/test.pdf#page=1&selection=0,0,1,10|text|2024-12-31]]';
+    const timestamp = extractTimestamp(linkText);
+    expect(timestamp).toBe('2024-12-31T00:00:00.000Z');
   });
 });
 

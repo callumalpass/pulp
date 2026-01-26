@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useReadingStatsStore } from '../../../stores/readingStats';
 import { useIdleDetection } from '../../../hooks/useIdleDetection';
+import { api } from '../../../lib/api';
 
 interface ReadingStatsPanelProps {
   noteId: string;
@@ -21,6 +23,13 @@ export function ReadingStatsPanel({ noteId, currentPage, totalPages, dateFinishe
   const [sessionDuration, setSessionDuration] = useState(0);
   const bookStats = getBookStats(noteId);
   const { isIdlePaused } = useIdleDetection();
+
+  // Fetch reading history for the chart
+  const { data: historyData } = useQuery({
+    queryKey: ['reading-history', noteId],
+    queryFn: () => api.readingStats.getHistory(noteId, 14),
+    staleTime: 60000, // Refresh every minute
+  });
 
   // Update session duration every second
   useEffect(() => {
@@ -96,6 +105,22 @@ export function ReadingStatsPanel({ noteId, currentPage, totalPages, dateFinishe
           </div>
         </section>
 
+        {/* Reading History Chart */}
+        {historyData?.history && historyData.history.some(h => h.durationMs > 0) && (
+          <section>
+            <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wide mb-3">
+              Recent Activity
+            </h3>
+            <div className="bg-bg-deep rounded-lg p-4">
+              <ReadingHistoryChart
+                history={historyData.history}
+                sessionDuration={sessionDuration}
+                getFormattedReadingTime={getFormattedReadingTime}
+              />
+            </div>
+          </section>
+        )}
+
         {/* Book Statistics */}
         {bookStats && bookStats.totalReadingTimeMs > 0 && (
           <section>
@@ -168,6 +193,99 @@ export function ReadingStatsPanel({ noteId, currentPage, totalPages, dateFinishe
   );
 }
 
+interface ReadingHistoryChartProps {
+  history: Array<{ date: string; durationMs: number; sessions: number; pagesRead: number }>;
+  sessionDuration: number;
+  getFormattedReadingTime: (ms: number) => string;
+}
+
+function ReadingHistoryChart({ history, sessionDuration, getFormattedReadingTime }: ReadingHistoryChartProps) {
+  const today = new Date().toISOString().split('T')[0];
+
+  // Add current session to today's data for live updates
+  const adjustedHistory = useMemo(() => {
+    return history.map(h => ({
+      ...h,
+      durationMs: h.date === today ? h.durationMs + sessionDuration : h.durationMs,
+    }));
+  }, [history, sessionDuration, today]);
+
+  // Calculate max duration for scaling
+  const maxDuration = useMemo(() => {
+    return Math.max(...adjustedHistory.map(h => h.durationMs), 60000); // Minimum 1 minute for scale
+  }, [adjustedHistory]);
+
+  // Calculate total for the period
+  const totalDuration = useMemo(() => {
+    return adjustedHistory.reduce((sum, h) => sum + h.durationMs, 0);
+  }, [adjustedHistory]);
+
+  const daysWithActivity = useMemo(() => {
+    return adjustedHistory.filter(h => h.durationMs > 0).length;
+  }, [adjustedHistory]);
+
+  return (
+    <div className="space-y-3">
+      {/* Bar chart */}
+      <div className="flex items-end gap-1 h-20">
+        {adjustedHistory.map((day) => {
+          const isToday = day.date === today;
+          const height = Math.max(2, (day.durationMs / maxDuration) * 100);
+          const hasActivity = day.durationMs > 0;
+
+          return (
+            <div
+              key={day.date}
+              className="flex-1 flex flex-col items-center"
+              title={`${formatChartDate(day.date)}: ${getFormattedReadingTime(day.durationMs)}`}
+            >
+              <div
+                className={`w-full rounded-t transition-all duration-300 ${
+                  hasActivity
+                    ? isToday
+                      ? 'bg-accent-primary'
+                      : 'bg-accent-primary/60'
+                    : 'bg-text-secondary/20'
+                }`}
+                style={{ height: `${height}%`, minHeight: '2px' }}
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Date labels (show first, middle, last) */}
+      <div className="flex justify-between text-[10px] text-text-secondary/70">
+        <span>{formatChartDate(adjustedHistory[0]?.date)}</span>
+        <span>{formatChartDate(adjustedHistory[Math.floor(adjustedHistory.length / 2)]?.date)}</span>
+        <span>Today</span>
+      </div>
+
+      {/* Summary stats */}
+      <div className="flex justify-between pt-2 border-t border-text-secondary/10">
+        <div className="text-center">
+          <div className="text-sm font-semibold text-text-primary">
+            {getFormattedReadingTime(totalDuration)}
+          </div>
+          <div className="text-[10px] text-text-secondary">Last 2 weeks</div>
+        </div>
+        <div className="text-center">
+          <div className="text-sm font-semibold text-text-primary">
+            {daysWithActivity}
+          </div>
+          <div className="text-[10px] text-text-secondary">Days active</div>
+        </div>
+        <div className="text-center">
+          <div className="text-sm font-semibold text-text-primary">
+            {daysWithActivity > 0 ? getFormattedReadingTime(totalDuration / daysWithActivity) : '0m'}
+          </div>
+          <div className="text-[10px] text-text-secondary">Avg per day</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StatCard({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div className={`rounded-lg p-3 ${highlight ? 'bg-green-600/20' : 'bg-bg-deep'}`}>
@@ -184,4 +302,10 @@ function formatDate(isoDate: string): string {
     day: 'numeric',
     year: date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
   });
+}
+
+function formatChartDate(dateStr: string | undefined): string {
+  if (!dateStr) return '';
+  const date = new Date(dateStr + 'T12:00:00');
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }

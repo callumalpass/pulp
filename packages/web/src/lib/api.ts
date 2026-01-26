@@ -244,6 +244,14 @@ export const api = {
         }
       );
     },
+
+    getHistory(noteId: string, days?: number) {
+      const params = days ? `?days=${days}` : '';
+      return fetchJSON<{
+        history: Array<{ date: string; durationMs: number; sessions: number; pagesRead: number }>;
+        daysRequested: number;
+      }>(`/library/${noteId}/reading-history${params}`);
+    },
   },
 
   readingGoals: {

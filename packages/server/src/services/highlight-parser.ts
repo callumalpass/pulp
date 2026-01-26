@@ -44,20 +44,45 @@ export function parseHighlightsFromNote(notePath: string, sourceRelative: string
  * - |"text"|p. 42]] or |p. 42]]
  * - |"text"|p. iv]] or |p. iv]]
  * - |"text"|page 42]] or |page 42]]
+ * - |"text"|p. 42|2024-01-15]] (with timestamp)
  *
  * Returns undefined if no page label is found or if it matches the page number.
  */
 export function extractPageLabel(linkText: string, physicalPage: number): string | undefined {
-  // Look for patterns like "p. 42", "p. iv", "page 42" at the end of the link
-  // The label could be after quoted text or be the only display text
-  // Match: |p. X]] or |"text"|p. X]] or |page X]]
+  // Look for patterns like "p. 42", "p. iv", "page 42" in the link
+  // The label could be after quoted text, possibly followed by a timestamp
+  // Match: |p. X]] or |"text"|p. X]] or |page X]] or |p. X|YYYY-MM-DD]]
   // Important: match "page" before "p" to avoid partial match
-  const pageLabelMatch = linkText.match(/\|(?:"[^"]*"\|)?(?:page\s+|p\.?\s*)([^|\]]+)\]\]$/i);
+  const pageLabelMatch = linkText.match(/\|(?:"[^"]*"\|)?(?:page\s+|p\.?\s*)([^|\]]+?)(?:\|\d{4}-\d{2}-\d{2})?\]\]$/i);
   if (pageLabelMatch) {
     const label = pageLabelMatch[1].trim();
     // Only return if it's different from the physical page number
     if (label && label !== String(physicalPage)) {
       return label;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Extract timestamp (createdAt date) from the link display text.
+ * Looks for YYYY-MM-DD format at the end of the link.
+ *
+ * Common patterns:
+ * - |"text"|2024-01-15]]
+ * - |"text"|p. 42|2024-01-15]]
+ *
+ * Returns the timestamp as ISO string if found, otherwise undefined.
+ */
+export function extractTimestamp(linkText: string): string | undefined {
+  // Look for YYYY-MM-DD date pattern at the end of the link (before ]])
+  const timestampMatch = linkText.match(/\|(\d{4}-\d{2}-\d{2})\]\]$/);
+  if (timestampMatch) {
+    const dateStr = timestampMatch[1];
+    // Validate it's a real date and convert to ISO string
+    const date = new Date(dateStr + 'T00:00:00.000Z');
+    if (!isNaN(date.getTime())) {
+      return date.toISOString();
     }
   }
   return undefined;
@@ -97,6 +122,9 @@ export function parseHighlights(content: string, sourceRelative: string): Highli
       // Extract page label from the link display text
       const pageLabel = extractPageLabel(match[0], page);
 
+      // Extract timestamp from the link if present
+      const timestamp = extractTimestamp(match[0]);
+
       // Extract the quoted text from the blockquote before this link
       const { text, note } = extractHighlightContext(content, match.index);
 
@@ -107,7 +135,7 @@ export function parseHighlights(content: string, sourceRelative: string): Highli
         selection,
         text: text || 'Highlight',
         note,
-        createdAt: new Date().toISOString(),
+        createdAt: timestamp || new Date().toISOString(),
       };
 
       // Add pageLabel if present and different from physical page
@@ -124,13 +152,16 @@ export function parseHighlights(content: string, sourceRelative: string): Highli
     const cfi = match[1];
     const { text, note } = extractHighlightContext(content, match.index);
 
+    // Extract timestamp from the link if present
+    const timestamp = extractTimestamp(match[0]);
+
     highlights.push({
       id: generateEPUBHighlightId(cfi),
       type: 'epub',
       cfi,
       text: text || 'Highlight',
       note,
-      createdAt: new Date().toISOString(),
+      createdAt: timestamp || new Date().toISOString(),
     } satisfies EPUBHighlight);
   }
 
