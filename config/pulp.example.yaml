@@ -1,0 +1,20 @@
+# Pulp Configuration
+# Copy this file to pulp.yaml and adjust for your setup
+
+library_path: ~/notes
+literature_note_tag: "literature_note"
+source_key: "attachment"
+progress_key: "reading_progress"
+last_read_key: "last_read"
+
+# Highlight templates use Handlebars syntax
+# Available variables for PDF: source, page, selection, text, note
+# Available variables for EPUB: source, cfi, text, note
+
+highlight_template: |
+  [[{{source}}#page={{page}}&selection={{selection}}|"{{text}}"]]{{#if note}} — {{note}}{{/if}}
+
+highlight_template_epub: |
+  [[{{source}}#cfi={{cfi}}|"{{text}}"]]{{#if note}} — {{note}}{{/if}}
+
+progress_debounce_ms: 5000

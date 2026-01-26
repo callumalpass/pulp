@@ -1,0 +1,19 @@
+import { z } from 'zod';
+
+export const configSchema = z.object({
+  library_path: z.string().min(1, 'library_path is required'),
+  literature_note_tag: z.string().default('literature-note'),
+  source_key: z.string().default('source'),
+  progress_key: z.string().default('reading_progress'),
+  last_read_key: z.string().default('last_read'),
+  highlight_template: z.string().default(
+    '- [[{{source}}#page={{page}}&rect={{rect}}|"{{text}}"]]{{#if note}} — {{note}}{{/if}}'
+  ),
+  highlight_template_epub: z.string().default(
+    '- [[{{source}}#cfi={{cfi}}|"{{text}}"]]{{#if note}} — {{note}}{{/if}}'
+  ),
+  progress_debounce_ms: z.number().default(5000),
+  exclude_folders: z.array(z.string()).default(['.obsidian', '.trash', 'templates']),
+});
+
+export type Config = z.infer<typeof configSchema>;

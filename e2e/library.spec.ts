@@ -1,0 +1,177 @@
+import { test, expect } from '@playwright/test';
+
+test.describe('Library Page', () => {
+  test('should display the library page', async ({ page }) => {
+    await page.goto('/');
+
+    // Check header is visible
+    await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+
+    // Check sidebar is visible
+    await expect(page.locator('aside')).toBeVisible();
+  });
+
+  test('should show empty state when no notes', async ({ page }) => {
+    // Mock empty library response
+    await page.route('**/api/library**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
+    await page.goto('/');
+
+    await expect(page.getByText('No literature notes found')).toBeVisible();
+  });
+
+  test('should display book cards when notes exist', async ({ page }) => {
+    // Mock library response with sample notes
+    await page.route('**/api/library**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          {
+            id: 'note1',
+            title: 'Test PDF Book',
+            sourceType: 'pdf',
+            progress: 45,
+            lastRead: new Date().toISOString(),
+            cover: null,
+          },
+          {
+            id: 'note2',
+            title: 'Test EPUB Book',
+            sourceType: 'epub',
+            progress: 0,
+            lastRead: null,
+            cover: null,
+          },
+        ]),
+      });
+    });
+
+    await page.goto('/');
+
+    await expect(page.getByText('Test PDF Book')).toBeVisible();
+    await expect(page.getByText('Test EPUB Book')).toBeVisible();
+  });
+
+  test('should navigate to reader when clicking a book', async ({ page }) => {
+    // Mock library response
+    await page.route('**/api/library**', async (route) => {
+      if (route.request().url().includes('/note1')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: 'note1',
+            title: 'Test PDF Book',
+            source: '/path/to/book.pdf',
+            sourceType: 'pdf',
+            filePath: '/path/to/book.pdf',
+            notePath: '/path/to/note.md',
+            progress: 45,
+            lastRead: new Date().toISOString(),
+            tags: ['literature-note'],
+            cover: null,
+            highlights: [],
+            frontmatter: {},
+          }),
+        });
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            {
+              id: 'note1',
+              title: 'Test PDF Book',
+              sourceType: 'pdf',
+              progress: 45,
+              lastRead: new Date().toISOString(),
+              cover: null,
+            },
+          ]),
+        });
+      }
+    });
+
+    await page.goto('/');
+
+    // Click on the book card
+    await page.getByText('Test PDF Book').click();
+
+    // Should navigate to reader
+    await expect(page).toHaveURL(/\/read\/note1/);
+  });
+
+  test('should sort notes by different criteria', async ({ page }) => {
+    let lastSort = '';
+
+    await page.route('**/api/library**', async (route) => {
+      const url = new URL(route.request().url());
+      lastSort = url.searchParams.get('sort') || 'lastRead';
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          {
+            id: 'note1',
+            title: 'Alpha Book',
+            sourceType: 'pdf',
+            progress: 80,
+            lastRead: '2024-01-01T00:00:00Z',
+            cover: null,
+          },
+          {
+            id: 'note2',
+            title: 'Beta Book',
+            sourceType: 'epub',
+            progress: 20,
+            lastRead: '2024-01-02T00:00:00Z',
+            cover: null,
+          },
+        ]),
+      });
+    });
+
+    await page.goto('/');
+
+    // Default should be lastRead
+    await page.waitForResponse('**/api/library**');
+    expect(lastSort).toBe('lastRead');
+
+    // Click Title sort
+    await page.getByRole('button', { name: 'Title' }).click();
+    await page.waitForResponse('**/api/library**');
+    expect(lastSort).toBe('title');
+
+    // Click Progress sort
+    await page.getByRole('button', { name: 'Progress' }).click();
+    await page.waitForResponse('**/api/library**');
+    expect(lastSort).toBe('progress');
+  });
+
+  test('should toggle theme', async ({ page }) => {
+    await page.goto('/');
+
+    // Get initial theme
+    const initialTheme = await page.evaluate(() =>
+      document.documentElement.getAttribute('data-theme')
+    );
+
+    // Click theme toggle
+    await page.getByTitle('Toggle theme').click();
+
+    // Theme should change
+    const newTheme = await page.evaluate(() =>
+      document.documentElement.getAttribute('data-theme')
+    );
+
+    expect(newTheme).not.toBe(initialTheme);
+  });
+});

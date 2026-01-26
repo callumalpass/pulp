@@ -1,0 +1,192 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Dark theme (default) */
+  --color-bg-deep: #2d3436;
+  --color-bg-surface: #353b48;
+  --color-accent-primary: #a29bfe;
+  --color-accent-secondary: #55efc4;
+  --color-text-primary: #dfe6e9;
+  --color-text-secondary: #b2bec3;
+
+  --font-body: 'Nunito', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --transition-base: 300ms cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+[data-theme="light"] {
+  --color-bg-deep: #fdfbf7;
+  --color-bg-surface: #ffffff;
+  --color-accent-primary: #6c5ce7;
+  --color-accent-secondary: #00b894;
+  --color-text-primary: #2d3436;
+  --color-text-secondary: #636e72;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-bg-deep);
+  color: var(--color-text-primary);
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg-deep);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-text-secondary);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-primary);
+}
+
+/* Utility classes */
+@layer utilities {
+  .transition-stoody {
+    transition: all var(--transition-base);
+  }
+}
+
+/* PDF.js Text Layer Styles */
+.textLayer {
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: hidden;
+  opacity: 1;
+  line-height: 1;
+  -webkit-text-size-adjust: none;
+  -moz-text-size-adjust: none;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 2;
+}
+
+.textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.textLayer span.markedContent {
+  top: 0;
+  height: 0;
+}
+
+.textLayer .highlight {
+  margin: -1px;
+  padding: 1px;
+  background-color: var(--color-accent-primary);
+  border-radius: 4px;
+}
+
+.textLayer .highlight.appended {
+  position: initial;
+}
+
+.textLayer .highlight.begin {
+  border-radius: 4px 0 0 4px;
+}
+
+.textLayer .highlight.end {
+  border-radius: 0 4px 4px 0;
+}
+
+.textLayer .highlight.middle {
+  border-radius: 0;
+}
+
+.textLayer .highlight.selected {
+  background-color: var(--color-accent-secondary);
+}
+
+.textLayer ::selection {
+  background: rgba(162, 155, 254, 0.4);
+}
+
+.textLayer br::selection {
+  background: transparent;
+}
+
+.textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: -1;
+  cursor: default;
+  user-select: none;
+}
+
+.textLayer .endOfContent.active {
+  top: 0;
+}
+
+/* PDF Table of Contents Sidebar */
+.pdf-toc-sidebar {
+  width: 280px;
+  min-width: 280px;
+  background-color: var(--color-bg-surface);
+  border-right: 1px solid rgba(var(--color-text-secondary), 0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pdf-toc-sidebar .toc-header {
+  flex-shrink: 0;
+}
+
+.pdf-toc-sidebar .toc-content {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.pdf-toc-sidebar .toc-item-row:hover {
+  background-color: var(--color-bg-deep);
+}
+
+.pdf-toc-sidebar .toc-item-row.active {
+  background-color: rgba(162, 155, 254, 0.15);
+  color: var(--color-accent-primary);
+}
+
+/* PDF Page Container Styles */
+.pdf-pages-container {
+  min-height: 100%;
+}
+
+.pdf-page-container {
+  flex-shrink: 0;
+}
