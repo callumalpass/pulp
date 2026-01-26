@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { EditorView, keymap } from '@codemirror/view';
-import { EditorState } from '@codemirror/state';
+import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter } from '@codemirror/view';
+import { EditorState, EditorSelection, Compartment } from '@codemirror/state';
 import { markdown } from '@codemirror/lang-markdown';
-import { defaultKeymap } from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
+import { vim } from '@replit/codemirror-vim';
 import { useNoteContent, useUpdateNoteContent } from '../../../hooks/useNoteContent';
 import { useMobile } from '../../../hooks/useMobile';
+import { useReaderStore } from '../../../stores/reader';
+import { usePreferencesStore } from '../../../stores/preferences';
 
 interface MarkdownEditorPanelProps {
   noteId: string;
@@ -12,13 +16,86 @@ interface MarkdownEditorPanelProps {
 }
 
 type SaveStatus = 'saved' | 'unsaved' | 'saving';
+type ViewMode = 'edit' | 'preview' | 'split';
+
+// Simple markdown to HTML converter for preview
+function markdownToHtml(md: string): string {
+  let html = md
+    // Escape HTML
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    // Headers
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    // Bold and italic
+    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/___(.+?)___/g, '<strong><em>$1</em></strong>')
+    .replace(/__(.+?)__/g, '<strong>$1</strong>')
+    .replace(/_(.+?)_/g, '<em>$1</em>')
+    // Strikethrough
+    .replace(/~~(.+?)~~/g, '<del>$1</del>')
+    // Code blocks
+    .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>')
+    // Inline code
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // Links
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    // Images
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" />')
+    // Blockquotes
+    .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+    // Unordered lists
+    .replace(/^[-*+] (.+)$/gm, '<li>$1</li>')
+    // Ordered lists
+    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+    // Horizontal rules
+    .replace(/^---$/gm, '<hr />')
+    // Line breaks
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br />');
+
+  // Wrap in paragraph tags
+  html = '<p>' + html + '</p>';
+
+  // Clean up empty paragraphs
+  html = html.replace(/<p><\/p>/g, '');
+
+  // Wrap consecutive list items in ul
+  html = html.replace(/(<li>.*?<\/li>)+/g, '<ul>$&</ul>');
+
+  // Merge consecutive blockquotes
+  html = html.replace(/<\/blockquote><br \/><blockquote>/g, '<br />');
+
+  return html;
+}
 
 export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProps) {
   const isMobile = useMobile();
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const vimCompartment = useRef(new Compartment());
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+  const [viewMode, setViewMode] = useState<ViewMode>('edit');
+  const [previewContent, setPreviewContent] = useState('');
   const contentRef = useRef<string>('');
+  const [isResizing, setIsResizing] = useState(false);
+
+  const { pdfColorMode } = useReaderStore();
+  const {
+    readerTheme,
+    markdownPanelOverlay,
+    setMarkdownPanelOverlay,
+    markdownPanelWidth,
+    setMarkdownPanelWidth,
+    markdownPanelVimMode,
+    setMarkdownPanelVimMode,
+  } = usePreferencesStore();
+  // Check both PDF color mode and EPUB reader theme for e-ink
+  const isEink = pdfColorMode === 'eink' || readerTheme === 'eink';
 
   const { data: content, isLoading } = useNoteContent(noteId);
   const { saveDebounced, saveImmediately, isPending, hasPendingDebounce } = useUpdateNoteContent(noteId);
@@ -34,6 +111,13 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
     }
   }, [isPending, hasPendingDebounce]);
 
+  // Update preview when content changes
+  useEffect(() => {
+    if (viewMode !== 'edit') {
+      setPreviewContent(markdownToHtml(contentRef.current || ''));
+    }
+  }, [viewMode]);
+
   // Create custom save handler
   const handleSave = useCallback(() => {
     if (viewRef.current) {
@@ -42,6 +126,84 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
     }
     return true;
   }, [saveImmediately]);
+
+  // Insert formatting around selection or at cursor
+  const insertFormatting = useCallback((prefix: string, suffix: string = prefix) => {
+    const view = viewRef.current;
+    if (!view) return;
+
+    const { from, to } = view.state.selection.main;
+    const selectedText = view.state.sliceDoc(from, to);
+
+    view.dispatch({
+      changes: { from, to, insert: `${prefix}${selectedText}${suffix}` },
+      selection: EditorSelection.cursor(from + prefix.length + selectedText.length + suffix.length),
+    });
+    view.focus();
+  }, []);
+
+  // Insert line prefix (for headers, lists)
+  const insertLinePrefix = useCallback((prefix: string) => {
+    const view = viewRef.current;
+    if (!view) return;
+
+    const { from } = view.state.selection.main;
+    const line = view.state.doc.lineAt(from);
+    const lineText = line.text;
+
+    // Check if line already starts with this prefix
+    if (lineText.startsWith(prefix)) {
+      // Remove the prefix
+      view.dispatch({
+        changes: { from: line.from, to: line.from + prefix.length, insert: '' },
+      });
+    } else {
+      // Add the prefix
+      view.dispatch({
+        changes: { from: line.from, to: line.from, insert: prefix },
+      });
+    }
+    view.focus();
+  }, []);
+
+  // Insert code block
+  const insertCodeBlock = useCallback(() => {
+    const view = viewRef.current;
+    if (!view) return;
+
+    const { from, to } = view.state.selection.main;
+    const selectedText = view.state.sliceDoc(from, to);
+
+    if (selectedText.includes('\n') || selectedText.length > 40) {
+      // Multi-line or long: use code block
+      view.dispatch({
+        changes: { from, to, insert: `\`\`\`\n${selectedText}\n\`\`\`` },
+        selection: EditorSelection.cursor(from + 4),
+      });
+    } else {
+      // Short: use inline code
+      view.dispatch({
+        changes: { from, to, insert: `\`${selectedText}\`` },
+        selection: EditorSelection.cursor(from + 1 + selectedText.length + 1),
+      });
+    }
+    view.focus();
+  }, []);
+
+  // Insert link
+  const insertLink = useCallback(() => {
+    const view = viewRef.current;
+    if (!view) return;
+
+    const { from, to } = view.state.selection.main;
+    const selectedText = view.state.sliceDoc(from, to);
+
+    view.dispatch({
+      changes: { from, to, insert: `[${selectedText || 'link text'}](url)` },
+      selection: EditorSelection.range(from + 1, from + 1 + (selectedText || 'link text').length),
+    });
+    view.focus();
+  }, []);
 
   // Initialize CodeMirror editor
   useEffect(() => {
@@ -62,7 +224,7 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
       },
       '.cm-content': {
         padding: '16px',
-        caretColor: 'var(--color-accent-primary)',
+        caretColor: isEink ? '#000000' : 'var(--color-accent-primary)',
       },
       '&.cm-focused': {
         outline: 'none',
@@ -71,13 +233,25 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
         padding: '0 4px',
       },
       '.cm-activeLine': {
-        backgroundColor: 'rgba(162, 155, 254, 0.1)',
+        backgroundColor: isEink ? 'rgba(0, 0, 0, 0.05)' : 'rgba(162, 155, 254, 0.1)',
       },
       '.cm-selectionBackground': {
-        backgroundColor: 'rgba(162, 155, 254, 0.3) !important',
+        backgroundColor: isEink ? 'rgba(0, 0, 0, 0.2) !important' : 'rgba(162, 155, 254, 0.3) !important',
       },
       '&.cm-focused .cm-selectionBackground': {
-        backgroundColor: 'rgba(162, 155, 254, 0.3) !important',
+        backgroundColor: isEink ? 'rgba(0, 0, 0, 0.2) !important' : 'rgba(162, 155, 254, 0.3) !important',
+      },
+      '.cm-gutters': {
+        backgroundColor: isEink ? '#f5f5f5' : 'var(--color-bg-surface)',
+        borderRight: isEink ? '1px solid #ccc' : '1px solid rgba(178, 190, 195, 0.2)',
+        color: isEink ? '#666' : 'var(--color-text-secondary)',
+      },
+      '.cm-lineNumbers .cm-gutterElement': {
+        padding: '0 8px 0 4px',
+        minWidth: '32px',
+      },
+      '.cm-activeLineGutter': {
+        backgroundColor: isEink ? 'rgba(0, 0, 0, 0.05)' : 'rgba(162, 155, 254, 0.1)',
       },
     });
 
@@ -85,8 +259,15 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
     const state = EditorState.create({
       doc: content,
       extensions: [
+        // Vim mode compartment (must be first for proper key handling)
+        vimCompartment.current.of(markdownPanelVimMode ? vim() : []),
         markdown(),
         theme,
+        lineNumbers(),
+        highlightActiveLine(),
+        highlightActiveLineGutter(),
+        history(),
+        syntaxHighlighting(defaultHighlightStyle),
         keymap.of([
           {
             key: 'Mod-s',
@@ -95,6 +276,35 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
               return true;
             },
           },
+          {
+            key: 'Mod-b',
+            run: () => {
+              insertFormatting('**');
+              return true;
+            },
+          },
+          {
+            key: 'Mod-i',
+            run: () => {
+              insertFormatting('*');
+              return true;
+            },
+          },
+          {
+            key: 'Mod-k',
+            run: () => {
+              insertLink();
+              return true;
+            },
+          },
+          {
+            key: 'Mod-`',
+            run: () => {
+              insertCodeBlock();
+              return true;
+            },
+          },
+          ...historyKeymap,
           ...defaultKeymap,
         ]),
         EditorView.updateListener.of((update) => {
@@ -103,6 +313,10 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
             contentRef.current = newContent;
             setSaveStatus('unsaved');
             saveDebounced(newContent);
+            // Update preview if in split view
+            if (viewMode === 'split') {
+              setPreviewContent(markdownToHtml(newContent));
+            }
           }
         }),
       ],
@@ -120,19 +334,54 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
       view.destroy();
       viewRef.current = null;
     };
-  }, [content, handleSave, saveDebounced]);
+  }, [content, handleSave, saveDebounced, insertFormatting, insertLink, insertCodeBlock, isEink, viewMode]);
 
   // Handle keyboard shortcut for closing panel
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      // Don't close on Escape if vim mode is active (vim uses Escape)
+      if (e.key === 'Escape' && !markdownPanelVimMode) {
         onClose();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [onClose, markdownPanelVimMode]);
+
+  // Toggle vim mode dynamically
+  useEffect(() => {
+    if (viewRef.current) {
+      viewRef.current.dispatch({
+        effects: vimCompartment.current.reconfigure(markdownPanelVimMode ? vim() : []),
+      });
+    }
+  }, [markdownPanelVimMode]);
+
+  // Handle resize
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+
+    const startX = e.clientX;
+    const startWidth = markdownPanelWidth;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      // Resize from left edge, so moving left increases width
+      const delta = startX - e.clientX;
+      const newWidth = Math.max(280, Math.min(800, startWidth + delta));
+      setMarkdownPanelWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [markdownPanelWidth, setMarkdownPanelWidth]);
 
   const getSaveStatusText = () => {
     switch (saveStatus) {
@@ -146,6 +395,16 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
   };
 
   const getSaveStatusColor = () => {
+    if (isEink) {
+      switch (saveStatus) {
+        case 'saving':
+          return 'text-gray-600';
+        case 'unsaved':
+          return 'text-gray-800 font-medium';
+        case 'saved':
+          return 'text-gray-500';
+      }
+    }
     switch (saveStatus) {
       case 'saving':
         return 'text-accent-primary';
@@ -156,10 +415,168 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
     }
   };
 
+  const ToolbarButton = ({ onClick, title, active, children }: { onClick: () => void; title: string; active?: boolean; children: React.ReactNode }) => (
+    <button
+      onClick={onClick}
+      title={title}
+      className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
+        isEink
+          ? active ? 'bg-black text-white' : 'hover:bg-gray-200 text-gray-700'
+          : active ? 'bg-accent-primary/20 text-accent-primary' : 'hover:bg-bg-deep text-text-secondary hover:text-text-primary'
+      }`}
+    >
+      {children}
+    </button>
+  );
+
+  const toolbar = (
+    <div className={`flex items-center gap-1 px-3 py-2 border-b ${isEink ? 'border-gray-300 bg-gray-50' : 'border-text-secondary/10'}`}>
+      {/* Formatting buttons */}
+      <ToolbarButton onClick={() => insertFormatting('**')} title="Bold (Cmd+B)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" />
+          <path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" />
+        </svg>
+      </ToolbarButton>
+      <ToolbarButton onClick={() => insertFormatting('*')} title="Italic (Cmd+I)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <line x1="19" y1="4" x2="10" y2="4" />
+          <line x1="14" y1="20" x2="5" y2="20" />
+          <line x1="15" y1="4" x2="9" y2="20" />
+        </svg>
+      </ToolbarButton>
+      <ToolbarButton onClick={() => insertFormatting('~~')} title="Strikethrough">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M16 4H9a3 3 0 0 0-3 3v1a3 3 0 0 0 3 3h6" />
+          <path d="M8 20h7a3 3 0 0 0 3-3v-1a3 3 0 0 0-3-3h-6" />
+          <line x1="4" y1="12" x2="20" y2="12" />
+        </svg>
+      </ToolbarButton>
+
+      <div className={`w-px h-5 mx-1 ${isEink ? 'bg-gray-300' : 'bg-text-secondary/20'}`} />
+
+      <ToolbarButton onClick={() => insertLinePrefix('# ')} title="Heading 1">
+        <span className="text-xs font-bold">H1</span>
+      </ToolbarButton>
+      <ToolbarButton onClick={() => insertLinePrefix('## ')} title="Heading 2">
+        <span className="text-xs font-bold">H2</span>
+      </ToolbarButton>
+      <ToolbarButton onClick={() => insertLinePrefix('### ')} title="Heading 3">
+        <span className="text-xs font-bold">H3</span>
+      </ToolbarButton>
+
+      <div className={`w-px h-5 mx-1 ${isEink ? 'bg-gray-300' : 'bg-text-secondary/20'}`} />
+
+      <ToolbarButton onClick={() => insertLinePrefix('- ')} title="Bullet list">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <line x1="8" y1="6" x2="21" y2="6" />
+          <line x1="8" y1="12" x2="21" y2="12" />
+          <line x1="8" y1="18" x2="21" y2="18" />
+          <circle cx="4" cy="6" r="1" fill="currentColor" />
+          <circle cx="4" cy="12" r="1" fill="currentColor" />
+          <circle cx="4" cy="18" r="1" fill="currentColor" />
+        </svg>
+      </ToolbarButton>
+      <ToolbarButton onClick={() => insertLinePrefix('1. ')} title="Numbered list">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <line x1="10" y1="6" x2="21" y2="6" />
+          <line x1="10" y1="12" x2="21" y2="12" />
+          <line x1="10" y1="18" x2="21" y2="18" />
+          <text x="3" y="8" fontSize="8" fill="currentColor">1</text>
+          <text x="3" y="14" fontSize="8" fill="currentColor">2</text>
+          <text x="3" y="20" fontSize="8" fill="currentColor">3</text>
+        </svg>
+      </ToolbarButton>
+      <ToolbarButton onClick={() => insertLinePrefix('> ')} title="Quote">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V21" />
+          <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v4" />
+        </svg>
+      </ToolbarButton>
+
+      <div className={`w-px h-5 mx-1 ${isEink ? 'bg-gray-300' : 'bg-text-secondary/20'}`} />
+
+      <ToolbarButton onClick={insertCodeBlock} title="Code (Cmd+`)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <polyline points="16 18 22 12 16 6" />
+          <polyline points="8 6 2 12 8 18" />
+        </svg>
+      </ToolbarButton>
+      <ToolbarButton onClick={insertLink} title="Link (Cmd+K)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+        </svg>
+      </ToolbarButton>
+
+      <div className="flex-1" />
+
+      {/* Vim mode toggle */}
+      <ToolbarButton
+        onClick={() => setMarkdownPanelVimMode(!markdownPanelVimMode)}
+        title={markdownPanelVimMode ? 'Disable Vim mode' : 'Enable Vim mode'}
+        active={markdownPanelVimMode}
+      >
+        <span className="text-xs font-bold">VIM</span>
+      </ToolbarButton>
+
+      <div className={`w-px h-5 mx-1 ${isEink ? 'bg-gray-300' : 'bg-text-secondary/20'}`} />
+
+      {/* View mode toggle */}
+      <div className={`flex items-center rounded-lg p-0.5 ${isEink ? 'bg-gray-200' : 'bg-bg-deep'}`}>
+        <button
+          onClick={() => setViewMode('edit')}
+          className={`px-2 py-1 text-xs rounded transition-colors ${
+            viewMode === 'edit'
+              ? isEink ? 'bg-white text-black shadow-sm' : 'bg-bg-surface text-text-primary'
+              : isEink ? 'text-gray-600' : 'text-text-secondary'
+          }`}
+        >
+          Edit
+        </button>
+        <button
+          onClick={() => setViewMode('split')}
+          className={`px-2 py-1 text-xs rounded transition-colors ${
+            viewMode === 'split'
+              ? isEink ? 'bg-white text-black shadow-sm' : 'bg-bg-surface text-text-primary'
+              : isEink ? 'text-gray-600' : 'text-text-secondary'
+          }`}
+        >
+          Split
+        </button>
+        <button
+          onClick={() => setViewMode('preview')}
+          className={`px-2 py-1 text-xs rounded transition-colors ${
+            viewMode === 'preview'
+              ? isEink ? 'bg-white text-black shadow-sm' : 'bg-bg-surface text-text-primary'
+              : isEink ? 'text-gray-600' : 'text-text-secondary'
+          }`}
+        >
+          Preview
+        </button>
+      </div>
+    </div>
+  );
+
+  const previewPane = (
+    <div
+      className={`prose prose-sm max-w-none p-4 overflow-auto h-full ${
+        isEink
+          ? 'prose-gray bg-white'
+          : 'prose-invert bg-bg-deep'
+      }`}
+      style={isEink ? { color: '#000' } : {}}
+      dangerouslySetInnerHTML={{ __html: previewContent }}
+    />
+  );
+
   const panelContent = (
     <>
       {/* Header */}
-      <div className={isMobile ? 'h-14 flex items-center justify-between px-4 border-b border-text-secondary/10 shrink-0' : 'panel-header'}>
+      <div className={isMobile
+        ? `h-14 flex items-center justify-between px-4 border-b shrink-0 ${isEink ? 'border-gray-300 bg-gray-50' : 'border-text-secondary/10'}`
+        : `panel-header ${isEink ? 'bg-gray-50 border-gray-300' : ''}`}
+      >
         <div className="flex items-center gap-2">
           <svg width={isMobile ? 20 : 16} height={isMobile ? 20 : 16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -176,11 +593,34 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
             {getSaveStatusText()}
           </span>
 
+          {/* Overlay/Side-panel toggle (desktop only) */}
+          {!isMobile && (
+            <button
+              onClick={() => setMarkdownPanelOverlay(!markdownPanelOverlay)}
+              className={`w-6 h-6 rounded flex items-center justify-center transition-stoody ${isEink ? 'text-gray-600 hover:bg-gray-200' : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'}`}
+              title={markdownPanelOverlay ? 'Dock to side' : 'Float over content'}
+            >
+              {markdownPanelOverlay ? (
+                // Icon for "dock to side" - panel docked
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <path d="M15 3v18" />
+                </svg>
+              ) : (
+                // Icon for "float over" - overlapping squares
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="3" width="14" height="14" rx="2" />
+                  <rect x="7" y="7" width="14" height="14" rx="2" />
+                </svg>
+              )}
+            </button>
+          )}
+
           <button
             onClick={onClose}
             className={isMobile
-              ? 'touch-target rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-stoody'
-              : 'w-6 h-6 rounded flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-stoody'
+              ? `touch-target rounded-lg flex items-center justify-center transition-stoody ${isEink ? 'text-gray-600 hover:bg-gray-200' : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'}`
+              : `w-6 h-6 rounded flex items-center justify-center transition-stoody ${isEink ? 'text-gray-600 hover:bg-gray-200' : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'}`
             }
             title="Close (Esc)"
           >
@@ -191,14 +631,26 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
         </div>
       </div>
 
-      {/* Editor */}
-      <div className={isMobile ? 'flex-1 overflow-hidden bg-bg-deep' : 'panel-content'}>
+      {/* Toolbar */}
+      {!isLoading && toolbar}
+
+      {/* Editor / Preview */}
+      <div className={`flex-1 overflow-hidden ${isEink ? 'bg-white' : 'bg-bg-deep'} ${isMobile ? '' : 'panel-content'}`}>
         {isLoading ? (
           <div className="flex items-center justify-center h-full">
-            <div className="w-6 h-6 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" />
+            <div className={`w-6 h-6 border-2 rounded-full animate-spin ${isEink ? 'border-gray-400 border-t-transparent' : 'border-accent-primary border-t-transparent'}`} />
           </div>
-        ) : (
+        ) : viewMode === 'edit' ? (
           <div ref={editorRef} className="h-full" />
+        ) : viewMode === 'preview' ? (
+          previewPane
+        ) : (
+          <div className="flex h-full">
+            <div ref={editorRef} className={`w-1/2 h-full border-r ${isEink ? 'border-gray-300' : 'border-text-secondary/10'}`} />
+            <div className="w-1/2 h-full overflow-hidden">
+              {previewPane}
+            </div>
+          </div>
         )}
       </div>
     </>
@@ -207,15 +659,26 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
   // Mobile: Full-screen modal
   if (isMobile) {
     return (
-      <div className="mobile-fullscreen-modal animate-slide-up">
+      <div className={`mobile-fullscreen-modal animate-slide-up ${isEink ? 'bg-white text-black' : ''}`}>
         {panelContent}
       </div>
     );
   }
 
-  // Desktop: Side panel
+  // Desktop: Side panel or overlay
+  const overlayClass = markdownPanelOverlay ? 'markdown-editor-panel-overlay' : '';
+
   return (
-    <div className="markdown-editor-panel">
+    <div
+      className={`markdown-editor-panel ${overlayClass} ${isEink ? 'eink-markdown-panel' : ''} ${isResizing ? 'select-none' : ''}`}
+      style={{ width: `${markdownPanelWidth}px` }}
+    >
+      {/* Resize handle */}
+      <div
+        className={`markdown-panel-resize-handle ${isEink ? 'eink' : ''}`}
+        onMouseDown={handleResizeStart}
+        title="Drag to resize"
+      />
       {panelContent}
     </div>
   );

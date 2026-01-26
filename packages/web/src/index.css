@@ -416,14 +416,57 @@ body {
 
 /* Markdown Editor Panel */
 .markdown-editor-panel {
-  width: 400px;
-  min-width: 320px;
-  max-width: 50vw;
+  min-width: 280px;
+  max-width: 800px;
   background-color: var(--color-bg-surface);
   border-left: 1px solid rgba(178, 190, 195, 0.2);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
+}
+
+/* Resize handle */
+.markdown-panel-resize-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: ew-resize;
+  background: transparent;
+  transition: background-color 150ms ease;
+  z-index: 10;
+}
+
+.markdown-panel-resize-handle:hover,
+.markdown-panel-resize-handle:active {
+  background-color: var(--color-accent-primary);
+}
+
+.markdown-panel-resize-handle.eink:hover,
+.markdown-panel-resize-handle.eink:active {
+  background-color: #000;
+}
+
+/* Markdown Editor Panel - Overlay Mode */
+.markdown-editor-panel.markdown-editor-panel-overlay {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 50;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+  animation: slide-in-from-right 200ms ease-out;
+}
+
+@keyframes slide-in-from-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 
 .markdown-editor-panel .panel-header {
@@ -456,6 +499,107 @@ body {
 
 .markdown-editor-panel .cm-cursor {
   border-left-color: var(--color-accent-primary);
+}
+
+/* Vim mode status panel */
+.markdown-editor-panel .cm-vim-panel {
+  background-color: var(--color-bg-deep);
+  color: var(--color-text-secondary);
+  padding: 2px 8px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  border-top: 1px solid rgba(178, 190, 195, 0.2);
+}
+
+.markdown-editor-panel .cm-vim-panel input {
+  background-color: transparent;
+  color: var(--color-text-primary);
+  border: none;
+  outline: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* E-ink Markdown Panel */
+.eink-markdown-panel {
+  background-color: #ffffff;
+  border-left: 1px solid #cccccc;
+  color: #000000;
+}
+
+.eink-markdown-panel .panel-header {
+  background-color: #f5f5f5;
+  border-bottom: 1px solid #cccccc;
+  color: #000000;
+}
+
+.eink-markdown-panel .panel-content {
+  background-color: #ffffff;
+}
+
+.eink-markdown-panel .cm-editor {
+  background-color: #ffffff;
+  color: #000000;
+}
+
+.eink-markdown-panel .cm-gutters {
+  background-color: #f5f5f5;
+  border-right: 1px solid #cccccc;
+  color: #666666;
+}
+
+.eink-markdown-panel .cm-cursor {
+  border-left-color: #000000;
+}
+
+/* E-ink prose styling for markdown preview */
+.eink-markdown-panel .prose {
+  color: #000000;
+}
+
+.eink-markdown-panel .prose h1,
+.eink-markdown-panel .prose h2,
+.eink-markdown-panel .prose h3 {
+  color: #000000;
+  font-weight: 700;
+}
+
+.eink-markdown-panel .prose a {
+  color: #000000;
+  text-decoration: underline;
+}
+
+.eink-markdown-panel .prose code {
+  background-color: #f0f0f0;
+  color: #000000;
+  border: 1px solid #cccccc;
+}
+
+.eink-markdown-panel .prose pre {
+  background-color: #f5f5f5;
+  border: 1px solid #cccccc;
+}
+
+.eink-markdown-panel .prose blockquote {
+  border-left: 4px solid #666666;
+  color: #333333;
+}
+
+/* E-ink overlay mode - no shadows, just border */
+.eink-markdown-panel.markdown-editor-panel-overlay {
+  box-shadow: none;
+  border-left: 2px solid #000000;
+}
+
+/* E-ink vim mode status panel */
+.eink-markdown-panel .cm-vim-panel {
+  background-color: #f5f5f5;
+  color: #333333;
+  border-top: 1px solid #cccccc;
+}
+
+.eink-markdown-panel .cm-vim-panel input {
+  color: #000000;
 }
 
 /* Mobile Utilities */
