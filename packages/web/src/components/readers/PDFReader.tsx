@@ -99,6 +99,11 @@ export function PDFReader({ note }: PDFReaderProps) {
   // Debounced zoom state for triggering re-renders
   const [debouncedZoom, setDebouncedZoom] = useState(zoom);
 
+  // Scroll direction tracking for predictive preloading
+  const lastScrollTopRef = useRef(0);
+  const scrollDirectionRef = useRef<'up' | 'down' | 'none'>('none');
+  const idleCallbackRef = useRef<number | null>(null);
+
   // Text content cache for search
   const textContentCache = useRef<Map<number, string>>(new Map());
   const searchLayerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -141,6 +146,9 @@ export function PDFReader({ note }: PDFReaderProps) {
       // Cleanup on unmount
       saveImmediately();
       textLayerTasksRef.current.forEach(task => task.cancel());
+      if (idleCallbackRef.current !== null) {
+        cancelIdleCallback(idleCallbackRef.current);
+      }
       renderQueueRef.current?.destroy();
       renderQueueRef.current = null;
       pdfDocRef.current?.destroy();
@@ -286,6 +294,20 @@ export function PDFReader({ note }: PDFReaderProps) {
     });
   }, [virtualizedRange, isLoading]);
 
+  // Render text layers for visible pages that have canvas but no text layer
+  // This handles pages that were pre-rendered as buffer pages
+  useEffect(() => {
+    if (!pdfDocRef.current || isLoading) return;
+
+    visiblePages.forEach((pageNum) => {
+      const textLayerDiv = textLayerRefs.current.get(pageNum);
+      // Only render if page is rendered but text layer is empty
+      if (textLayerDiv && renderedPages.has(pageNum) && textLayerDiv.childElementCount === 0) {
+        renderTextLayer(pageNum, textLayerDiv, debouncedZoom);
+      }
+    });
+  }, [visiblePages, renderedPages, debouncedZoom, isLoading]);
+
   // Calculate cumulative scroll offset to a page (accounts for variable page heights)
   const getScrollOffsetToPage = useCallback((targetPage: number) => {
     let offset = 16; // Initial padding
@@ -362,6 +384,13 @@ export function PDFReader({ note }: PDFReaderProps) {
     const handleScroll = () => {
       const scrollTop = scrollContainer.scrollTop;
       const viewportHeight = scrollContainer.clientHeight;
+
+      // Track scroll direction for predictive preloading
+      const scrollDelta = scrollTop - lastScrollTopRef.current;
+      if (Math.abs(scrollDelta) > 10) {
+        scrollDirectionRef.current = scrollDelta > 0 ? 'down' : 'up';
+      }
+      lastScrollTopRef.current = scrollTop;
 
       // Find which page we're on by accumulating heights
       let accumulatedHeight = 16; // Initial padding
@@ -442,25 +471,48 @@ export function PDFReader({ note }: PDFReaderProps) {
     renderedPagesRef.current = renderedPages;
   }, [renderedPages]);
 
-  // Render visible pages and buffer
+  // Render visible pages and buffer with predictive preloading
   useEffect(() => {
     if (!pdfDocRef.current || isLoading) return;
 
-    const pagesToRender = new Set<number>();
+    // Cancel any pending idle callback
+    if (idleCallbackRef.current !== null) {
+      cancelIdleCallback(idleCallbackRef.current);
+      idleCallbackRef.current = null;
+    }
 
-    // Add visible pages
+    const priorityPages = new Set<number>();
+    const bufferPages = new Set<number>();
+
+    // Add visible pages with high priority
     visiblePages.forEach((pageNum) => {
-      pagesToRender.add(pageNum);
-      // Add buffer pages
-      for (let i = 1; i <= PAGE_BUFFER; i++) {
-        if (pageNum - i >= 1) pagesToRender.add(pageNum - i);
-        if (pageNum + i <= totalPages) pagesToRender.add(pageNum + i);
+      priorityPages.add(pageNum);
+    });
+
+    // Add buffer pages based on scroll direction (predictive preloading)
+    const direction = scrollDirectionRef.current;
+    const forwardBuffer = direction === 'down' ? PAGE_BUFFER + 2 : PAGE_BUFFER;
+    const backwardBuffer = direction === 'up' ? PAGE_BUFFER + 2 : PAGE_BUFFER;
+
+    visiblePages.forEach((pageNum) => {
+      // Pages ahead (in scroll direction get more buffer)
+      for (let i = 1; i <= forwardBuffer; i++) {
+        const p = pageNum + i;
+        if (p <= totalPages && !priorityPages.has(p)) {
+          bufferPages.add(p);
+        }
+      }
+      // Pages behind
+      for (let i = 1; i <= backwardBuffer; i++) {
+        const p = pageNum - i;
+        if (p >= 1 && !priorityPages.has(p)) {
+          bufferPages.add(p);
+        }
       }
     });
 
-    // Render pages that aren't already rendered or being rendered
-    // Also re-render if zoom level changed
-    pagesToRender.forEach((pageNum) => {
+    // Render priority pages immediately
+    priorityPages.forEach((pageNum) => {
       const wasRenderedAtZoom = pageZoomRef.current.get(pageNum);
       const needsRender = !renderedPagesRef.current.has(pageNum) || wasRenderedAtZoom !== debouncedZoom;
 
@@ -471,6 +523,29 @@ export function PDFReader({ note }: PDFReaderProps) {
         });
       }
     });
+
+    // Render buffer pages during idle time
+    if (bufferPages.size > 0) {
+      idleCallbackRef.current = requestIdleCallback(
+        (deadline) => {
+          const pagesToRender = Array.from(bufferPages).filter((pageNum) => {
+            const wasRenderedAtZoom = pageZoomRef.current.get(pageNum);
+            return !renderedPagesRef.current.has(pageNum) || wasRenderedAtZoom !== debouncedZoom;
+          });
+
+          for (const pageNum of pagesToRender) {
+            if (deadline.timeRemaining() < 5) break; // Stop if no time left
+            if (!renderingRef.current.has(pageNum)) {
+              renderingRef.current.add(pageNum);
+              renderPage(pageNum).finally(() => {
+                renderingRef.current.delete(pageNum);
+              });
+            }
+          }
+        },
+        { timeout: 500 }
+      );
+    }
 
     // Cleanup pages far from viewport (memory optimization)
     renderedPagesRef.current.forEach((pageNum) => {
@@ -583,8 +658,11 @@ export function PDFReader({ note }: PDFReaderProps) {
           pageZoomRef.current.set(pageNum, scale);
           setRenderedPages((prev) => new Set(prev).add(pageNum));
 
-          // Render text layer on main thread (requires DOM)
-          await renderTextLayer(pageNum, textLayerDiv, scale);
+          // Only render text layer for visible pages (not buffer pages)
+          // Text layer is expensive and only needed for selection
+          if (visiblePages.has(pageNum)) {
+            renderTextLayer(pageNum, textLayerDiv, scale);
+          }
           return;
         }
       }

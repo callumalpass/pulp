@@ -102,6 +102,8 @@ class LRUCache {
 /**
  * PDF Render Queue with priority scheduling and caching
  */
+const MAX_CONCURRENT_RENDERS = 4; // Limit concurrent worker requests
+
 export class PdfRenderQueue {
   private worker: Worker;
   private queue = new Map<string, RenderTask>();
@@ -113,7 +115,7 @@ export class PdfRenderQueue {
   private idleCallbackId: number | null = null;
   private processing = false;
 
-  constructor(maxCacheSize: number = 10) {
+  constructor(maxCacheSize: number = 15) {
     // Create the worker
     this.worker = new Worker(
       new URL('../workers/pdf-render.worker.ts', import.meta.url),
@@ -294,18 +296,27 @@ export class PdfRenderQueue {
   }
 
   /**
-   * Process queued render tasks
+   * Process queued render tasks with concurrency limit
    */
   private processQueue(): void {
     if (this.processing || !this.currentPdfUrl) return;
     this.processing = true;
 
-    // Process high priority tasks first
-    const highPriorityTasks = Array.from(this.queue.values()).filter(
-      (t) => t.priority === 'high'
-    );
+    // Check how many slots are available
+    const availableSlots = MAX_CONCURRENT_RENDERS - this.pendingRequests.size;
+    if (availableSlots <= 0) {
+      this.processing = false;
+      return;
+    }
 
-    for (const task of highPriorityTasks) {
+    // Process high priority tasks first, then low priority
+    const allTasks = Array.from(this.queue.values());
+    const highPriorityTasks = allTasks.filter((t) => t.priority === 'high');
+    const lowPriorityTasks = allTasks.filter((t) => t.priority === 'low');
+
+    const tasksToProcess = [...highPriorityTasks, ...lowPriorityTasks].slice(0, availableSlots);
+
+    for (const task of tasksToProcess) {
       this.sendRenderRequest(task);
     }
 
