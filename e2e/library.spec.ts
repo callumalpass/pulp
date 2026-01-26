@@ -55,8 +55,9 @@ test.describe('Library Page', () => {
 
     await page.goto('/');
 
-    await expect(page.getByText('Test PDF Book')).toBeVisible();
-    await expect(page.getByText('Test EPUB Book')).toBeVisible();
+    // Use first() since there are multiple text elements with the same title
+    await expect(page.getByText('Test PDF Book').first()).toBeVisible();
+    await expect(page.getByText('Test EPUB Book').first()).toBeVisible();
   });
 
   test('should navigate to reader when clicking a book', async ({ page }) => {
@@ -101,8 +102,8 @@ test.describe('Library Page', () => {
 
     await page.goto('/');
 
-    // Click on the book card
-    await page.getByText('Test PDF Book').click();
+    // Click on the book card (use first() since there are multiple text elements)
+    await page.getByText('Test PDF Book').first().click();
 
     // Should navigate to reader
     await expect(page).toHaveURL(/\/read\/note1/);
@@ -145,14 +146,16 @@ test.describe('Library Page', () => {
     await page.waitForResponse('**/api/library**');
     expect(lastSort).toBe('lastRead');
 
-    // Click Title sort
+    // Click Title sort - wait for response in parallel with click
+    const titleResponsePromise = page.waitForResponse('**/api/library**');
     await page.getByRole('button', { name: 'Title' }).click();
-    await page.waitForResponse('**/api/library**');
+    await titleResponsePromise;
     expect(lastSort).toBe('title');
 
-    // Click Progress sort
+    // Click Progress sort - wait for response in parallel with click
+    const progressResponsePromise = page.waitForResponse('**/api/library**');
     await page.getByRole('button', { name: 'Progress' }).click();
-    await page.waitForResponse('**/api/library**');
+    await progressResponsePromise;
     expect(lastSort).toBe('progress');
   });
 

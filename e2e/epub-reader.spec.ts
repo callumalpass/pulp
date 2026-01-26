@@ -86,8 +86,9 @@ test.describe('EPUB Reader', () => {
   test('should display reader controls', async ({ page }) => {
     await page.goto('/read/epub1');
 
-    // Reader controls should be visible
-    await expect(page.getByTitle('Back to library')).toBeVisible();
+    // Reader controls should be visible - using aria-label now
+    const backLink = page.locator('a[aria-label="Back to library"]');
+    await expect(backLink).toBeVisible({ timeout: 10000 });
 
     // Wait for EPUB to load
     await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
@@ -112,17 +113,19 @@ test.describe('EPUB Reader', () => {
     await page.waitForTimeout(500);
 
     // The reader should still be functional (no crash)
-    await expect(page.getByTitle('Back to library')).toBeVisible();
+    const backLink = page.locator('a[aria-label="Back to library"]');
+    await expect(backLink).toBeVisible();
   });
 
   test('should navigate back to library', async ({ page }) => {
     await page.goto('/read/epub1');
 
-    // Wait for reader to be ready
-    await expect(page.getByTitle('Back to library')).toBeVisible();
+    // Wait for reader to be ready - using aria-label now
+    const backLink = page.locator('a[aria-label="Back to library"]');
+    await expect(backLink).toBeVisible({ timeout: 10000 });
 
     // Click back button
-    await page.getByTitle('Back to library').click();
+    await backLink.click();
 
     // Should be on library page
     await expect(page).toHaveURL('/');

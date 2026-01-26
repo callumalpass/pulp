@@ -36,8 +36,9 @@ test.describe('PDF Reader', () => {
   test('should display reader controls', async ({ page }) => {
     await page.goto('/read/note1');
 
-    // Check for navigation controls
-    await expect(page.getByTitle('Back to library')).toBeVisible();
+    // Check for navigation controls - using aria-label now
+    const backLink = page.locator('a[aria-label="Back to library"]');
+    await expect(backLink).toBeVisible({ timeout: 10000 });
 
     // Check for zoom controls (the zoom in/out buttons)
     const zoomButtons = page.locator('button').filter({ has: page.locator('svg circle') });
@@ -58,22 +59,24 @@ test.describe('PDF Reader', () => {
   });
 
   test('should navigate back to library', async ({ page }) => {
-    await page.route('**/api/library**', async (route) => {
-      if (!route.request().url().includes('note1')) {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([]),
-        });
-      } else {
-        await route.continue();
-      }
-    });
-
+    // First set up the reader page route
     await page.goto('/read/note1');
 
+    // Wait for back button to be visible
+    const backLink = page.locator('a[aria-label="Back to library"]');
+    await expect(backLink).toBeVisible({ timeout: 10000 });
+
+    // Set up route for library page before clicking back
+    await page.route('**/api/library', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
     // Click back button
-    await page.getByTitle('Back to library').click();
+    await backLink.click();
 
     // Should be on library page
     await expect(page).toHaveURL('/');
@@ -82,8 +85,9 @@ test.describe('PDF Reader', () => {
   test('should handle keyboard navigation', async ({ page }) => {
     await page.goto('/read/note1');
 
-    // Wait for reader to load
-    await page.waitForLoadState('networkidle');
+    // Wait for toolbar to appear instead of networkidle
+    const toolbar = page.locator('header[role="toolbar"]');
+    await expect(toolbar).toBeVisible({ timeout: 10000 });
 
     // Test that keyboard events are registered
     // (Actual navigation depends on PDF being loaded)
@@ -106,7 +110,7 @@ test.describe('PDF Reader', () => {
 
     await page.goto('/read/invalid');
 
-    await expect(page.getByText('Failed to load document')).toBeVisible();
+    await expect(page.getByText('Failed to load document')).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('Back to library')).toBeVisible();
   });
 });

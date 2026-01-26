@@ -281,14 +281,18 @@ export function ReaderControls({
 
   // Desktop toolbar
   return (
-    <div className="h-12 bg-bg-surface border-b border-text-secondary/10 flex items-center px-4 gap-4">
+    <header
+      className="h-12 bg-bg-surface border-b border-text-secondary/10 flex items-center px-4 gap-4"
+      role="toolbar"
+      aria-label="PDF reader controls"
+    >
       {/* Back button */}
       <Link
         to="/"
-        className="w-8 h-8 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-stoody"
-        title="Back to library"
+        className="w-8 h-8 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-stoody focus:outline-none focus:ring-2 focus:ring-accent-primary"
+        aria-label="Back to library"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
           <path d="M19 12H5M12 19l-7-7 7-7" />
         </svg>
       </Link>
@@ -303,45 +307,51 @@ export function ReaderControls({
             size="sm"
             onClick={toggleToc}
             className={`w-8 h-8 !p-0 ${tocOpen ? 'bg-accent-primary/20 text-accent-primary' : ''}`}
-            title="Table of Contents"
+            aria-label="Table of Contents"
+            aria-expanded={tocOpen}
+            aria-controls="pdf-toc-panel"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="M4 6h16M4 12h16M4 18h10" />
             </svg>
           </Button>
-          <div className="h-6 w-px bg-text-secondary/20" />
+          <div className="h-6 w-px bg-text-secondary/20" aria-hidden="true" />
         </>
       )}
 
       {/* Page navigation */}
-      <div className="flex items-center gap-2">
+      <nav className="flex items-center gap-2" aria-label="Page navigation">
         <Button
           variant="ghost"
           size="sm"
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage <= 1}
           className="w-8 h-8 !p-0"
+          aria-label="Previous page"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M15 18l-6-6 6-6" />
           </svg>
         </Button>
 
         <form onSubmit={handlePageSubmit} className="flex items-center gap-1">
+          <label htmlFor="page-input" className="sr-only">Go to page</label>
           <input
+            id="page-input"
             ref={inputRef}
             type="text"
             value={pageInput}
             onChange={(e) => setPageInput(e.target.value)}
             onFocus={(e) => e.target.select()}
             className="w-12 h-7 text-center text-sm bg-bg-deep border border-text-secondary/20 rounded text-text-primary focus:outline-none focus:border-accent-primary"
+            aria-label={`Current page ${currentPageLabel} of ${totalPages}`}
           />
           {pageLabels ? (
-            <span className="text-sm text-text-secondary">
+            <span className="text-sm text-text-secondary" aria-hidden="true">
               ({currentPage} / {totalPages})
             </span>
           ) : (
-            <span className="text-sm text-text-secondary">/ {totalPages}</span>
+            <span className="text-sm text-text-secondary" aria-hidden="true">/ {totalPages}</span>
           )}
         </form>
 
@@ -351,25 +361,27 @@ export function ReaderControls({
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage >= totalPages}
           className="w-8 h-8 !p-0"
+          aria-label="Next page"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M9 18l6-6-6-6" />
           </svg>
         </Button>
-      </div>
+      </nav>
 
       <div className="h-6 w-px bg-text-secondary/20" />
 
       {/* Zoom controls */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2" role="group" aria-label="Zoom controls">
         <Button
           variant="ghost"
           size="sm"
           onClick={() => onZoomChange(zoom - 0.25)}
           disabled={zoom <= 0.5}
           className="w-8 h-8 !p-0"
+          aria-label="Zoom out"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <circle cx="11" cy="11" r="8" />
             <path d="M21 21l-4.35-4.35M8 11h6" />
           </svg>
@@ -379,37 +391,46 @@ export function ReaderControls({
         <div className="relative" ref={zoomMenuRef}>
           <button
             onClick={() => setShowZoomMenu(!showZoomMenu)}
-            className="h-7 px-2 text-sm text-text-secondary hover:text-text-primary bg-bg-deep border border-text-secondary/20 rounded flex items-center gap-1 min-w-[5rem] justify-center"
+            className="h-7 px-2 text-sm text-text-secondary hover:text-text-primary bg-bg-deep border border-text-secondary/20 rounded flex items-center gap-1 min-w-[5rem] justify-center focus:outline-none focus:ring-2 focus:ring-accent-primary"
+            aria-haspopup="listbox"
+            aria-expanded={showZoomMenu}
+            aria-label={`Zoom: ${getZoomLabel()}`}
           >
             {getZoomLabel()}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="M6 9l6 6 6-6" />
             </svg>
           </button>
 
           {showZoomMenu && (
-            <div className="absolute top-full left-0 mt-1 bg-bg-surface border border-text-secondary/20 rounded-lg shadow-lg py-1 z-50 min-w-[8rem]">
+            <div className="absolute top-full left-0 mt-1 bg-bg-surface border border-text-secondary/20 rounded-lg shadow-lg py-1 z-50 min-w-[8rem]" role="listbox" aria-label="Zoom options">
               <button
-                className={`w-full px-3 py-1.5 text-sm text-left hover:bg-bg-deep ${zoomMode === 'fit-width' ? 'text-accent-primary' : 'text-text-primary'}`}
+                className={`w-full px-3 py-1.5 text-sm text-left hover:bg-bg-deep focus:outline-none focus:bg-bg-deep ${zoomMode === 'fit-width' ? 'text-accent-primary' : 'text-text-primary'}`}
                 onClick={() => handleZoomModeSelect('fit-width')}
+                role="option"
+                aria-selected={zoomMode === 'fit-width'}
               >
                 Fit Width
               </button>
               <button
-                className={`w-full px-3 py-1.5 text-sm text-left hover:bg-bg-deep ${zoomMode === 'fit-page' ? 'text-accent-primary' : 'text-text-primary'}`}
+                className={`w-full px-3 py-1.5 text-sm text-left hover:bg-bg-deep focus:outline-none focus:bg-bg-deep ${zoomMode === 'fit-page' ? 'text-accent-primary' : 'text-text-primary'}`}
                 onClick={() => handleZoomModeSelect('fit-page')}
+                role="option"
+                aria-selected={zoomMode === 'fit-page'}
               >
                 Fit Page
               </button>
-              <div className="h-px bg-text-secondary/20 my-1" />
+              <div className="h-px bg-text-secondary/20 my-1" aria-hidden="true" />
               {[50, 75, 100, 125, 150, 200].map((pct) => (
                 <button
                   key={pct}
-                  className={`w-full px-3 py-1.5 text-sm text-left hover:bg-bg-deep ${zoomMode === 'custom' && Math.round(zoom * 100) === pct ? 'text-accent-primary' : 'text-text-primary'}`}
+                  className={`w-full px-3 py-1.5 text-sm text-left hover:bg-bg-deep focus:outline-none focus:bg-bg-deep ${zoomMode === 'custom' && Math.round(zoom * 100) === pct ? 'text-accent-primary' : 'text-text-primary'}`}
                   onClick={() => {
                     onZoomChange(pct / 100);
                     setShowZoomMenu(false);
                   }}
+                  role="option"
+                  aria-selected={zoomMode === 'custom' && Math.round(zoom * 100) === pct}
                 >
                   {pct}%
                 </button>
@@ -424,8 +445,9 @@ export function ReaderControls({
           onClick={() => onZoomChange(zoom + 0.25)}
           disabled={zoom >= 3}
           className="w-8 h-8 !p-0"
+          aria-label="Zoom in"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <circle cx="11" cy="11" r="8" />
             <path d="M21 21l-4.35-4.35M11 8v6M8 11h6" />
           </svg>
@@ -435,15 +457,16 @@ export function ReaderControls({
       <div className="h-6 w-px bg-text-secondary/20" />
 
       {/* Search controls */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2" role="search">
         <Button
           variant="ghost"
           size="sm"
           onClick={toggleSearch}
           className={`w-8 h-8 !p-0 ${isSearchOpen ? 'bg-accent-primary/20 text-accent-primary' : ''}`}
-          title="Search (Ctrl+F)"
+          aria-label="Search (Ctrl+F)"
+          aria-expanded={isSearchOpen}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <circle cx="11" cy="11" r="8" />
             <path d="M21 21l-4.35-4.35" />
           </svg>
@@ -451,17 +474,20 @@ export function ReaderControls({
 
         {isSearchOpen && (
           <div className="flex items-center gap-2">
+            <label htmlFor="pdf-search" className="sr-only">Search in document</label>
             <input
+              id="pdf-search"
               ref={searchInputRef}
-              type="text"
+              type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={handleSearchKeyDown}
               placeholder="Search..."
               className="w-40 h-7 px-2 text-sm bg-bg-deep border border-text-secondary/20 rounded text-text-primary focus:outline-none focus:border-accent-primary"
+              aria-describedby={searchResults.length > 0 ? 'search-results-count' : undefined}
             />
             {searchResults.length > 0 && (
-              <span className="text-xs text-text-secondary whitespace-nowrap">
+              <span id="search-results-count" className="text-xs text-text-secondary whitespace-nowrap" aria-live="polite">
                 {currentMatchIndex + 1}/{searchResults.length}
               </span>
             )}
@@ -471,9 +497,9 @@ export function ReaderControls({
               onClick={prevMatch}
               disabled={searchResults.length === 0}
               className="w-6 h-6 !p-0"
-              title="Previous match (Shift+Enter)"
+              aria-label="Previous match (Shift+Enter)"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <path d="M18 15l-6-6-6 6" />
               </svg>
             </Button>
@@ -483,9 +509,9 @@ export function ReaderControls({
               onClick={nextMatch}
               disabled={searchResults.length === 0}
               className="w-6 h-6 !p-0"
-              title="Next match (Enter)"
+              aria-label="Next match (Enter)"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <path d="M6 9l6 6 6-6" />
               </svg>
             </Button>
@@ -494,9 +520,9 @@ export function ReaderControls({
               size="sm"
               onClick={clearSearch}
               className="w-6 h-6 !p-0"
-              title="Close search (Escape)"
+              aria-label="Close search (Escape)"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <path d="M18 6L6 18M6 6l12 12" />
               </svg>
             </Button>
@@ -507,16 +533,17 @@ export function ReaderControls({
       <div className="h-6 w-px bg-text-secondary/20" />
 
       {/* View mode controls */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1" role="group" aria-label="View mode">
         {/* Single page view */}
         <Button
           variant="ghost"
           size="sm"
           onClick={() => handleViewModeChange('single')}
           className={`w-8 h-8 !p-0 ${pdfViewMode === 'single' ? 'bg-accent-primary/20 text-accent-primary' : ''}`}
-          title="Single page"
+          aria-label="Single page view"
+          aria-pressed={pdfViewMode === 'single'}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <rect x="6" y="3" width="12" height="18" rx="2" />
           </svg>
         </Button>
@@ -527,9 +554,10 @@ export function ReaderControls({
           size="sm"
           onClick={() => handleViewModeChange('spread')}
           className={`w-8 h-8 !p-0 ${pdfViewMode === 'spread' ? 'bg-accent-primary/20 text-accent-primary' : ''}`}
-          title="Two-page spread"
+          aria-label="Two-page spread view"
+          aria-pressed={pdfViewMode === 'spread'}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <rect x="2" y="4" width="8" height="16" rx="1" />
             <rect x="14" y="4" width="8" height="16" rx="1" />
           </svg>
@@ -541,9 +569,9 @@ export function ReaderControls({
           size="sm"
           onClick={() => handleViewModeChange('presentation')}
           className="w-8 h-8 !p-0"
-          title="Presentation mode"
+          aria-label="Presentation mode"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <rect x="2" y="3" width="20" height="14" rx="2" />
             <path d="M8 21h8M12 17v4" />
           </svg>
@@ -558,21 +586,22 @@ export function ReaderControls({
         size="sm"
         onClick={togglePdfColorMode}
         className={`w-8 h-8 !p-0 ${pdfColorMode === 'dark' ? 'bg-accent-primary/20 text-accent-primary' : ''}`}
-        title={pdfColorMode === 'dark' ? 'Light mode' : 'Dark mode'}
+        aria-label={pdfColorMode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        aria-pressed={pdfColorMode === 'dark'}
       >
         {pdfColorMode === 'dark' ? (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <circle cx="12" cy="12" r="5" />
             <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
           </svg>
         ) : (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
           </svg>
         )}
       </Button>
 
-      <div className="h-6 w-px bg-text-secondary/20" />
+      <div className="h-6 w-px bg-text-secondary/20" aria-hidden="true" />
 
       {/* Markdown notes toggle */}
       <Button
@@ -580,9 +609,11 @@ export function ReaderControls({
         size="sm"
         onClick={toggleMarkdownPanel}
         className={`w-8 h-8 !p-0 ${markdownPanelOpen ? 'bg-accent-primary/20 text-accent-primary' : ''}`}
-        title="Notes (Cmd/Ctrl+E)"
+        aria-label="Toggle notes panel (Cmd/Ctrl+E)"
+        aria-expanded={markdownPanelOpen}
+        aria-controls="markdown-notes-panel"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
           <polyline points="14 2 14 8 20 8" />
           <line x1="16" y1="13" x2="8" y2="13" />
@@ -593,16 +624,23 @@ export function ReaderControls({
 
       {/* Progress indicator */}
       <div className="ml-auto flex items-center gap-2">
-        <div className="w-24 h-1 bg-bg-deep rounded-full overflow-hidden">
+        <div
+          className="w-24 h-1 bg-bg-deep rounded-full overflow-hidden"
+          role="progressbar"
+          aria-valuenow={Math.round((currentPage / totalPages) * 100)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={`Reading progress: ${Math.round((currentPage / totalPages) * 100)}%`}
+        >
           <div
             className="h-full bg-accent-primary transition-all duration-300"
             style={{ width: `${(currentPage / totalPages) * 100}%` }}
           />
         </div>
-        <span className="text-xs text-text-secondary">
+        <span className="text-xs text-text-secondary" aria-hidden="true">
           {Math.round((currentPage / totalPages) * 100)}%
         </span>
       </div>
-    </div>
+    </header>
   );
 }

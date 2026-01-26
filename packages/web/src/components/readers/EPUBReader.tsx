@@ -191,17 +191,21 @@ export function EPUBReader({ note }: EPUBReaderProps) {
         if (!text) return;
 
         const range = sel.getRangeAt(0);
-        const rect = range.getBoundingClientRect();
-        const containerRect = containerRef.current?.getBoundingClientRect();
+        const rect = range.getBoundingClientRect(); // Coords relative to iframe viewport
 
-        if (!containerRect) return;
+        // Get the iframe element to convert to main document coordinates
+        const iframe = contents.document.defaultView?.frameElement as HTMLIFrameElement | null;
+        const iframeRect = iframe?.getBoundingClientRect();
 
+        if (!iframeRect) return;
+
+        // Calculate viewport-relative coordinates by adding iframe offset
         setSelection({
           text,
           page: currentPage,
           position: {
-            x: rect.left + rect.width / 2 - containerRect.left,
-            y: rect.bottom - containerRect.top + 10,
+            x: iframeRect.left + rect.left + rect.width / 2,
+            y: iframeRect.top + rect.bottom + 10,
           },
           cfi: cfiRange,
         });
@@ -211,6 +215,10 @@ export function EPUBReader({ note }: EPUBReaderProps) {
       rendition.on('click', (e: MouseEvent) => {
         const target = e.target as HTMLElement;
         if (target.tagName === 'A') return; // Don't navigate on links
+
+        // Don't navigate if there's a text selection
+        const sel = (e.view as Window)?.getSelection();
+        if (sel && !sel.isCollapsed) return;
 
         const x = e.clientX;
         const containerWidth = containerRef.current?.offsetWidth || 0;
@@ -380,10 +388,10 @@ export function EPUBReader({ note }: EPUBReaderProps) {
 
   if (error) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8">
-        <div className="text-red-500 text-lg">Failed to load EPUB</div>
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8" role="alert" aria-live="assertive">
+        <div className="text-red-500 text-lg" role="heading" aria-level={1}>Failed to load EPUB</div>
         <div className="text-text-secondary text-sm">{error}</div>
-        <Link to="/" className="text-accent-primary hover:underline">
+        <Link to="/" className="text-accent-primary hover:underline focus:outline-none focus:ring-2 focus:ring-accent-primary">
           Back to library
         </Link>
       </div>
@@ -518,8 +526,9 @@ export function EPUBReader({ note }: EPUBReaderProps) {
           />
 
           {isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center" style={{ background: colors.bg }}>
-              <div className="w-8 h-8 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+            <div className="absolute inset-0 flex items-center justify-center" style={{ background: colors.bg }} role="status" aria-label="Loading EPUB">
+              <div className="w-8 h-8 border-2 border-current/30 border-t-current rounded-full animate-spin" aria-hidden="true" />
+              <span className="sr-only">Loading EPUB content...</span>
             </div>
           )}
 
@@ -535,48 +544,57 @@ export function EPUBReader({ note }: EPUBReaderProps) {
 
         {/* Settings panel */}
         {settingsOpen && (
-          <div
+          <aside
+            id="epub-settings-panel"
             className="w-72 border-l border-current/10 overflow-y-auto flex-shrink-0 p-4"
             style={{ color: colors.text }}
+            role="region"
+            aria-label="Reading settings"
           >
-            <h3 className="font-semibold mb-4">Reading Settings</h3>
+            <h2 className="font-semibold mb-4">Reading Settings</h2>
 
             {/* Theme */}
-            <div className="mb-6">
-              <label className="text-sm opacity-70 block mb-2">Theme</label>
-              <div className="flex gap-2">
+            <fieldset className="mb-6">
+              <legend className="text-sm opacity-70 block mb-2">Theme</legend>
+              <div className="flex gap-2" role="radiogroup" aria-label="Reader theme">
                 {(['light', 'dark', 'sepia'] as EPUBTheme[]).map((t) => (
                   <button
                     key={t}
                     onClick={() => setReaderTheme(t)}
-                    className={`flex-1 h-10 rounded-lg border-2 transition-colors ${
+                    className={`flex-1 h-10 rounded-lg border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-current/50 ${
                       theme === t ? 'border-current' : 'border-transparent'
                     }`}
                     style={{ background: THEME_STYLES[t].bg }}
-                    title={t.charAt(0).toUpperCase() + t.slice(1)}
+                    role="radio"
+                    aria-checked={theme === t}
+                    aria-label={`${t.charAt(0).toUpperCase() + t.slice(1)} theme`}
                   >
-                    <span style={{ color: THEME_STYLES[t].text }} className="text-xs">
-                      {t === 'light' ? 'A' : t === 'dark' ? 'A' : 'A'}
+                    <span style={{ color: THEME_STYLES[t].text }} className="text-xs" aria-hidden="true">
+                      A
                     </span>
                   </button>
                 ))}
               </div>
-            </div>
+            </fieldset>
 
             {/* Font size */}
             <div className="mb-6">
-              <label className="text-sm opacity-70 block mb-2">
+              <label htmlFor="epub-font-size" className="text-sm opacity-70 block mb-2">
                 Font Size: {fontSize}px
               </label>
               <input
+                id="epub-font-size"
                 type="range"
                 min="14"
                 max="28"
                 value={fontSize}
                 onChange={(e) => setFontSize(Number(e.target.value))}
                 className="w-full accent-current"
+                aria-valuemin={14}
+                aria-valuemax={28}
+                aria-valuenow={fontSize}
               />
-              <div className="flex justify-between text-xs opacity-50 mt-1">
+              <div className="flex justify-between text-xs opacity-50 mt-1" aria-hidden="true">
                 <span>Small</span>
                 <span>Large</span>
               </div>
@@ -584,10 +602,11 @@ export function EPUBReader({ note }: EPUBReaderProps) {
 
             {/* Line height */}
             <div className="mb-6">
-              <label className="text-sm opacity-70 block mb-2">
+              <label htmlFor="epub-line-height" className="text-sm opacity-70 block mb-2">
                 Line Height: {lineHeight.toFixed(1)}
               </label>
               <input
+                id="epub-line-height"
                 type="range"
                 min="1.2"
                 max="2.0"
@@ -595,21 +614,26 @@ export function EPUBReader({ note }: EPUBReaderProps) {
                 value={lineHeight}
                 onChange={(e) => setLineHeight(Number(e.target.value))}
                 className="w-full accent-current"
+                aria-valuemin={1.2}
+                aria-valuemax={2.0}
+                aria-valuenow={lineHeight}
               />
-              <div className="flex justify-between text-xs opacity-50 mt-1">
+              <div className="flex justify-between text-xs opacity-50 mt-1" aria-hidden="true">
                 <span>Tight</span>
                 <span>Loose</span>
               </div>
             </div>
 
             {/* Keyboard shortcuts */}
-            <div className="text-xs opacity-50 space-y-1">
-              <div className="font-medium mb-2 opacity-100">Keyboard Shortcuts</div>
-              <div>← / → : Previous / Next page</div>
-              <div>Space : Next page</div>
-              <div>Escape : Close panels</div>
-            </div>
-          </div>
+            <section className="text-xs opacity-50 space-y-1" aria-labelledby="epub-shortcuts-heading">
+              <h3 id="epub-shortcuts-heading" className="font-medium mb-2 opacity-100">Keyboard Shortcuts</h3>
+              <dl>
+                <div><dt className="inline">← / →</dt>: <dd className="inline">Previous / Next page</dd></div>
+                <div><dt className="inline">Space</dt>: <dd className="inline">Next page</dd></div>
+                <div><dt className="inline">Escape</dt>: <dd className="inline">Close panels</dd></div>
+              </dl>
+            </section>
+          </aside>
         )}
       </div>
 
@@ -648,15 +672,16 @@ function TOCList({
   depth?: number;
 }) {
   return (
-    <ul className="space-y-1">
+    <ul className="space-y-1" role="list">
       {items.map((item, i) => (
         <li key={i}>
           <button
             onClick={() => onSelect(item.href)}
-            className={`w-full text-left px-2 py-1.5 rounded text-sm hover:bg-current/10 transition-colors ${
+            className={`w-full text-left px-2 py-1.5 rounded text-sm hover:bg-current/10 transition-colors focus:outline-none focus:ring-2 focus:ring-current/50 ${
               item.label === currentChapter ? 'bg-current/10 font-medium' : 'opacity-80'
             }`}
             style={{ paddingLeft: `${depth * 12 + 8}px` }}
+            aria-current={item.label === currentChapter ? 'page' : undefined}
           >
             {item.label}
           </button>
