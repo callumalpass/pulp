@@ -438,7 +438,11 @@ export function PDFReader({ note }: PDFReaderProps) {
   }, [pageDimensions, totalPages, findPageAtScrollPosition]);
 
   // Update current page based on scroll position - O(log n) using binary search
+  // Skip in e-ink mode since pages are controlled manually, not by scroll
   useEffect(() => {
+    // E-ink mode: page is controlled manually, skip scroll-based detection
+    if (pdfColorMode === 'eink') return;
+
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer || pageDimensions.size === 0) return;
 
@@ -489,7 +493,7 @@ export function PDFReader({ note }: PDFReaderProps) {
 
     scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
     return () => scrollContainer.removeEventListener('scroll', handleScroll);
-  }, [pageDimensions, debouncedZoom, totalPages, currentPage, setCurrentPage, updateProgress, calculateVirtualizedRange, findPageAtScrollPosition, pageHeights]);
+  }, [pageDimensions, debouncedZoom, totalPages, currentPage, setCurrentPage, updateProgress, calculateVirtualizedRange, findPageAtScrollPosition, pageHeights, pdfColorMode]);
 
   // Handle programmatic scroll to page
   useEffect(() => {
@@ -1210,9 +1214,14 @@ export function PDFReader({ note }: PDFReaderProps) {
   const goToPage = useCallback(
     (page: number) => {
       const newPage = Math.max(1, Math.min(totalPages, page));
-      setScrollToPage(newPage);
+      if (pdfColorMode === 'eink') {
+        // E-ink mode: directly set current page (no scrolling)
+        setCurrentPage(newPage);
+      } else {
+        setScrollToPage(newPage);
+      }
     },
-    [totalPages, setScrollToPage]
+    [totalPages, setScrollToPage, setCurrentPage, pdfColorMode]
   );
 
   // Swipe gestures for mobile navigation
@@ -1289,8 +1298,8 @@ export function PDFReader({ note }: PDFReaderProps) {
     return offset;
   };
 
-  // Handle text selection
-  const handleMouseUp = useCallback(() => {
+  // Handle text selection (shared logic for mouse and touch)
+  const checkTextSelection = useCallback(() => {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed) {
       setSelection(null);
@@ -1333,6 +1342,34 @@ export function PDFReader({ note }: PDFReaderProps) {
       },
     });
   }, [currentPage, pageLabels]);
+
+  // Handle mouse up for desktop
+  const handleMouseUp = useCallback(() => {
+    checkTextSelection();
+  }, [checkTextSelection]);
+
+  // Listen for selection changes on mobile - shows popup immediately when text is selected
+  useEffect(() => {
+    if (!isMobile) return;
+
+    const handleSelectionChange = () => {
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && sel.toString().trim()) {
+        checkTextSelection();
+      }
+    };
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+    return () => document.removeEventListener('selectionchange', handleSelectionChange);
+  }, [isMobile, checkTextSelection]);
+
+  // Prevent native context menu when there's a text selection
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) {
+      e.preventDefault();
+    }
+  }, []);
 
   // Keyboard navigation
   useEffect(() => {
@@ -1587,6 +1624,7 @@ export function PDFReader({ note }: PDFReaderProps) {
           onMouseUp={handleMouseUp}
           onTouchStart={swipeHandlers.handleTouchStart}
           onTouchEnd={swipeHandlers.handleTouchEnd}
+          onContextMenu={handleContextMenu}
         >
           <div className={`pdf-pages-container flex flex-col items-center py-4 gap-4 ${pdfViewMode === 'spread' ? 'pdf-spread-layout' : ''} ${pdfColorMode === 'eink' ? 'eink-single-page' : ''}`}>
             {/* E-ink mode: single page, no scroll */}
