@@ -90,16 +90,16 @@ export function BookCard({ note }: BookCardProps) {
             <PinIcon filled={note.pinned} />
           </button>
 
-          {/* Estimated time remaining badge */}
+          {/* Estimated time remaining badge - visible on mobile, hover-only on desktop */}
           {estimatedTime && (
-            <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-bg-surface/80 backdrop-blur-sm text-xs text-text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-bg-surface/80 backdrop-blur-sm text-xs text-text-primary md:opacity-0 md:group-hover:opacity-100 transition-opacity">
               {estimatedTime}
             </div>
           )}
 
-          {/* Pages badge for unread books */}
+          {/* Pages badge for unread books - always visible */}
           {note.progress === 0 && note.totalPages && (
-            <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-bg-surface/80 backdrop-blur-sm text-xs text-text-secondary">
+            <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-bg-surface/80 backdrop-blur-sm text-xs text-text-secondary md:opacity-0 md:group-hover:opacity-100 transition-opacity">
               {note.totalPages} pages
             </div>
           )}

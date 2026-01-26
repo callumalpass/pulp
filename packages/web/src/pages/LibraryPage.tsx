@@ -7,13 +7,8 @@ import { SearchResults } from '../components/library/SearchResults';
 import { MobileLibraryFilters } from '../components/library/MobileLibraryFilters';
 import { ContinueReadingCard } from '../components/library/ContinueReadingCard';
 import { Button } from '../components/ui/Button';
+import { useLibraryFiltersStore, type SortOption, type ProgressFilter } from '../stores/libraryFilters';
 import type { LiteratureNoteSummary } from '@pulp/shared';
-
-type SortOption = 'lastRead' | 'title' | 'progress' | 'dateCreated';
-type SortOrder = 'asc' | 'desc';
-type TypeFilter = 'all' | 'pdf' | 'epub';
-type ProgressFilter = 'all' | 'unread' | 'reading' | 'completed';
-type SearchMode = 'title' | 'content';
 
 const SORT_LABELS: Record<SortOption, string> = {
   lastRead: 'Recent',
@@ -30,13 +25,24 @@ const PROGRESS_LABELS: Record<ProgressFilter, string> = {
 };
 
 export function LibraryPage() {
-  const [sort, setSort] = useState<SortOption>('lastRead');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  // Use persisted filter store for preferences that should survive page reloads
+  const {
+    sort,
+    sortOrder,
+    typeFilter,
+    progressFilter,
+    searchMode,
+    setSort,
+    toggleSortOrder,
+    setTypeFilter,
+    setProgressFilter,
+    setSearchMode,
+    clearFilters,
+  } = useLibraryFiltersStore();
+
+  // Transient state (search query, mobile filters visibility)
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
-  const [progressFilter, setProgressFilter] = useState<ProgressFilter>('all');
-  const [searchMode, setSearchMode] = useState<SearchMode>('title');
   const [showMobileFilters, setShowMobileFilters] = useState(false);
 
   const isMobile = useMobile();
@@ -94,14 +100,9 @@ export function LibraryPage() {
     progressFilter !== 'all',
   ].filter(Boolean).length;
 
-  const clearFilters = () => {
+  const handleClearFilters = () => {
     setSearchQuery('');
-    setTypeFilter('all');
-    setProgressFilter('all');
-  };
-
-  const toggleSortOrder = () => {
-    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+    clearFilters();
   };
 
   const isShowingSearchResults = searchMode === 'content' && debouncedQuery.length >= 2;
@@ -324,7 +325,7 @@ export function LibraryPage() {
               Showing {filteredNotes.length} of {notes?.length || 0} items
             </span>
             <button
-              onClick={clearFilters}
+              onClick={handleClearFilters}
               className="text-accent-primary hover:underline transition-colors"
             >
               Clear filters
@@ -372,7 +373,7 @@ export function LibraryPage() {
           onProgressChange={setProgressFilter}
           onSortChange={setSort}
           onSortOrderToggle={toggleSortOrder}
-          onClearFilters={clearFilters}
+          onClearFilters={handleClearFilters}
           hasActiveFilters={hasActiveFilters}
           onClose={() => setShowMobileFilters(false)}
         />

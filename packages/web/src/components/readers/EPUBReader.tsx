@@ -8,6 +8,7 @@ import { useProgress } from '../../hooks/useProgress';
 import { useHighlights } from '../../hooks/useNote';
 import { useMobile } from '../../hooks/useMobile';
 import { useIdleDetection } from '../../hooks/useIdleDetection';
+import { useSwipeGesture } from '../../hooks/useSwipeGesture';
 import { HighlightPopup } from './shared/HighlightPopup';
 import { HighlightEditPopup } from './shared/HighlightEditPopup';
 import { KeyboardShortcutsPanel } from './shared/KeyboardShortcutsPanel';
@@ -102,9 +103,16 @@ export function EPUBReader({ note }: EPUBReaderProps) {
   const [showClickZones, setShowClickZones] = useState(true);
   const [headerVisible, setHeaderVisible] = useState(true);
 
-  // useMobile is available for future use
-  useMobile();
+  const isMobile = useMobile();
   const theme = (readerTheme || 'dark') as EPUBTheme;
+
+  // Mobile swipe navigation
+  const { handleTouchStart, handleTouchEnd } = useSwipeGesture({
+    onSwipeLeft: () => renditionRef.current?.next(),
+    onSwipeRight: () => renditionRef.current?.prev(),
+    enabled: isMobile,
+    threshold: 50,
+  });
 
   // Idle detection for reading stats (the hook sets up activity listeners)
   // isIdlePaused is shown in the ReadingStatsPanel when open
@@ -864,7 +872,11 @@ export function EPUBReader({ note }: EPUBReaderProps) {
         )}
 
         {/* EPUB container */}
-        <div className="flex-1 overflow-hidden relative">
+        <div
+          className="flex-1 overflow-hidden relative"
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+        >
           <div
             ref={containerRef}
             className="absolute inset-0"
