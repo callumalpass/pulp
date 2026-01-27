@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import type { Highlight, PDFHighlight, HighlightCategory } from '@pulp/shared';
 import { HIGHLIGHT_CATEGORIES } from '@pulp/shared';
 import { Button } from '../../ui/Button';
@@ -7,7 +7,7 @@ import { useUpdateHighlight, useDeleteHighlight } from '../../../hooks/useHighli
 import { useToast } from '../../../contexts/ToastContext';
 import { DictionaryDefinition } from './DictionaryDefinition';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
-import { calculatePopupPosition, type PopupPlacement } from '../../../lib/popup-position';
+import { usePopupPosition } from '../../../hooks/usePopupPosition';
 
 const categoryOrder: HighlightCategory[] = ['highlight', 'important', 'question', 'todo', 'definition'];
 
@@ -36,49 +36,43 @@ interface HighlightEditPopupProps {
   containerRef?: React.RefObject<HTMLElement | null>; // Container for position clamping
 }
 
+type SaveState = 'idle' | 'saving' | 'success';
+
 export function HighlightEditPopup({ highlight, noteId, position, onClose, containerRef }: HighlightEditPopupProps) {
   const [note, setNote] = useState(highlight.note || '');
   const [category, setCategory] = useState<HighlightCategory>(highlight.category || 'highlight');
   const [isEditing, setIsEditing] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>('idle');
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Use focus trap for accessibility - trap focus and close on Escape
-  const popupRef = useFocusTrap<HTMLDivElement>(true, onClose);
+  const focusTrapRef = useFocusTrap<HTMLDivElement>(true, onClose);
+
+  // Use ResizeObserver-based positioning
+  const { popupRef: positionRef, position: popupPosition } = usePopupPosition({
+    anchor: position,
+    containerRef,
+    initialWidth: 288,
+    initialHeight: isEditing ? 350 : 300,
+    padding: 10,
+    gap: 10,
+  });
+
+  // Merge refs for focus trap and positioning
+  const popupRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      // Update focus trap ref
+      (focusTrapRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+      // Update position ref
+      positionRef(node);
+    },
+    [focusTrapRef, positionRef]
+  );
 
   const updateHighlight = useUpdateHighlight(noteId);
   const deleteHighlight = useDeleteHighlight(noteId);
   const { showToast } = useToast();
-
-  // Calculate popup position with bounds clamping and flip logic
-  const POPUP_WIDTH = 288; // w-72 = 288px
-  const POPUP_HEIGHT = isEditing ? 350 : 300; // Estimated heights
-
-  const popupPosition = useMemo(() => {
-    const container = containerRef?.current;
-    if (!container) {
-      // Fallback to viewport-based positioning
-      return {
-        x: Math.max(10, Math.min(position.x - POPUP_WIDTH / 2, window.innerWidth - POPUP_WIDTH - 10)),
-        y: position.y + 10,
-        placement: 'below' as PopupPlacement,
-      };
-    }
-
-    const containerRect = container.getBoundingClientRect();
-
-    return calculatePopupPosition({
-      anchor: {
-        x: position.x,
-        y: position.y,
-      },
-      popupWidth: POPUP_WIDTH,
-      popupHeight: POPUP_HEIGHT,
-      containerRect,
-      padding: 10,
-      gap: 10,
-    });
-  }, [position.x, position.y, POPUP_HEIGHT, containerRef]);
 
   // Focus input when editing mode is opened
   useEffect(() => {
@@ -90,14 +84,14 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose, conta
   // Close on outside click
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
+      if (focusTrapRef.current && !focusTrapRef.current.contains(e.target as Node)) {
         onClose();
       }
     };
 
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
-  }, [onClose]);
+  }, [onClose, focusTrapRef]);
 
   // Close on escape
   useEffect(() => {
@@ -112,6 +106,7 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose, conta
   }, [onClose]);
 
   const handleSave = async () => {
+    setSaveState('saving');
     try {
       await updateHighlight.mutateAsync({
         highlightId: highlight.id,
@@ -120,10 +115,16 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose, conta
           category: category !== highlight.category ? category : undefined,
         },
       });
+      setSaveState('success');
       showToast('Highlight saved', 'success');
-      onClose();
+
+      // Delay close to show success feedback
+      setTimeout(() => {
+        onClose();
+      }, 400);
     } catch (error) {
       console.error('Failed to update highlight:', error);
+      setSaveState('idle');
       showToast('Failed to save highlight. Please try again.', 'error');
     }
   };
@@ -164,7 +165,7 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose, conta
       role="dialog"
       aria-modal="true"
       aria-label={isEditing ? 'Edit highlight note' : 'Highlight details'}
-      className="absolute z-50 bg-bg-surface rounded-lg shadow-xl border border-text-secondary/20 overflow-hidden w-72 highlight-edit-popup-enter"
+      className={`absolute z-50 bg-bg-surface rounded-lg shadow-xl border border-text-secondary/20 overflow-hidden w-72 highlight-edit-popup-enter transition-[left,top] duration-150 ease-out ${saveState === 'success' ? 'highlight-popup-save-success' : ''}`}
       style={{
         left: popupPosition.x,
         top: popupPosition.y,
@@ -172,8 +173,18 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose, conta
     >
       {/* Arrow indicator */}
       <div className={`highlight-popup-arrow ${popupPosition.placement}`} />
+
+      {/* Close button */}
+      <button
+        onClick={onClose}
+        className="absolute top-2 right-2 p-1.5 rounded-md text-text-secondary hover:text-text-primary hover:bg-accent-primary/20 transition-colors z-10"
+        aria-label="Close"
+      >
+        <CloseIcon />
+      </button>
+
       {/* Highlighted text preview with metadata */}
-      <div className="p-3 border-b border-text-secondary/20">
+      <div className="p-3 pr-10 border-b border-text-secondary/20">
         {/* Metadata row: page/location and date */}
         <div className="flex items-center justify-between mb-2 text-xs text-text-secondary">
           <span className="flex items-center gap-1.5">
@@ -229,7 +240,7 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose, conta
                     : 'border-transparent hover:bg-accent-primary/5'
                 }`}
                 title={info.label}
-                disabled={updateHighlight.isPending}
+                disabled={updateHighlight.isPending || saveState === 'success'}
               >
                 <div
                   className="w-4 h-4 rounded-full border border-black/20"
@@ -288,6 +299,7 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose, conta
             className="w-full h-20 p-2 text-sm bg-bg-deep border border-text-secondary/20 rounded text-text-primary resize-none focus:outline-none focus:border-accent-primary"
             maxLength={2000}
             aria-describedby="edit-note-char-count"
+            disabled={saveState === 'saving' || saveState === 'success'}
           />
           <div id="edit-note-char-count" className="flex justify-end mt-1">
             <span className={`text-xs ${note.length > 1800 ? 'text-yellow-500' : 'text-text-secondary/60'} ${note.length >= 2000 ? '!text-red-400' : ''}`}>
@@ -304,6 +316,7 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose, conta
                 setIsEditing(false);
               }}
               className="flex-1"
+              disabled={saveState === 'saving' || saveState === 'success'}
             >
               Cancel
             </Button>
@@ -311,10 +324,14 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose, conta
               variant="primary"
               size="sm"
               onClick={handleSave}
-              disabled={updateHighlight.isPending}
+              disabled={saveState === 'saving' || saveState === 'success'}
               className="flex-1"
             >
-              {updateHighlight.isPending ? 'Saving...' : 'Save'}
+              {saveState === 'saving' ? 'Saving...' : saveState === 'success' ? (
+                <span className="flex items-center gap-1.5">
+                  <CheckIcon /> Saved!
+                </span>
+              ) : 'Save'}
             </Button>
           </div>
         </div>
@@ -331,5 +348,21 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose, conta
         onCancel={() => setShowDeleteConfirm(false)}
       />
     </div>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 6L9 17l-5-5" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <path d="M18 6L6 18M6 6l12 12" />
+    </svg>
   );
 }

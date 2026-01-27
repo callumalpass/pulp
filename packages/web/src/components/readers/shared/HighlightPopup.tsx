@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import type { TextSelection, HighlightCategory } from '@pulp/shared';
 import { HIGHLIGHT_CATEGORIES } from '@pulp/shared';
 import { Button } from '../../ui/Button';
@@ -6,7 +6,7 @@ import { useCreateHighlight } from '../../../hooks/useHighlights';
 import { useToast } from '../../../contexts/ToastContext';
 import { DictionaryDefinition } from './DictionaryDefinition';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
-import { calculatePopupPosition, type PopupPlacement } from '../../../lib/popup-position';
+import { usePopupPosition } from '../../../hooks/usePopupPosition';
 
 const categoryOrder: HighlightCategory[] = ['highlight', 'important', 'question', 'todo', 'definition'];
 
@@ -36,49 +36,39 @@ interface HighlightPopupProps {
   containerRef?: React.RefObject<HTMLElement | null>; // Container for position clamping
 }
 
-type SaveState = 'idle' | 'saving' | 'error';
+type SaveState = 'idle' | 'saving' | 'success' | 'error';
 
 export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, containerRef }: HighlightPopupProps) {
   const [note, setNote] = useState('');
   const [category, setCategory] = useState<HighlightCategory>('highlight');
   const [showNoteInput, setShowNoteInput] = useState(false);
-  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Use focus trap for accessibility - trap focus and close on Escape
-  const popupRef = useFocusTrap<HTMLDivElement>(true, onClose);
+  const focusTrapRef = useFocusTrap<HTMLDivElement>(true, onClose);
 
-  // Calculate popup position with bounds clamping and flip logic
-  const POPUP_WIDTH = showNoteInput ? 288 : 300; // w-72 = 288px in note mode, estimate for main menu
-  const POPUP_HEIGHT = showNoteInput ? 300 : 100; // Estimated heights
+  // Use ResizeObserver-based positioning
+  const { popupRef: positionRef, position: popupPosition } = usePopupPosition({
+    anchor: selection.position,
+    containerRef,
+    initialWidth: showNoteInput ? 288 : 300,
+    initialHeight: showNoteInput ? 300 : 150,
+    padding: 10,
+    gap: 10,
+  });
 
-  const popupPosition = useMemo(() => {
-    const container = containerRef?.current;
-    if (!container) {
-      // Fallback to viewport-based positioning
-      return {
-        x: Math.max(10, Math.min(selection.position.x - POPUP_WIDTH / 2, window.innerWidth - POPUP_WIDTH - 10)),
-        y: selection.position.y + 10,
-        placement: 'below' as PopupPlacement,
-      };
-    }
-
-    const containerRect = container.getBoundingClientRect();
-
-    return calculatePopupPosition({
-      anchor: {
-        x: selection.position.x,
-        y: selection.position.y,
-      },
-      popupWidth: POPUP_WIDTH,
-      popupHeight: POPUP_HEIGHT,
-      containerRect,
-      padding: 10,
-      gap: 10,
-    });
-  }, [selection.position.x, selection.position.y, POPUP_WIDTH, POPUP_HEIGHT, containerRef]);
+  // Merge refs for focus trap and positioning
+  const popupRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      // Update focus trap ref
+      (focusTrapRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+      // Update position ref
+      positionRef(node);
+    },
+    [focusTrapRef, positionRef]
+  );
 
   const createHighlight = useCreateHighlight(noteId);
   const { showToast } = useToast();
@@ -93,14 +83,14 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
   // Close on outside click
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
+      if (focusTrapRef.current && !focusTrapRef.current.contains(e.target as Node)) {
         onClose();
       }
     };
 
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
-  }, [onClose, popupRef]);
+  }, [onClose, focusTrapRef]);
 
   const handleSave = useCallback(async (overrideCategory?: HighlightCategory) => {
     setSaveState('saving');
@@ -136,10 +126,15 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
         });
       }
 
-      // Clear selection and close on success
+      // Show success state
+      setSaveState('success');
       window.getSelection()?.removeAllRanges();
       showToast('Highlight saved', 'success');
-      onClose();
+
+      // Delay close to show success feedback
+      setTimeout(() => {
+        onClose();
+      }, 400);
     } catch (error) {
       console.error('Failed to save highlight:', error);
       setSaveState('error');
@@ -155,13 +150,13 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
   };
 
   const handleCategorySelect = (selectedCategory: HighlightCategory) => {
+    setCategory(selectedCategory);
     // Quick save with the selected category
     handleSave(selectedCategory);
   };
 
   const handleAddNote = () => {
     setShowNoteInput(true);
-    setShowCategoryPicker(false);
     // Reset error state when switching to note mode
     setSaveState('idle');
     setErrorMessage(null);
@@ -171,17 +166,13 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
     handleSave();
   };
 
-  const toggleCategoryPicker = () => {
-    setShowCategoryPicker(!showCategoryPicker);
-  };
-
   return (
     <div
       ref={popupRef}
       role="dialog"
       aria-modal="true"
       aria-label={showNoteInput ? 'Add highlight with note' : 'Create highlight'}
-      className="absolute z-50 bg-bg-surface rounded-lg shadow-xl border border-text-secondary/20 overflow-hidden highlight-popup-enter"
+      className={`absolute z-50 bg-bg-surface rounded-lg shadow-xl border border-text-secondary/20 overflow-hidden highlight-popup-enter transition-[left,top] duration-150 ease-out ${saveState === 'success' ? 'highlight-popup-save-success' : ''}`}
       style={{
         left: popupPosition.x,
         top: popupPosition.y,
@@ -206,34 +197,59 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
               </button>
             </div>
           )}
+
+          {/* Category selector - always visible */}
+          <div className="p-2 border-b border-text-secondary/20">
+            <div className="grid grid-cols-5 gap-1">
+              {categoryOrder.map((cat) => {
+                const info = HIGHLIGHT_CATEGORIES[cat];
+                const isSelected = category === cat;
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => handleCategorySelect(cat)}
+                    className={`flex flex-col items-center gap-1 p-2 rounded transition-colors ${
+                      isSelected
+                        ? 'bg-accent-primary/10'
+                        : 'hover:bg-accent-primary/10'
+                    }`}
+                    title={info.label}
+                    disabled={saveState === 'saving' || saveState === 'success'}
+                  >
+                    <div
+                      className="w-5 h-5 rounded-full border border-black/20"
+                      style={{ backgroundColor: info.color.replace('0.4', '0.8') }}
+                    />
+                    <span className="text-[10px] text-text-secondary truncate w-full text-center">
+                      {info.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Action buttons row */}
           <div className="flex">
             <button
               onClick={handleQuickHighlight}
               className="flex items-center gap-2 px-4 py-3 text-sm text-text-primary hover:bg-accent-primary/20 transition-colors disabled:opacity-50"
-              disabled={saveState === 'saving'}
+              disabled={saveState === 'saving' || saveState === 'success'}
             >
               {saveState === 'saving' ? (
                 <SpinnerIcon />
+              ) : saveState === 'success' ? (
+                <CheckIcon />
               ) : (
                 <HighlightIcon />
               )}
-              {saveState === 'saving' ? 'Saving...' : 'Highlight'}
-            </button>
-            <div className="w-px bg-text-secondary/20" />
-            <button
-              onClick={toggleCategoryPicker}
-              className={`flex items-center gap-2 px-3 py-3 text-sm text-text-primary hover:bg-accent-primary/20 transition-colors ${showCategoryPicker ? 'bg-accent-primary/10' : ''}`}
-              disabled={saveState === 'saving'}
-              title="Choose category"
-            >
-              <CategoryIcon />
-              <ChevronIcon expanded={showCategoryPicker} />
+              {saveState === 'saving' ? 'Saving...' : saveState === 'success' ? 'Saved!' : 'Save'}
             </button>
             <div className="w-px bg-text-secondary/20" />
             <button
               onClick={handleAddNote}
               className="flex items-center gap-2 px-4 py-3 text-sm text-text-primary hover:bg-accent-primary/20 transition-colors"
-              disabled={saveState === 'saving'}
+              disabled={saveState === 'saving' || saveState === 'success'}
             >
               <NoteIcon />
               Note
@@ -247,33 +263,6 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
               <CloseIcon />
             </button>
           </div>
-
-          {/* Category picker dropdown */}
-          {showCategoryPicker && (
-            <div className="border-t border-text-secondary/20 p-2">
-              <div className="grid grid-cols-5 gap-1">
-                {categoryOrder.map((cat) => {
-                  const info = HIGHLIGHT_CATEGORIES[cat];
-                  return (
-                    <button
-                      key={cat}
-                      onClick={() => handleCategorySelect(cat)}
-                      className="flex flex-col items-center gap-1 p-2 rounded hover:bg-accent-primary/10 transition-colors"
-                      title={info.label}
-                    >
-                      <div
-                        className="w-5 h-5 rounded-full border border-black/20"
-                        style={{ backgroundColor: info.color.replace('0.4', '0.8') }}
-                      />
-                      <span className="text-[10px] text-text-secondary truncate w-full text-center">
-                        {info.label}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
 
           <DictionaryDefinition text={selection.text} />
         </>
@@ -310,7 +299,7 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
                         : 'border-transparent hover:bg-accent-primary/5'
                     }`}
                     title={info.label}
-                    disabled={saveState === 'saving'}
+                    disabled={saveState === 'saving' || saveState === 'success'}
                   >
                     <div
                       className="w-4 h-4 rounded-full border border-black/20"
@@ -331,7 +320,7 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
             onChange={(e) => setNote(e.target.value.slice(0, 2000))}
             placeholder="Add a note..."
             className="w-full h-20 p-2 text-sm bg-bg-deep border border-text-secondary/20 rounded text-text-primary resize-none focus:outline-none focus:border-accent-primary"
-            disabled={saveState === 'saving'}
+            disabled={saveState === 'saving' || saveState === 'success'}
             maxLength={2000}
             aria-describedby="note-char-count"
           />
@@ -347,7 +336,7 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
               size="sm"
               onClick={onClose}
               className="flex-1"
-              disabled={saveState === 'saving'}
+              disabled={saveState === 'saving' || saveState === 'success'}
             >
               Cancel
             </Button>
@@ -355,10 +344,14 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
               variant="primary"
               size="sm"
               onClick={() => handleSave()}
-              disabled={saveState === 'saving'}
+              disabled={saveState === 'saving' || saveState === 'success'}
               className="flex-1"
             >
-              {saveState === 'saving' ? 'Saving...' : saveState === 'error' ? 'Retry' : 'Save'}
+              {saveState === 'saving' ? 'Saving...' : saveState === 'success' ? (
+                <span className="flex items-center gap-1.5">
+                  <CheckIcon /> Saved!
+                </span>
+              ) : saveState === 'error' ? 'Retry' : 'Save'}
             </Button>
           </div>
         </div>
@@ -392,27 +385,10 @@ function CloseIcon() {
   );
 }
 
-function CategoryIcon() {
+function CheckIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="10" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
-function ChevronIcon({ expanded }: { expanded: boolean }) {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}
-    >
-      <path d="M6 9l6 6 6-6" />
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 6L9 17l-5-5" />
     </svg>
   );
 }
