@@ -10,9 +10,17 @@ interface SearchResultsProps {
 export function SearchResults({ results, query, isLoading }: SearchResultsProps) {
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-8" role="status" aria-live="polite">
-        <div className="w-6 h-6 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" />
-        <span className="ml-2 text-text-secondary">Searching...</span>
+      <div className="space-y-4" role="status" aria-live="polite" aria-label="Searching documents">
+        {/* Skeleton summary */}
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-4 h-4 border-2 border-accent-primary/50 border-t-accent-primary rounded-full animate-spin" />
+          <span className="text-sm text-text-secondary">Searching documents...</span>
+        </div>
+
+        {/* Skeleton search result cards */}
+        {[1, 2, 3].map((i) => (
+          <SearchResultSkeleton key={i} matchCount={4 - i} />
+        ))}
       </div>
     );
   }
@@ -165,6 +173,36 @@ function escapeHtml(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function SearchResultSkeleton({ matchCount }: { matchCount: number }) {
+  return (
+    <div className="bg-bg-surface border border-text-secondary/20 rounded-lg overflow-hidden animate-fade-in">
+      {/* Header skeleton */}
+      <div className="px-4 py-3 border-b border-text-secondary/10 flex items-center justify-between">
+        <div className="h-5 w-48 skeleton rounded" />
+        <div className="flex items-center gap-2">
+          <div className="h-5 w-12 skeleton rounded" />
+          <div className="h-4 w-16 skeleton rounded" />
+        </div>
+      </div>
+
+      {/* Match rows skeleton */}
+      <div className="divide-y divide-text-secondary/10">
+        {Array.from({ length: matchCount }).map((_, idx) => (
+          <div key={idx} className="px-4 py-3">
+            <div className="flex items-start gap-3">
+              <div className="h-4 w-10 skeleton rounded flex-shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="h-4 skeleton rounded w-full" />
+                <div className="h-4 skeleton rounded w-3/4" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function SearchIcon({ className }: { className?: string }) {
