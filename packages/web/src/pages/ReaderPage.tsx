@@ -11,12 +11,7 @@ export function ReaderPage() {
   const initialPage = searchParams.get('page') ? parseInt(searchParams.get('page')!, 10) : undefined;
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-full" role="status" aria-label="Loading document">
-        <div className="w-8 h-8 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" aria-hidden="true" />
-        <span className="sr-only">Loading document...</span>
-      </div>
-    );
+    return <ReaderSkeleton />;
   }
 
   if (error || !note) {
@@ -61,6 +56,58 @@ export function ReaderPage() {
   }
 
   return <ReaderShell note={note} initialPage={initialPage} />;
+}
+
+function ReaderSkeleton() {
+  return (
+    <div className="h-full flex flex-col" role="status" aria-label="Loading document">
+      <span className="sr-only">Loading document...</span>
+
+      {/* Toolbar skeleton */}
+      <div className="h-12 flex items-center gap-3 px-4 border-b border-subtle bg-bg-surface/50">
+        {/* Back button */}
+        <div className="w-8 h-8 skeleton rounded-lg" />
+        {/* Title area */}
+        <div className="w-40 h-4 skeleton rounded" />
+        <div className="flex-1" />
+        {/* Page indicator */}
+        <div className="w-20 h-6 skeleton rounded-lg" />
+        {/* Toolbar buttons */}
+        <div className="flex gap-2">
+          <div className="w-8 h-8 skeleton rounded-lg" />
+          <div className="w-8 h-8 skeleton rounded-lg" />
+          <div className="w-8 h-8 skeleton rounded-lg" />
+        </div>
+      </div>
+
+      {/* Document area */}
+      <div className="flex-1 flex items-center justify-center bg-bg-deep p-8">
+        {/* Page skeleton */}
+        <div className="w-full max-w-[600px] aspect-[8.5/11] bg-bg-surface rounded-lg overflow-hidden flex flex-col p-8 gap-4">
+          {/* Title block */}
+          <div className="flex flex-col gap-2 items-center pt-8 pb-4">
+            <div className="w-3/4 h-5 skeleton rounded" />
+            <div className="w-1/2 h-3 skeleton rounded mt-1" />
+          </div>
+          {/* Text lines */}
+          <div className="flex flex-col gap-2.5 mt-4">
+            <div className="w-full h-2.5 skeleton rounded" />
+            <div className="w-full h-2.5 skeleton rounded" />
+            <div className="w-11/12 h-2.5 skeleton rounded" />
+            <div className="w-full h-2.5 skeleton rounded" />
+            <div className="w-4/5 h-2.5 skeleton rounded" />
+            <div className="w-full h-2.5 skeleton rounded" />
+            <div className="w-full h-2.5 skeleton rounded" />
+            <div className="w-3/4 h-2.5 skeleton rounded" />
+            <div className="w-full h-2.5 skeleton rounded" />
+            <div className="w-11/12 h-2.5 skeleton rounded" />
+            <div className="w-full h-2.5 skeleton rounded" />
+            <div className="w-2/3 h-2.5 skeleton rounded" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function DocumentErrorIcon() {

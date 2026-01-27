@@ -13,8 +13,24 @@ interface ReaderShellProps {
 
 function ReaderLoadingSpinner() {
   return (
-    <div className="flex-1 flex items-center justify-center">
-      <div className="w-8 h-8 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" />
+    <div className="flex-1 flex items-center justify-center bg-bg-deep p-8" role="status" aria-label="Loading reader">
+      <span className="sr-only">Loading reader...</span>
+      <div className="w-full max-w-[600px] aspect-[8.5/11] bg-bg-surface rounded-lg overflow-hidden flex flex-col p-8 gap-4">
+        <div className="flex flex-col gap-2 items-center pt-8 pb-4">
+          <div className="w-3/4 h-5 skeleton rounded" />
+          <div className="w-1/2 h-3 skeleton rounded mt-1" />
+        </div>
+        <div className="flex flex-col gap-2.5 mt-4">
+          <div className="w-full h-2.5 skeleton rounded" />
+          <div className="w-full h-2.5 skeleton rounded" />
+          <div className="w-11/12 h-2.5 skeleton rounded" />
+          <div className="w-full h-2.5 skeleton rounded" />
+          <div className="w-4/5 h-2.5 skeleton rounded" />
+          <div className="w-full h-2.5 skeleton rounded" />
+          <div className="w-full h-2.5 skeleton rounded" />
+          <div className="w-3/4 h-2.5 skeleton rounded" />
+        </div>
+      </div>
     </div>
   );
 }
