@@ -810,17 +810,17 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
       {!isLoading && toolbar}
 
       {/* Editor / Preview */}
-      <div className={`flex-1 overflow-hidden ${isEink ? 'bg-white' : 'bg-bg-deep'} ${isMobile ? '' : 'panel-content'}`}>
+      <div className={`flex-1 relative overflow-hidden ${isEink ? 'bg-white' : 'bg-bg-deep'} ${isMobile ? '' : 'panel-content'}`}>
         {isLoading ? (
           <div className="flex items-center justify-center h-full">
             <div className={`w-6 h-6 border-2 rounded-full animate-spin ${isEink ? 'border-gray-400 border-t-transparent' : 'border-accent-primary border-t-transparent'}`} />
           </div>
         ) : viewMode === 'edit' ? (
-          <div ref={editorRef} className="h-full" />
+          <div ref={editorRef} className="absolute inset-0" />
         ) : viewMode === 'preview' ? (
           previewPane
         ) : (
-          <div className="flex h-full">
+          <div className="flex absolute inset-0">
             <div ref={editorRef} className={`w-1/2 h-full border-r ${isEink ? 'border-gray-300' : 'border-text-secondary/10'}`} />
             <div className="w-1/2 h-full overflow-hidden">
               {previewPane}
