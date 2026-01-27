@@ -97,8 +97,12 @@ async function renderPage(request: RenderRequest): Promise<{ bitmap: ImageBitmap
   const effectiveScale = scale * devicePixelRatio;
   const viewport = page.getViewport({ scale: effectiveScale });
 
-  // Create OffscreenCanvas for rendering
-  const canvas = new OffscreenCanvas(viewport.width, viewport.height);
+  // Round canvas dimensions to avoid implicit truncation in OffscreenCanvas constructor.
+  // Without this, floats like 1837.5 silently become 1837, creating a scale mismatch
+  // between the render viewport and canvas. Rounding keeps the error within ±0.5px.
+  const canvasWidth = Math.round(viewport.width);
+  const canvasHeight = Math.round(viewport.height);
+  const canvas = new OffscreenCanvas(canvasWidth, canvasHeight);
   const ctx = canvas.getContext('2d');
 
   if (!ctx) {

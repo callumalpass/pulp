@@ -71,6 +71,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   const pageContainerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const textLayerTasksRef = useRef<Map<number, TextLayer>>(new Map());
   const textLayerRenderingRef = useRef<Set<number>>(new Set()); // Track pages currently rendering text layer
+  const textLayerGenRef = useRef(0); // Generation counter to detect stale text layer renders
   const pageRenderingRef = useRef<Set<number>>(new Set()); // Track pages currently rendering (main thread)
 
   // Web Worker render queue for off-main-thread rendering
@@ -691,6 +692,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     textLayerTasksRef.current.forEach((task) => task.cancel());
     textLayerTasksRef.current.clear();
     textLayerRenderingRef.current.clear();
+    textLayerGenRef.current++;
     setRenderVersion((v) => v + 1);
   }, [debouncedZoom]);
 
@@ -749,6 +751,20 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         renderPage(pageNum).finally(() => {
           renderingRef.current.delete(pageNum);
         });
+      } else if (renderedPagesRef.current.has(pageNum) && wasRenderedAtZoom === debouncedZoom) {
+        // Page was already rendered (e.g. as a buffer page) but may not have a text layer.
+        // Ensure text layer is rendered for visible pages.
+        const textLayerDiv = textLayerRefs.current.get(pageNum);
+        if (textLayerDiv && textLayerDiv.querySelectorAll('span').length === 0) {
+          const canvas = pageCanvasRefs.current.get(pageNum);
+          if (canvas) {
+            const cssWidth = parseFloat(canvas.style.width);
+            const cssHeight = parseFloat(canvas.style.height);
+            renderTextLayer(pageNum, textLayerDiv, debouncedZoom,
+              isNaN(cssWidth) ? undefined : cssWidth,
+              isNaN(cssHeight) ? undefined : cssHeight);
+          }
+        }
       }
     });
 
@@ -949,8 +965,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         if (textLayerDiv) {
           requestAnimationFrame(() => {
             textLayerDiv.innerHTML = '';
-            textLayerDiv.style.width = `${displayViewport.width}px`;
-            textLayerDiv.style.height = `${displayViewport.height}px`;
+            textLayerDiv.style.setProperty('--scale-factor', String(displayViewport.scale));
 
             page.getTextContent().then((textContent) => {
               const pageText = textContent.items
@@ -963,6 +978,10 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
                 container: textLayerDiv,
                 viewport: displayViewport,
               });
+
+              // Override round(down) dimensions with exact viewport dimensions
+              textLayerDiv.style.width = `${displayViewport.width}px`;
+              textLayerDiv.style.height = `${displayViewport.height}px`;
 
               textLayerTasksRef.current.set(pageNum, textLayer);
               textLayer.render().then(() => {
@@ -1010,13 +1029,17 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     if (existingLayer && textLayerDiv.querySelectorAll('span').length > 0) return;
 
     textLayerRenderingRef.current.add(pageNum);
+    const generation = textLayerGenRef.current;
 
     try {
       const page = await pdfDocRef.current.getPage(pageNum);
 
+      // Abort if zoom changed since we started (stale render)
+      if (generation !== textLayerGenRef.current) return;
+
       // When canvas dimensions are provided (worker rendering), compute the exact scale
       // that produces those dimensions to avoid floating-point mismatches.
-      // The bitmap dimensions are integers (truncated), so we need to match exactly.
+      // The bitmap dimensions are integers (rounded), so we need to match exactly.
       let textLayerViewport;
       let layerWidth: number;
       let layerHeight: number;
@@ -1035,10 +1058,12 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         layerHeight = textLayerViewport.height;
       }
 
-      // Clear and size the text layer
+      // Clear the text layer and set --scale-factor for PDF.js v4.
+      // PDF.js TextLayer uses this CSS custom property for font-size
+      // (calc(var(--scale-factor) * Npx)) and container dimensions
+      // (round(down, var(--scale-factor) * pageWidthPx, 1px)).
       textLayerDiv.innerHTML = '';
-      textLayerDiv.style.width = `${layerWidth}px`;
-      textLayerDiv.style.height = `${layerHeight}px`;
+      textLayerDiv.style.setProperty('--scale-factor', String(textLayerViewport.scale));
 
       // Prefer worker cached text content (avoids main-thread extraction)
       let textContentData = renderQueueRef.current?.getTextContent(pageNum) ?? null;
@@ -1065,10 +1090,16 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         });
       }
 
+      // Abort if zoom changed while waiting for text content
+      if (generation !== textLayerGenRef.current) return;
+
       if (!textContentData) {
         textContentData = await page.getTextContent();
       }
       if (!textContentData) return;
+
+      // Final generation check before rendering
+      if (generation !== textLayerGenRef.current) return;
 
       const pageText = textContentData.items
         .map((item) => ('str' in item ? item.str : ''))
@@ -1081,8 +1112,23 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         viewport: textLayerViewport,
       });
 
+      // Override the container dimensions set by setLayerDimensions (which uses
+      // round(down, ...)) with the exact viewport dimensions. This eliminates
+      // sub-pixel gaps between the text layer and canvas, since span positions
+      // use percentage-based left/top relative to the container width/height.
+      if (canvasWidth !== undefined && canvasHeight !== undefined) {
+        textLayerDiv.style.width = `${canvasWidth}px`;
+        textLayerDiv.style.height = `${canvasHeight}px`;
+      } else {
+        textLayerDiv.style.width = `${layerWidth}px`;
+        textLayerDiv.style.height = `${layerHeight}px`;
+      }
+
       textLayerTasksRef.current.set(pageNum, textLayer);
       await textLayer.render();
+
+      // Abort if zoom changed during render - don't add stale data-idx attributes
+      if (generation !== textLayerGenRef.current) return;
 
       // Add data-idx attributes to spans for PDF++ compatibility
       const spans = textLayerDiv.querySelectorAll('span');
