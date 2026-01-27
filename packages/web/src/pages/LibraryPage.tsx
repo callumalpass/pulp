@@ -11,6 +11,7 @@ import { SearchResults } from '../components/library/SearchResults';
 import { MobileLibraryFilters } from '../components/library/MobileLibraryFilters';
 import { ContinueReadingCard, ContinueReadingCardSkeleton } from '../components/library/ContinueReadingCard';
 import { MetadataPane } from '../components/library/MetadataPane';
+import { LibraryShortcutsPanel } from '../components/library/LibraryShortcutsPanel';
 import { Button } from '../components/ui/Button';
 import { useLibraryFiltersStore, type SortOption, type ProgressFilter, type TypeFilter, type SearchMode, type ViewMode } from '../stores/libraryFilters';
 import type { LiteratureNoteSummary } from '@pulp/shared';
@@ -87,23 +88,28 @@ function LibraryPageContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const deferredQuery = useDeferredValue(searchQuery);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Global "/" keyboard shortcut to focus search
+  // Global keyboard shortcuts: "/" to focus search, "?" to toggle shortcuts help
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.key === '/' &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.altKey &&
-        document.activeElement?.tagName !== 'INPUT' &&
-        document.activeElement?.tagName !== 'TEXTAREA' &&
-        !document.activeElement?.getAttribute('contenteditable')
-      ) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const isInput =
+        document.activeElement?.tagName === 'INPUT' ||
+        document.activeElement?.tagName === 'TEXTAREA' ||
+        document.activeElement?.getAttribute('contenteditable');
+
+      if (e.key === '/' && !isInput) {
         e.preventDefault();
         searchInputRef.current?.focus();
+      }
+
+      if (e.key === '?' && !isInput) {
+        e.preventDefault();
+        setShowShortcuts(prev => !prev);
       }
     };
 
@@ -501,6 +507,17 @@ function LibraryPageContent() {
                   )}
                 </button>
               </div>
+
+              {/* Keyboard shortcuts help */}
+              <button
+                onClick={() => setShowShortcuts(true)}
+                type="button"
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary/50 hover:text-text-secondary hover:bg-bg-deep transition-all duration-150"
+                title="Keyboard shortcuts (?)"
+                aria-label="Show keyboard shortcuts"
+              >
+                <KeyboardIcon className="w-4 h-4" />
+              </button>
             </div>
           )
         )}
@@ -593,6 +610,12 @@ function LibraryPageContent() {
 
       {/* Metadata Pane */}
       <MetadataPane />
+
+      {/* Keyboard shortcuts help */}
+      <LibraryShortcutsPanel
+        isOpen={showShortcuts}
+        onClose={() => setShowShortcuts(false)}
+      />
     </div>
   );
 }
@@ -842,6 +865,15 @@ function ListViewIcon({ className }: { className?: string }) {
       <line x1="3" y1="6" x2="3.01" y2="6" strokeLinecap="round" />
       <line x1="3" y1="12" x2="3.01" y2="12" strokeLinecap="round" />
       <line x1="3" y1="18" x2="3.01" y2="18" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function KeyboardIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 16h8" strokeLinecap="round" />
     </svg>
   );
 }
