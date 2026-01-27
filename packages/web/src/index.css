@@ -1168,6 +1168,30 @@ body {
   animation: pulse-glow 2s ease-in-out infinite;
 }
 
+/* Empty state "looking around" search animation */
+@keyframes search-peek {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  20% {
+    transform: rotate(-12deg);
+  }
+  40% {
+    transform: rotate(12deg);
+  }
+  60% {
+    transform: rotate(-6deg);
+  }
+  75% {
+    transform: rotate(3deg);
+  }
+}
+
+.animate-search-peek {
+  animation: search-peek 2s cubic-bezier(0.25, 0.8, 0.25, 1) 0.3s;
+  transform-origin: 50% 50%;
+}
+
 /* Animated gradient border effect */
 @keyframes gradient-x {
   0%, 100% {

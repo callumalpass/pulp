@@ -693,15 +693,17 @@ const FilteredEmptyState = memo(function FilteredEmptyState({
 }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-text-secondary page-transition">
-      <div className="relative mb-4">
+      <div className="relative mb-5">
         <div className="absolute -inset-4 bg-accent-primary/5 rounded-full blur-xl" />
-        <div className="relative p-4 bg-bg-surface rounded-2xl border border-white/[0.05]">
+        <div className="relative p-4 bg-bg-surface rounded-2xl border border-white/[0.05] animate-search-peek">
           <SearchIcon className="w-10 h-10 text-text-secondary/50" />
         </div>
       </div>
-      <p className="text-lg font-semibold text-text-primary mb-1">No matches found</p>
-      <p className="text-sm text-text-secondary/70 mb-6">
-        {query ? `No titles match "${query}".` : 'Try adjusting your filters.'}
+      <p className="text-lg font-semibold text-text-primary mb-1">Nothing here</p>
+      <p className="text-sm text-text-secondary/70 mb-6 text-center max-w-xs">
+        {query
+          ? <>No books matching <span className="text-text-primary font-medium">"{query}"</span>. Maybe it's on your to-read list?</>
+          : 'No books match these filters. Try loosening things up.'}
       </p>
       <button
         type="button"
