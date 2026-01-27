@@ -1,5 +1,6 @@
 import { useReadingGoals } from '../../hooks/useReadingGoals';
 import { useLibraryStats } from '../../hooks/useLibraryStats';
+import { useAnimatedCounter } from '../../hooks/useAnimatedCounter';
 import { formatReadingTime } from '../../lib/format';
 
 export function LibraryStats() {
@@ -59,12 +60,7 @@ export function LibraryStats() {
         </div>
         {/* Mini progress bar */}
         {!goalMet && (
-          <div className="w-12 h-1.5 bg-bg-deep rounded-full overflow-hidden">
-            <div
-              className="h-full bg-accent-primary transition-all duration-300"
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
+          <AnimatedProgressBar percent={progressPercent} />
         )}
       </div>
 
@@ -76,9 +72,10 @@ export function LibraryStats() {
         <span className={`${streak.currentStreak > 0 ? '' : 'grayscale opacity-50'}`}>
           {streak.currentStreak > 0 ? '🔥' : '💤'}
         </span>
-        <span className={`font-medium ${streak.currentStreak > 0 ? 'text-text-primary' : 'text-text-secondary'}`}>
-          {streak.currentStreak}
-        </span>
+        <AnimatedStat
+          value={streak.currentStreak}
+          className={`font-medium ${streak.currentStreak > 0 ? 'text-text-primary' : 'text-text-secondary'}`}
+        />
         <span className="text-text-secondary text-xs">
           {streak.currentStreak === 1 ? 'day' : 'days'}
         </span>
@@ -134,7 +131,7 @@ export function LibraryStats() {
           {/* Total books */}
           <div className="flex items-center gap-1.5" title={`${libraryStats.booksCompleted} completed, ${libraryStats.booksInProgress} in progress, ${libraryStats.booksUnread} unread`}>
             <BookIcon className="w-3.5 h-3.5 text-text-secondary opacity-70" />
-            <span className="font-medium text-text-primary">{libraryStats.totalBooks}</span>
+            <AnimatedStat value={libraryStats.totalBooks} className="font-medium text-text-primary" />
             <span className="text-text-secondary text-xs">books</span>
           </div>
 
@@ -157,7 +154,7 @@ export function LibraryStats() {
               <div className="h-4 w-px bg-text-secondary/20" />
               <div className="flex items-center gap-1.5" title="Total highlights across all books">
                 <HighlightIcon className="w-3.5 h-3.5 text-text-secondary opacity-70" />
-                <span className="font-medium text-text-primary">{libraryStats.totalHighlights}</span>
+                <AnimatedStat value={libraryStats.totalHighlights} className="font-medium text-text-primary" />
                 <span className="text-text-secondary text-xs">highlights</span>
               </div>
             </>
@@ -168,13 +165,30 @@ export function LibraryStats() {
             <>
               <div className="h-4 w-px bg-text-secondary/20" />
               <div className="flex items-center gap-1.5" title={`${libraryStats.booksCompletedThisYear} book${libraryStats.booksCompletedThisYear === 1 ? '' : 's'} completed in ${libraryStats.currentYear}`}>
-                <span className="font-medium text-green-500">{libraryStats.booksCompletedThisYear}</span>
+                <AnimatedStat value={libraryStats.booksCompletedThisYear} className="font-medium text-green-500" />
                 <span className="text-text-secondary text-xs">in {libraryStats.currentYear}</span>
               </div>
             </>
           )}
         </>
       )}
+    </div>
+  );
+}
+
+function AnimatedStat({ value, className }: { value: number; className?: string }) {
+  const animated = useAnimatedCounter(value, 600);
+  return <span className={`tabular-nums ${className ?? ''}`}>{animated}</span>;
+}
+
+function AnimatedProgressBar({ percent }: { percent: number }) {
+  const animatedPercent = useAnimatedCounter(percent, 600);
+  return (
+    <div className="w-12 h-1.5 bg-bg-deep rounded-full overflow-hidden">
+      <div
+        className="h-full bg-accent-primary transition-[background-color] duration-300"
+        style={{ width: `${animatedPercent}%` }}
+      />
     </div>
   );
 }
