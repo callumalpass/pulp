@@ -147,7 +147,7 @@ export function KeyboardShortcutsPanel({ isOpen, onClose, readerType }: Keyboard
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in"
       role="dialog"
       aria-modal="true"
       aria-labelledby="shortcuts-title"
@@ -155,7 +155,7 @@ export function KeyboardShortcutsPanel({ isOpen, onClose, readerType }: Keyboard
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="bg-bg-surface border border-text-secondary/20 rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden focus:outline-none"
+        className="bg-bg-surface border border-text-secondary/20 rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden focus:outline-none keyboard-shortcuts-panel-enter"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-text-secondary/10">
