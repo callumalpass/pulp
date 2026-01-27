@@ -27,6 +27,12 @@ const LIBRARY_SHORTCUTS: ShortcutGroup[] = [
     ],
   },
   {
+    title: 'Navigation',
+    shortcuts: [
+      { keys: ['c'], description: 'Continue reading current book' },
+    ],
+  },
+  {
     title: 'General',
     shortcuts: [
       { keys: ['?'], description: 'Show keyboard shortcuts' },

@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useDeferredValue, useCallback, useRef, memo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useLibrary } from '../hooks/useLibrary';
 import { useSearch, useSearchStatus } from '../hooks/useSearch';
 import { useCollections } from '../hooks/useCollections';
@@ -91,8 +92,10 @@ function LibraryPageContent() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const deferredQuery = useDeferredValue(searchQuery);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
+  const continueReadingRef = useRef<LiteratureNoteSummary | null>(null);
 
-  // Global keyboard shortcuts: "/" to focus search, "?" to toggle shortcuts help
+  // Global keyboard shortcuts: "/" to focus search, "?" to toggle shortcuts help, "c" to continue reading
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -111,11 +114,19 @@ function LibraryPageContent() {
         e.preventDefault();
         setShowShortcuts(prev => !prev);
       }
+
+      if (e.key === 'c' && !isInput) {
+        const book = continueReadingRef.current;
+        if (book) {
+          e.preventDefault();
+          navigate(`/read/${book.id}`);
+        }
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [navigate]);
 
   // Filter changes update immediately for instant button feedback
   // The expensive filtering is already deferred via useMemo
@@ -229,6 +240,9 @@ function LibraryPageContent() {
 
     return sorted[0];
   }, [notes]);
+
+  // Keep ref in sync for keyboard shortcut handler
+  continueReadingRef.current = continueReadingBook;
 
   // Show connection error when disconnected and fetching or no data
   const showConnectionError = connectionStatus === 'disconnected' && (isFetching || !notes);
