@@ -88,6 +88,28 @@ function LibraryPageContent() {
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const deferredQuery = useDeferredValue(searchQuery);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Global "/" keyboard shortcut to focus search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.key === '/' &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        document.activeElement?.tagName !== 'INPUT' &&
+        document.activeElement?.tagName !== 'TEXTAREA' &&
+        !document.activeElement?.getAttribute('contenteditable')
+      ) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Filter changes update immediately for instant button feedback
   // The expensive filtering is already deferred via useMemo
@@ -302,12 +324,17 @@ function LibraryPageContent() {
           <div className="relative flex-1 group/search">
             <SearchIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary transition-colors group-focus-within/search:text-accent-primary" />
             <input
+              ref={searchInputRef}
               type="search"
               placeholder={searchMode === 'title' ? 'Search by title...' : 'Search document contents...'}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-10 py-2.5 bg-bg-surface border border-subtle rounded-xl text-text-primary placeholder:text-text-secondary/60 focus:outline-none focus:ring-2 focus:ring-accent-primary/30 focus:border-accent-primary/50 transition-all duration-200 hover:border-text-secondary/30"
             />
+            {/* Keyboard shortcut hint */}
+            {!searchQuery && (
+              <kbd className="absolute right-3 top-1/2 -translate-y-1/2 hidden sm:flex items-center justify-center w-5 h-5 text-[10px] font-mono text-text-secondary/50 border border-text-secondary/20 rounded group-focus-within/search:opacity-0 transition-opacity duration-150 pointer-events-none">/</kbd>
+            )}
             <button
               onClick={() => setSearchQuery('')}
               type="button"
