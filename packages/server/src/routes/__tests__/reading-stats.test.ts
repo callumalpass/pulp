@@ -119,7 +119,14 @@ function createMockGoalsService(): ReadingGoalsService {
       graceDaysUsed: 0,
     }),
     getGoals: vi.fn(),
-    getStreak: vi.fn(),
+    getStreak: vi.fn().mockReturnValue({
+      currentStreak: 1,
+      longestStreak: 5,
+      lastReadDate: '2024-01-15',
+      streakStartDate: '2024-01-15',
+      graceDaysUsed: 0,
+      freezeDaysUsed: 0,
+    }),
     getTodayProgress: vi.fn(),
     getWeekHistory: vi.fn(),
     recalculateStreak: vi.fn(),
@@ -278,7 +285,7 @@ reading_stats:
       expect(body.readingStats.longestSessionMs).toBe(3600000); // New longest
     });
 
-    it('skips update when session duration is zero', async () => {
+    it('skips update when session duration is zero but returns consistent response shape', async () => {
       const response = await fastify.inject({
         method: 'PATCH',
         url: '/api/library/test-note/reading-stats',
@@ -291,8 +298,11 @@ reading_stats:
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
 
+      // Response should have the same shape as a successful update
       expect(body.success).toBe(true);
-      expect(body.message).toContain('zero');
+      expect(body).toHaveProperty('readingStats');
+      expect(body).toHaveProperty('lastRead');
+      expect(body).toHaveProperty('streak');
       expect(mockWriteFileSync).not.toHaveBeenCalled();
     });
 

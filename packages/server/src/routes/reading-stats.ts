@@ -73,9 +73,14 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
     const idlePauseTotalMs = request.body.idlePauseTotalMs;
     const currentProgress = request.body.currentProgress;
 
-    // Skip if no meaningful session data
+    // Skip if no meaningful session data - return current stats to maintain consistent response shape
     if (sessionDurationMs === 0) {
-      return { success: true, message: 'Session duration is zero, no stats updated' };
+      return {
+        success: true,
+        readingStats: note.readingStats,
+        lastRead: note.lastRead,
+        streak: goalsService.getStreak(),
+      };
     }
 
     const now = new Date().toISOString();
@@ -183,8 +188,8 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
           note.totalPages !== null &&
           note.progress < 100
         ) {
-          // Calculate remaining pages
-          const currentPage = Math.round((note.progress / 100) * note.totalPages);
+          // Calculate remaining pages (clamp to valid range to avoid rounding overflow)
+          const currentPage = Math.min(note.totalPages, Math.round((note.progress / 100) * note.totalPages));
           const remainingPages = note.totalPages - currentPage;
 
           if (remainingPages > 0) {
@@ -233,15 +238,17 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
 
         if (currentProgress !== undefined) {
           const previousProgress = note.progress;
-          const newMilestone = checkMilestones(previousProgress, currentProgress, existingMilestones);
-          if (newMilestone !== null) {
+          const newMilestones = checkMilestones(previousProgress, currentProgress, existingMilestones);
+          for (const milestone of newMilestones) {
             const milestoneRecord = createMilestoneRecord(
-              newMilestone,
+              milestone,
               existingStats?.firstReadDate || now,
               totalReadingTimeMs
             );
             milestones.push(milestoneRecord);
-            // Sort milestones by milestone value
+          }
+          // Sort milestones by milestone value
+          if (newMilestones.length > 0) {
             milestones.sort((a, b) => a.milestone - b.milestone);
           }
         }

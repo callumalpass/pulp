@@ -80,8 +80,13 @@ export function HighlightsPanel({
         const pageLabel = pdfHighlight.pageLabel || pageLabels?.[pdfHighlight.page - 1];
         groupLabel = pageLabel ? `Page ${pageLabel}` : `Page ${pdfHighlight.page}`;
       } else {
-        // For EPUBs, we just group sequentially (no page concept)
-        groupLabel = 'Highlights';
+        // For EPUBs, group by creation date for better organization
+        const date = new Date(highlight.createdAt);
+        groupLabel = date.toLocaleDateString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          year: date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
+        });
       }
 
       if (!currentGroup || currentGroup.label !== groupLabel) {

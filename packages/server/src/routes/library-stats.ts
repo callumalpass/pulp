@@ -116,11 +116,16 @@ export const libraryStatsRoutes: FastifyPluginAsync<LibraryStatsRouteOptions> = 
         booksCompleted++;
 
         // Track year of completion
-        if (note.dateFinished) {
-          const yearCompleted = new Date(note.dateFinished).getFullYear();
-          booksCompletedByYear[yearCompleted] = (booksCompletedByYear[yearCompleted] || 0) + 1;
-          if (yearCompleted === currentYear) {
-            booksCompletedThisYear++;
+        // Use dateFinished if set; fall back to lastRead for books completed
+        // outside Pulp (e.g., manually setting progress to 100 in frontmatter)
+        const completionDate = note.dateFinished || note.lastRead;
+        if (completionDate) {
+          const yearCompleted = new Date(completionDate).getFullYear();
+          if (!isNaN(yearCompleted)) {
+            booksCompletedByYear[yearCompleted] = (booksCompletedByYear[yearCompleted] || 0) + 1;
+            if (yearCompleted === currentYear) {
+              booksCompletedThisYear++;
+            }
           }
         }
       } else if (note.progress > 0) {

@@ -37,11 +37,14 @@ const ATTACHMENT_FOLDERS = ['attachments', 'assets', 'files', '_attachments'];
 
 export class LibraryScanner {
   private notes: Map<string, LiteratureNote> = new Map();
+  /** Cache resolved source paths to avoid redundant stat calls across notes sharing source files */
+  private sourcePathCache: Map<string, string | null> = new Map();
 
   constructor(private config: Config) {}
 
   scan(): void {
     this.notes.clear();
+    this.sourcePathCache.clear();
     this.scanDirectory(this.config.library_path);
     console.log(`Found ${this.notes.size} literature notes`);
   }
@@ -160,16 +163,26 @@ export class LibraryScanner {
   }
 
   private resolveSourcePath(sourcePath: string, notePath: string): string | null {
-    // Try relative to note first
+    // Check cache first using a composite key of sourcePath + noteDir
+    // (since relative resolution depends on the note's directory)
     const noteDir = dirname(notePath);
+    const cacheKey = `${noteDir}::${sourcePath}`;
+
+    if (this.sourcePathCache.has(cacheKey)) {
+      return this.sourcePathCache.get(cacheKey)!;
+    }
+
+    // Try relative to note first
     const relativePath = resolve(noteDir, sourcePath);
     if (this.fileExists(relativePath)) {
+      this.sourcePathCache.set(cacheKey, relativePath);
       return relativePath;
     }
 
     // Try relative to vault root
     const vaultPath = resolve(this.config.library_path, sourcePath);
     if (this.fileExists(vaultPath)) {
+      this.sourcePathCache.set(cacheKey, vaultPath);
       return vaultPath;
     }
 
@@ -177,10 +190,12 @@ export class LibraryScanner {
     for (const folder of ATTACHMENT_FOLDERS) {
       const attachmentPath = resolve(this.config.library_path, folder, sourcePath);
       if (this.fileExists(attachmentPath)) {
+        this.sourcePathCache.set(cacheKey, attachmentPath);
         return attachmentPath;
       }
     }
 
+    this.sourcePathCache.set(cacheKey, null);
     return null;
   }
 

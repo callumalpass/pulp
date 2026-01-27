@@ -525,6 +525,32 @@ describe('getDailyReadingHistory', () => {
     expect(history[0].date).toBe('2024-01-15');
   });
 
+  it('rejects impossible calendar dates', () => {
+    const history = getDailyReadingHistory({
+      reading_history: [
+        { date: '2024-13-45', duration_ms: 1000, sessions: 1, pages: 5 }, // invalid month/day
+        { date: '2024-02-30', duration_ms: 1000, sessions: 1, pages: 5 }, // Feb 30 doesn't exist
+        { date: '2024-00-15', duration_ms: 1000, sessions: 1, pages: 5 }, // month 0 invalid
+        { date: '2024-01-15', duration_ms: 2000, sessions: 1, pages: 10 }, // valid
+      ],
+    }, 'reading_history');
+
+    expect(history).toHaveLength(1);
+    expect(history[0].date).toBe('2024-01-15');
+  });
+
+  it('rejects Date objects with invalid time', () => {
+    const history = getDailyReadingHistory({
+      reading_history: [
+        { date: new Date('invalid'), duration_ms: 1000, sessions: 1, pages: 5 },
+        { date: '2024-01-15', duration_ms: 2000, sessions: 1, pages: 10 },
+      ],
+    }, 'reading_history');
+
+    expect(history).toHaveLength(1);
+    expect(history[0].date).toBe('2024-01-15');
+  });
+
   it('handles missing numeric fields with defaults', () => {
     const history = getDailyReadingHistory({
       reading_history: [
@@ -954,34 +980,34 @@ describe('calculateSessionQuality', () => {
 });
 
 describe('checkMilestones', () => {
-  it('returns null when no milestone is crossed', () => {
-    expect(checkMilestones(5, 8, [])).toBeNull();
-    expect(checkMilestones(11, 15, [])).toBeNull();
+  it('returns empty array when no milestone is crossed', () => {
+    expect(checkMilestones(5, 8, [])).toEqual([]);
+    expect(checkMilestones(11, 15, [])).toEqual([]);
   });
 
   it('detects 10% milestone crossing', () => {
-    expect(checkMilestones(5, 12, [])).toBe(10);
+    expect(checkMilestones(5, 12, [])).toEqual([10]);
   });
 
   it('detects 25% milestone crossing', () => {
-    expect(checkMilestones(20, 30, [])).toBe(25);
+    expect(checkMilestones(20, 30, [])).toEqual([25]);
   });
 
   it('detects 50% milestone crossing', () => {
-    expect(checkMilestones(45, 55, [])).toBe(50);
+    expect(checkMilestones(45, 55, [])).toEqual([50]);
   });
 
   it('detects 75% milestone crossing', () => {
-    expect(checkMilestones(70, 80, [])).toBe(75);
+    expect(checkMilestones(70, 80, [])).toEqual([75]);
   });
 
   it('detects 100% milestone crossing', () => {
-    expect(checkMilestones(95, 100, [])).toBe(100);
+    expect(checkMilestones(95, 100, [])).toEqual([100]);
   });
 
-  it('returns highest crossed milestone when multiple are crossed', () => {
+  it('returns all crossed milestones when multiple are crossed', () => {
     // Going from 5% to 30% crosses both 10% and 25%
-    expect(checkMilestones(5, 30, [])).toBe(25);
+    expect(checkMilestones(5, 30, [])).toEqual([10, 25]);
   });
 
   it('does not return already recorded milestones', () => {
@@ -989,7 +1015,7 @@ describe('checkMilestones', () => {
       { milestone: 10 as const, reachedAt: '2024-01-15', daysFromStart: 0, totalReadingTimeMs: 10000 },
     ];
     // 10% already recorded, should not return it
-    expect(checkMilestones(5, 15, existingMilestones)).toBeNull();
+    expect(checkMilestones(5, 15, existingMilestones)).toEqual([]);
   });
 
   it('skips recorded milestones but returns unrecorded ones', () => {
@@ -997,7 +1023,28 @@ describe('checkMilestones', () => {
       { milestone: 10 as const, reachedAt: '2024-01-15', daysFromStart: 0, totalReadingTimeMs: 10000 },
     ];
     // 10% already recorded, but 25% is new
-    expect(checkMilestones(20, 30, existingMilestones)).toBe(25);
+    expect(checkMilestones(20, 30, existingMilestones)).toEqual([25]);
+  });
+
+  it('returns all milestones when jumping from near-zero to 100%', () => {
+    // Jumping from 5% to 100% should cross all 5 milestones
+    expect(checkMilestones(5, 100, [])).toEqual([10, 25, 50, 75, 100]);
+  });
+
+  it('returns remaining unrecorded milestones on large jump', () => {
+    const existingMilestones = [
+      { milestone: 10 as const, reachedAt: '2024-01-15', daysFromStart: 0, totalReadingTimeMs: 10000 },
+      { milestone: 25 as const, reachedAt: '2024-01-16', daysFromStart: 1, totalReadingTimeMs: 20000 },
+    ];
+    // 10% and 25% already recorded; jumping from 30% to 80% crosses 50% and 75%
+    expect(checkMilestones(30, 80, existingMilestones)).toEqual([50, 75]);
+  });
+
+  it('returns milestones in ascending order', () => {
+    const result = checkMilestones(0, 100, []);
+    for (let i = 1; i < result.length; i++) {
+      expect(result[i]).toBeGreaterThan(result[i - 1]);
+    }
   });
 });
 

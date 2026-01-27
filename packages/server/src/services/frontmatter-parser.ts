@@ -699,12 +699,20 @@ export function getDailyReadingHistory(
     // Parse date - accept both Date objects and strings
     let date: string | null = null;
     if (entryObj.date instanceof Date) {
-      date = entryObj.date.toISOString().split('T')[0];
+      // Validate the Date object is actually valid
+      if (!isNaN(entryObj.date.getTime())) {
+        date = entryObj.date.toISOString().split('T')[0];
+      }
     } else if (typeof entryObj.date === 'string') {
-      // Validate YYYY-MM-DD format
+      // Validate YYYY-MM-DD format AND that it's a real calendar date
       const match = entryObj.date.match(/^\d{4}-\d{2}-\d{2}/);
       if (match) {
-        date = match[0];
+        const candidate = match[0];
+        const parsed = new Date(candidate + 'T12:00:00');
+        // Verify the date round-trips correctly (catches invalid dates like 2024-13-45)
+        if (!isNaN(parsed.getTime()) && parsed.toISOString().startsWith(candidate)) {
+          date = candidate;
+        }
       }
     }
 
@@ -1241,26 +1249,28 @@ export function calculateSessionQuality(
 }
 
 /**
- * Check if a progress milestone has been crossed.
- * Returns the highest milestone crossed that hasn't been recorded yet.
+ * Check if progress milestones have been crossed.
+ * Returns ALL milestones crossed that haven't been recorded yet (in ascending order).
+ * This handles cases where progress jumps across multiple milestones in one session
+ * (e.g., jumping from 5% to 80% should record 10%, 25%, 50%, and 75%).
  */
 export function checkMilestones(
   previousProgress: number,
   currentProgress: number,
   existingMilestones: ProgressMilestoneRecord[]
-): ProgressMilestone | null {
+): ProgressMilestone[] {
   const milestones: ProgressMilestone[] = [10, 25, 50, 75, 100];
   const recordedMilestones = new Set(existingMilestones.map(m => m.milestone));
 
-  // Find the highest milestone that was crossed and not yet recorded
-  for (let i = milestones.length - 1; i >= 0; i--) {
-    const milestone = milestones[i];
+  // Find ALL milestones that were crossed and not yet recorded
+  const crossed: ProgressMilestone[] = [];
+  for (const milestone of milestones) {
     if (currentProgress >= milestone && previousProgress < milestone && !recordedMilestones.has(milestone)) {
-      return milestone;
+      crossed.push(milestone);
     }
   }
 
-  return null;
+  return crossed;
 }
 
 /**

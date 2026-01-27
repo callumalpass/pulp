@@ -363,6 +363,41 @@ describe('library-stats routes', () => {
       expect(body.booksWithEstimatedCompletion).toBe(1);
     });
 
+    it('uses lastRead as fallback when completed book has no dateFinished', async () => {
+      const notes = [
+        createTestNote({
+          id: 'completed-no-date',
+          progress: 100,
+          dateFinished: null, // No dateFinished (e.g., manually set progress=100 in frontmatter)
+          lastRead: '2024-06-15T10:00:00Z',
+        }),
+        createTestNote({
+          id: 'completed-with-date',
+          progress: 100,
+          dateFinished: '2024-03-10T10:00:00Z',
+          lastRead: '2024-03-10T10:00:00Z',
+        }),
+      ];
+
+      fastify = Fastify({ logger: false });
+      await fastify.register(libraryStatsRoutes, {
+        scanner: createMockScanner(notes),
+      });
+      await fastify.ready();
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library-stats',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      expect(body.booksCompleted).toBe(2);
+      // Both books should be counted in booksCompletedByYear
+      expect(body.booksCompletedByYear[2024]).toBe(2);
+    });
+
     it('counts unique collections', async () => {
       const notes = [
         createTestNote({ id: 'book1', collections: ['Fiction', 'Favorites'] }),
