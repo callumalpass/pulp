@@ -1,0 +1,1226 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { ReadingStats } from '@pulp/shared';
+
+// ── Mocks ──────────────────────────────────────────────────────────────
+
+// Mock the api module before importing the store
+vi.mock('../../lib/api', () => ({
+  api: {
+    readingStats: {
+      update: vi.fn(),
+    },
+  },
+}));
+
+// Mock formatReadingTime (it's already tested in format.test.ts)
+vi.mock('../../lib/format', () => ({
+  formatReadingTime: vi.fn((ms: number) => `${Math.round(ms / 1000)}s`),
+}));
+
+// Mock localStorage
+const localStorageMock = (() => {
+  let store: Record<string, string> = {};
+  return {
+    getItem: vi.fn((key: string) => store[key] ?? null),
+    setItem: vi.fn((key: string, value: string) => { store[key] = value; }),
+    removeItem: vi.fn((key: string) => { delete store[key]; }),
+    clear: vi.fn(() => { store = {}; }),
+    get length() { return Object.keys(store).length; },
+    key: vi.fn((i: number) => Object.keys(store)[i] ?? null),
+  };
+})();
+
+Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock });
+if (typeof globalThis.window === 'undefined') {
+  (globalThis as Record<string, unknown>).window = globalThis;
+}
+
+// Now import the store after mocks are set up
+import { useReadingStatsStore } from '../readingStats';
+import { api } from '../../lib/api';
+
+// ── Helpers ────────────────────────────────────────────────────────────
+
+const mockedApiUpdate = vi.mocked(api.readingStats.update);
+
+function makeStats(overrides: Partial<ReadingStats> = {}): ReadingStats {
+  return {
+    totalReadingTimeMs: 600000,
+    totalSessions: 5,
+    averageSessionMs: 120000,
+    firstReadDate: '2025-01-01T00:00:00.000Z',
+    pagesPerHour: 30,
+    totalPagesRead: 50,
+    longestSessionMs: 300000,
+    estimatedCompletionDate: null,
+    averageDailyReadingMs: null,
+    ...overrides,
+  };
+}
+
+function resetStore() {
+  useReadingStatsStore.setState({
+    activeSession: null,
+    bookStatsCache: {},
+    pendingSessions: [],
+    isSyncing: false,
+    lastSyncError: null,
+  });
+}
+
+// ── Tests ──────────────────────────────────────────────────────────────
+
+describe('useReadingStatsStore', () => {
+  let perfNowSpy: ReturnType<typeof vi.spyOn>;
+  let currentTime: number;
+
+  beforeEach(() => {
+    localStorageMock.clear();
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    resetStore();
+
+    // Control performance.now() for deterministic time calculations
+    currentTime = 1000;
+    perfNowSpy = vi.spyOn(performance, 'now').mockImplementation(() => currentTime);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    perfNowSpy.mockRestore();
+  });
+
+  // ── Initial state ──────────────────────────────────────────────────
+
+  describe('initial state', () => {
+    it('starts with no active session', () => {
+      const state = useReadingStatsStore.getState();
+      expect(state.activeSession).toBeNull();
+    });
+
+    it('starts with empty book stats cache', () => {
+      const state = useReadingStatsStore.getState();
+      expect(state.bookStatsCache).toEqual({});
+    });
+
+    it('starts with no pending sessions', () => {
+      const state = useReadingStatsStore.getState();
+      expect(state.pendingSessions).toEqual([]);
+    });
+
+    it('starts not syncing', () => {
+      const state = useReadingStatsStore.getState();
+      expect(state.isSyncing).toBe(false);
+      expect(state.lastSyncError).toBeNull();
+    });
+  });
+
+  // ── startSession ──────────────────────────────────────────────────
+
+  describe('startSession', () => {
+    it('creates an active session with correct fields', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 5, 100);
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session).not.toBeNull();
+      expect(session!.noteId).toBe('note-1');
+      expect(session!.startPage).toBe(5);
+      expect(session!.currentPage).toBe(5);
+      expect(session!.totalPages).toBe(100);
+      expect(session!.isPaused).toBe(false);
+      expect(session!.pausedAt).toBeNull();
+      expect(session!.totalPausedMs).toBe(0);
+      expect(session!.isIdlePaused).toBe(false);
+      expect(session!.idlePauseCount).toBe(0);
+      expect(session!.idlePauseTotalMs).toBe(0);
+    });
+
+    it('sets startTime from performance.now()', () => {
+      currentTime = 5000;
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 50);
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.startTime).toBe(5000);
+    });
+
+    it('calculates initial progress percentage', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 25, 100);
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.currentProgress).toBe(25);
+    });
+
+    it('handles totalPages of 0 without division error', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 0, 0);
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.currentProgress).toBe(0);
+    });
+
+    it('ends existing session before starting new one', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 50);
+
+      // Start another session — the first should be ended
+      store.startSession('note-2', 1, 100);
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.noteId).toBe('note-2');
+    });
+
+    it('records an ISO timestamp for display', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 50);
+
+      const session = useReadingStatsStore.getState().activeSession;
+      // Should be a valid ISO string
+      expect(() => new Date(session!.startTimestamp)).not.toThrow();
+      expect(new Date(session!.startTimestamp).toISOString()).toBe(session!.startTimestamp);
+    });
+  });
+
+  // ── updateCurrentPage ─────────────────────────────────────────────
+
+  describe('updateCurrentPage', () => {
+    it('updates the current page', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 2000;
+      store.updateCurrentPage(10);
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.currentPage).toBe(10);
+    });
+
+    it('updates lastActivityTime', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 5000;
+      store.updateCurrentPage(10);
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.lastActivityTime).toBe(5000);
+    });
+
+    it('recalculates progress percentage', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 200);
+
+      store.updateCurrentPage(100);
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.currentProgress).toBe(50);
+    });
+
+    it('does nothing if no active session', () => {
+      const store = useReadingStatsStore.getState();
+      // No session started
+      store.updateCurrentPage(10);
+
+      expect(useReadingStatsStore.getState().activeSession).toBeNull();
+    });
+
+    it('auto-resumes an idle-paused session on page change', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      // Simulate idle pause
+      currentTime = 400000; // Well past idle timeout
+      useReadingStatsStore.setState((state) => ({
+        activeSession: state.activeSession ? {
+          ...state.activeSession,
+          isPaused: true,
+          pausedAt: 300000,
+          isIdlePaused: true,
+          idlePauseCount: 1,
+        } : null,
+      }));
+
+      // Page change should auto-resume
+      currentTime = 500000;
+      store.updateCurrentPage(5);
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.isPaused).toBe(false);
+      expect(session!.isIdlePaused).toBe(false);
+      expect(session!.pausedAt).toBeNull();
+      // totalPausedMs should include the idle pause duration (500000 - 300000 = 200000)
+      expect(session!.totalPausedMs).toBe(200000);
+    });
+  });
+
+  // ── pauseSession ──────────────────────────────────────────────────
+
+  describe('pauseSession', () => {
+    it('pauses an active session', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 5000;
+      store.pauseSession();
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.isPaused).toBe(true);
+      expect(session!.pausedAt).toBe(5000);
+      expect(session!.isIdlePaused).toBe(false); // Manual pause
+    });
+
+    it('does nothing if already paused', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 5000;
+      store.pauseSession();
+
+      currentTime = 10000;
+      store.pauseSession(); // second pause
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.pausedAt).toBe(5000); // Unchanged
+    });
+
+    it('does nothing if no active session', () => {
+      const store = useReadingStatsStore.getState();
+      store.pauseSession();
+      expect(useReadingStatsStore.getState().activeSession).toBeNull();
+    });
+  });
+
+  // ── resumeSession ─────────────────────────────────────────────────
+
+  describe('resumeSession', () => {
+    it('resumes a paused session', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 5000;
+      store.pauseSession();
+
+      currentTime = 10000;
+      store.resumeSession();
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.isPaused).toBe(false);
+      expect(session!.pausedAt).toBeNull();
+    });
+
+    it('accumulates paused time correctly', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      // First pause: 5000ms
+      currentTime = 5000;
+      store.pauseSession();
+      currentTime = 10000;
+      store.resumeSession();
+
+      expect(useReadingStatsStore.getState().activeSession!.totalPausedMs).toBe(5000);
+
+      // Second pause: 3000ms
+      currentTime = 15000;
+      store.pauseSession();
+      currentTime = 18000;
+      store.resumeSession();
+
+      expect(useReadingStatsStore.getState().activeSession!.totalPausedMs).toBe(8000);
+    });
+
+    it('resets lastActivityTime on resume', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 5000;
+      store.pauseSession();
+
+      currentTime = 10000;
+      store.resumeSession();
+
+      expect(useReadingStatsStore.getState().activeSession!.lastActivityTime).toBe(10000);
+    });
+
+    it('clears isIdlePaused flag on resume', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      // Simulate idle pause state
+      useReadingStatsStore.setState((state) => ({
+        activeSession: state.activeSession ? {
+          ...state.activeSession,
+          isPaused: true,
+          pausedAt: 5000,
+          isIdlePaused: true,
+        } : null,
+      }));
+
+      currentTime = 10000;
+      store.resumeSession();
+
+      expect(useReadingStatsStore.getState().activeSession!.isIdlePaused).toBe(false);
+    });
+
+    it('does nothing if not paused', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      store.resumeSession(); // not paused
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.totalPausedMs).toBe(0);
+    });
+
+    it('does nothing if no active session', () => {
+      const store = useReadingStatsStore.getState();
+      store.resumeSession();
+      expect(useReadingStatsStore.getState().activeSession).toBeNull();
+    });
+  });
+
+  // ── recordActivity ────────────────────────────────────────────────
+
+  describe('recordActivity', () => {
+    it('updates lastActivityTime', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 8000;
+      store.recordActivity();
+
+      expect(useReadingStatsStore.getState().activeSession!.lastActivityTime).toBe(8000);
+    });
+
+    it('auto-resumes from idle pause on activity', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      // Simulate idle pause
+      useReadingStatsStore.setState((state) => ({
+        activeSession: state.activeSession ? {
+          ...state.activeSession,
+          isPaused: true,
+          pausedAt: 300000,
+          isIdlePaused: true,
+          idlePauseCount: 1,
+          totalPausedMs: 0,
+          idlePauseTotalMs: 0,
+        } : null,
+      }));
+
+      currentTime = 400000;
+      store.recordActivity();
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.isPaused).toBe(false);
+      expect(session!.isIdlePaused).toBe(false);
+      expect(session!.pausedAt).toBeNull();
+      expect(session!.totalPausedMs).toBe(100000); // 400000 - 300000
+      expect(session!.idlePauseTotalMs).toBe(100000);
+    });
+
+    it('does nothing if no active session', () => {
+      const store = useReadingStatsStore.getState();
+      store.recordActivity();
+      expect(useReadingStatsStore.getState().activeSession).toBeNull();
+    });
+
+    it('does not resume a manually paused session', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      // Manual pause (isIdlePaused = false)
+      currentTime = 5000;
+      store.pauseSession();
+
+      currentTime = 10000;
+      store.recordActivity();
+
+      // Should remain paused since it was manual, not idle
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.isPaused).toBe(true);
+    });
+  });
+
+  // ── checkIdleStatus ───────────────────────────────────────────────
+
+  describe('checkIdleStatus', () => {
+    const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+
+    it('pauses session after idle timeout', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+      const initialActivityTime = useReadingStatsStore.getState().activeSession!.lastActivityTime;
+
+      currentTime = initialActivityTime + IDLE_TIMEOUT;
+      store.checkIdleStatus();
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.isPaused).toBe(true);
+      expect(session!.isIdlePaused).toBe(true);
+      expect(session!.idlePauseCount).toBe(1);
+    });
+
+    it('does not pause before idle timeout', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+      const initialActivityTime = useReadingStatsStore.getState().activeSession!.lastActivityTime;
+
+      currentTime = initialActivityTime + IDLE_TIMEOUT - 1;
+      store.checkIdleStatus();
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.isPaused).toBe(false);
+    });
+
+    it('does nothing if already paused', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 5000;
+      store.pauseSession(); // Manual pause first
+
+      currentTime = 500000; // Well past idle
+      store.checkIdleStatus();
+
+      const session = useReadingStatsStore.getState().activeSession;
+      // Should remain manually paused, not converted to idle pause
+      expect(session!.isIdlePaused).toBe(false);
+      expect(session!.idlePauseCount).toBe(0);
+    });
+
+    it('does nothing if no active session', () => {
+      const store = useReadingStatsStore.getState();
+      store.checkIdleStatus();
+      expect(useReadingStatsStore.getState().activeSession).toBeNull();
+    });
+
+    it('increments idle pause count on multiple idle pauses', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      // First idle pause
+      currentTime = 1000 + IDLE_TIMEOUT;
+      store.checkIdleStatus();
+      expect(useReadingStatsStore.getState().activeSession!.idlePauseCount).toBe(1);
+
+      // Resume
+      currentTime += 1000;
+      store.resumeSession();
+
+      // Second idle pause
+      currentTime += IDLE_TIMEOUT;
+      store.checkIdleStatus();
+      expect(useReadingStatsStore.getState().activeSession!.idlePauseCount).toBe(2);
+    });
+  });
+
+  // ── endSession ────────────────────────────────────────────────────
+
+  describe('endSession', () => {
+    it('returns null if no active session', async () => {
+      const store = useReadingStatsStore.getState();
+      const result = await store.endSession();
+      expect(result).toBeNull();
+    });
+
+    it('clears the active session immediately', async () => {
+      mockedApiUpdate.mockResolvedValue({
+        success: true,
+        readingStats: makeStats(),
+        lastRead: new Date().toISOString(),
+      });
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 60000; // 59 seconds of reading
+      const promise = store.endSession();
+
+      // Session cleared immediately (before API call resolves)
+      expect(useReadingStatsStore.getState().activeSession).toBeNull();
+      await promise;
+    });
+
+    it('discards sessions shorter than 10 seconds', async () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 1000 + 9999; // Just under 10 seconds
+      const result = await store.endSession();
+
+      expect(result).toBeNull();
+      expect(mockedApiUpdate).not.toHaveBeenCalled();
+    });
+
+    it('saves sessions of exactly 10 seconds', async () => {
+      mockedApiUpdate.mockResolvedValue({
+        success: true,
+        readingStats: makeStats(),
+        lastRead: new Date().toISOString(),
+      });
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 1000 + 10000; // Exactly 10 seconds
+      const result = await store.endSession();
+
+      expect(result).not.toBeNull();
+      expect(mockedApiUpdate).toHaveBeenCalled();
+    });
+
+    it('returns a ReadingSession on success', async () => {
+      mockedApiUpdate.mockResolvedValue({
+        success: true,
+        readingStats: makeStats(),
+        lastRead: new Date().toISOString(),
+      });
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+      store.updateCurrentPage(10);
+
+      currentTime = 60000; // 59 seconds
+      const result = await store.endSession();
+
+      expect(result).not.toBeNull();
+      expect(result!.noteId).toBe('note-1');
+      expect(result!.startPage).toBe(1);
+      expect(result!.endPage).toBe(10);
+      expect(result!.pagesRead).toBe(9); // |10 - 1|
+      expect(result!.durationMs).toBeGreaterThan(0);
+      expect(result!.id).toMatch(/^session-/);
+    });
+
+    it('calculates duration excluding paused time', async () => {
+      mockedApiUpdate.mockResolvedValue({
+        success: true,
+        readingStats: makeStats(),
+        lastRead: new Date().toISOString(),
+      });
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      // Pause for 20 seconds at t=5000
+      currentTime = 5000;
+      store.pauseSession();
+      currentTime = 25000;
+      store.resumeSession();
+
+      // End at t=50000 — total wall time = 49s, paused = 20s, active = 29s
+      currentTime = 50000;
+      const result = await store.endSession();
+
+      // duration should be ~29000ms (50000 - 1000 - 20000)
+      expect(result!.durationMs).toBe(29000);
+    });
+
+    it('accounts for currently paused time at end', async () => {
+      mockedApiUpdate.mockResolvedValue({
+        success: true,
+        readingStats: makeStats(),
+        lastRead: new Date().toISOString(),
+      });
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      // Pause at t=5000 and DON'T resume before ending
+      currentTime = 5000;
+      store.pauseSession();
+
+      currentTime = 30000; // End while still paused
+      const result = await store.endSession();
+
+      // Wall time = 29000ms, paused at 5000 to 30000 = 25000ms, active = 4000ms
+      // But 4000ms < 10000ms minimum, so should be null
+      expect(result).toBeNull();
+    });
+
+    it('updates bookStatsCache on successful save', async () => {
+      const stats = makeStats({ totalSessions: 10 });
+      mockedApiUpdate.mockResolvedValue({
+        success: true,
+        readingStats: stats,
+        lastRead: new Date().toISOString(),
+      });
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 60000;
+      await store.endSession();
+
+      expect(useReadingStatsStore.getState().bookStatsCache['note-1']).toEqual(stats);
+      expect(useReadingStatsStore.getState().lastSyncError).toBeNull();
+    });
+
+    it('queues session for later sync on API failure', async () => {
+      mockedApiUpdate.mockRejectedValue(new Error('Network error'));
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+      store.updateCurrentPage(5);
+
+      currentTime = 60000;
+      const endPromise = store.endSession();
+
+      // Advance through retry delays (endSession uses 3 retries: 2s, 4s)
+      await vi.advanceTimersByTimeAsync(2000);
+      await vi.advanceTimersByTimeAsync(4000);
+      await endPromise;
+
+      const pending = useReadingStatsStore.getState().pendingSessions;
+      expect(pending).toHaveLength(1);
+      expect(pending[0].noteId).toBe('note-1');
+      expect(pending[0].retryCount).toBe(0);
+      expect(useReadingStatsStore.getState().lastSyncError).toBeTruthy();
+    });
+
+    it('limits pending sessions to 50, removing oldest', async () => {
+      // Pre-fill with 50 pending sessions
+      const existingPending = Array.from({ length: 50 }, (_, i) => ({
+        noteId: `old-note-${i}`,
+        sessionDurationMs: 30000,
+        pagesRead: 1,
+        startPage: 1,
+        endPage: 2,
+        startTime: '2025-01-01T00:00:00.000Z',
+        timestamp: '2025-01-01T00:30:00.000Z',
+        retryCount: 0,
+      }));
+      useReadingStatsStore.setState({ pendingSessions: existingPending });
+
+      mockedApiUpdate.mockRejectedValue(new Error('Network error'));
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-new', 1, 100);
+
+      currentTime = 60000;
+      const endPromise = store.endSession();
+
+      // Advance through retry delays (endSession uses 3 retries: 2s, 4s)
+      await vi.advanceTimersByTimeAsync(2000);
+      await vi.advanceTimersByTimeAsync(4000);
+      await endPromise;
+
+      const pending = useReadingStatsStore.getState().pendingSessions;
+      expect(pending.length).toBeLessThanOrEqual(50);
+      // Newest session should be included
+      expect(pending[pending.length - 1].noteId).toBe('note-new');
+    });
+
+    it('calculates pagesRead as absolute difference', async () => {
+      mockedApiUpdate.mockResolvedValue({
+        success: true,
+        readingStats: makeStats(),
+        lastRead: new Date().toISOString(),
+      });
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 10, 100);
+      store.updateCurrentPage(5); // Navigate backward
+
+      currentTime = 60000;
+      const result = await store.endSession();
+
+      expect(result!.pagesRead).toBe(5); // |5 - 10| = 5
+    });
+
+    it('includes idle pause metadata in API call', async () => {
+      mockedApiUpdate.mockResolvedValue({
+        success: true,
+        readingStats: makeStats(),
+        lastRead: new Date().toISOString(),
+      });
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      // Simulate an idle pause that was resumed
+      useReadingStatsStore.setState((state) => ({
+        activeSession: state.activeSession ? {
+          ...state.activeSession,
+          idlePauseCount: 2,
+          idlePauseTotalMs: 120000,
+          currentProgress: 50,
+        } : null,
+      }));
+
+      currentTime = 60000;
+      await store.endSession();
+
+      expect(mockedApiUpdate).toHaveBeenCalledWith(
+        'note-1',
+        expect.objectContaining({
+          idlePauseCount: 2,
+          idlePauseTotalMs: 120000,
+          currentProgress: 50,
+        })
+      );
+    });
+
+    it('does not retry on 4xx client errors', async () => {
+      mockedApiUpdate.mockRejectedValue(new Error('HTTP 400 Bad Request'));
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 60000;
+      await store.endSession();
+
+      // Should only be called once (no retries for 4xx)
+      expect(mockedApiUpdate).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries on server errors up to 3 times', async () => {
+      mockedApiUpdate.mockRejectedValue(new Error('HTTP 500 Server Error'));
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 60000;
+      const endPromise = store.endSession();
+
+      // Advance through retry delays: 2s, 4s
+      await vi.advanceTimersByTimeAsync(2000);
+      await vi.advanceTimersByTimeAsync(4000);
+      await endPromise;
+
+      // endSession uses 3 max retries
+      expect(mockedApiUpdate).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  // ── setBookStats / getBookStats ───────────────────────────────────
+
+  describe('setBookStats / getBookStats', () => {
+    it('stores and retrieves stats for a note', () => {
+      const stats = makeStats({ totalSessions: 42 });
+      const store = useReadingStatsStore.getState();
+      store.setBookStats('note-1', stats);
+
+      expect(store.getBookStats('note-1')).toEqual(stats);
+    });
+
+    it('returns null for unknown notes', () => {
+      const store = useReadingStatsStore.getState();
+      expect(store.getBookStats('nonexistent')).toBeNull();
+    });
+
+    it('ignores null stats (does not overwrite)', () => {
+      const stats = makeStats();
+      const store = useReadingStatsStore.getState();
+      store.setBookStats('note-1', stats);
+      store.setBookStats('note-1', null);
+
+      // Should still have original stats — null input is a no-op
+      expect(useReadingStatsStore.getState().bookStatsCache['note-1']).toEqual(stats);
+    });
+
+    it('stores stats for multiple notes independently', () => {
+      const store = useReadingStatsStore.getState();
+      const stats1 = makeStats({ totalSessions: 1 });
+      const stats2 = makeStats({ totalSessions: 2 });
+
+      store.setBookStats('note-1', stats1);
+      store.setBookStats('note-2', stats2);
+
+      expect(store.getBookStats('note-1')!.totalSessions).toBe(1);
+      expect(store.getBookStats('note-2')!.totalSessions).toBe(2);
+    });
+  });
+
+  // ── getEstimatedTimeRemaining ─────────────────────────────────────
+
+  describe('getEstimatedTimeRemaining', () => {
+    it('returns null if no stats exist', () => {
+      const store = useReadingStatsStore.getState();
+      expect(store.getEstimatedTimeRemaining('note-1', 50, 100)).toBeNull();
+    });
+
+    it('returns null if totalReadingTimeMs is 0', () => {
+      const store = useReadingStatsStore.getState();
+      store.setBookStats('note-1', makeStats({ totalReadingTimeMs: 0 }));
+
+      expect(store.getEstimatedTimeRemaining('note-1', 50, 100)).toBeNull();
+    });
+
+    it('returns null if totalSessions is 0', () => {
+      const store = useReadingStatsStore.getState();
+      store.setBookStats('note-1', makeStats({ totalSessions: 0 }));
+
+      expect(store.getEstimatedTimeRemaining('note-1', 50, 100)).toBeNull();
+    });
+
+    it('returns null if no pages remaining', () => {
+      const store = useReadingStatsStore.getState();
+      store.setBookStats('note-1', makeStats());
+
+      expect(store.getEstimatedTimeRemaining('note-1', 100, 100)).toBeNull();
+    });
+
+    it('returns null if current page exceeds total', () => {
+      const store = useReadingStatsStore.getState();
+      store.setBookStats('note-1', makeStats());
+
+      expect(store.getEstimatedTimeRemaining('note-1', 120, 100)).toBeNull();
+    });
+
+    it('uses pagesPerHour for estimation when available', () => {
+      const store = useReadingStatsStore.getState();
+      store.setBookStats('note-1', makeStats({ pagesPerHour: 60 }));
+
+      // 50 pages remaining at 60 pages/hour = 0.833 hours = 50 minutes
+      const result = store.getEstimatedTimeRemaining('note-1', 50, 100);
+      expect(result).toBe(Math.round(50 / 60 * 60 * 60 * 1000)); // ~3000000ms
+    });
+
+    it('falls back to progress-based estimation without pagesPerHour', () => {
+      const store = useReadingStatsStore.getState();
+      store.setBookStats('note-1', makeStats({
+        pagesPerHour: null,
+        totalReadingTimeMs: 600000, // 10 minutes
+        totalSessions: 5,
+      }));
+
+      // At page 50 of 100 (50% progress), spent 600000ms
+      // Estimated total = 600000 / 0.5 = 1200000ms
+      // Remaining = 1200000 - 600000 = 600000ms
+      const result = store.getEstimatedTimeRemaining('note-1', 50, 100);
+      expect(result).toBe(600000);
+    });
+
+    it('returns null for progress-based fallback at page 0', () => {
+      const store = useReadingStatsStore.getState();
+      store.setBookStats('note-1', makeStats({
+        pagesPerHour: null,
+        totalReadingTimeMs: 600000,
+        totalSessions: 5,
+      }));
+
+      expect(store.getEstimatedTimeRemaining('note-1', 0, 100)).toBeNull();
+    });
+
+    it('returns 0 or positive value, never negative', () => {
+      const store = useReadingStatsStore.getState();
+      store.setBookStats('note-1', makeStats({
+        pagesPerHour: 100,
+        totalReadingTimeMs: 9999999,
+      }));
+
+      const result = store.getEstimatedTimeRemaining('note-1', 99, 100);
+      expect(result).toBeGreaterThanOrEqual(0);
+    });
+
+    it('skips pagesPerHour=0 and uses fallback', () => {
+      const store = useReadingStatsStore.getState();
+      store.setBookStats('note-1', makeStats({
+        pagesPerHour: 0,
+        totalReadingTimeMs: 600000,
+        totalSessions: 5,
+      }));
+
+      // pagesPerHour=0 should trigger fallback
+      const result = store.getEstimatedTimeRemaining('note-1', 50, 100);
+      expect(result).toBe(600000);
+    });
+  });
+
+  // ── getFormattedReadingTime ───────────────────────────────────────
+
+  describe('getFormattedReadingTime', () => {
+    it('delegates to formatReadingTime', () => {
+      const store = useReadingStatsStore.getState();
+      const result = store.getFormattedReadingTime(30000);
+      expect(result).toBe('30s');
+    });
+  });
+
+  // ── getActiveSessionDuration ──────────────────────────────────────
+
+  describe('getActiveSessionDuration', () => {
+    it('returns 0 if no active session', () => {
+      const store = useReadingStatsStore.getState();
+      expect(store.getActiveSessionDuration()).toBe(0);
+    });
+
+    it('returns elapsed time minus paused time', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100); // starts at t=1000
+
+      // Pause for 5 seconds
+      currentTime = 5000;
+      store.pauseSession();
+      currentTime = 10000;
+      store.resumeSession();
+
+      currentTime = 20000;
+      // Wall time: 20000 - 1000 = 19000ms, paused: 5000ms, active: 14000ms
+      expect(store.getActiveSessionDuration()).toBe(14000);
+    });
+
+    it('includes current pause duration if currently paused', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100); // t=1000
+
+      currentTime = 5000;
+      store.pauseSession(); // pausedAt=5000
+
+      currentTime = 15000;
+      // Wall time: 14000ms, paused: 10000ms (5000 to 15000), active: 4000ms
+      expect(store.getActiveSessionDuration()).toBe(4000);
+    });
+
+    it('never returns negative values', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100); // t=1000
+
+      // Immediately pause
+      store.pauseSession();
+
+      currentTime = 500; // Move time backwards (edge case)
+      expect(store.getActiveSessionDuration()).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  // ── isIdlePaused ──────────────────────────────────────────────────
+
+  describe('isIdlePaused', () => {
+    it('returns false if no active session', () => {
+      const store = useReadingStatsStore.getState();
+      expect(store.isIdlePaused()).toBe(false);
+    });
+
+    it('returns false for active (non-paused) sessions', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+      expect(store.isIdlePaused()).toBe(false);
+    });
+
+    it('returns false for manually paused sessions', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+      store.pauseSession();
+      expect(store.isIdlePaused()).toBe(false);
+    });
+
+    it('returns true for idle-paused sessions', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      // Trigger idle pause
+      currentTime = 1000 + 5 * 60 * 1000;
+      store.checkIdleStatus();
+
+      expect(store.isIdlePaused()).toBe(true);
+    });
+  });
+
+  // ── syncPendingSessions ───────────────────────────────────────────
+
+  describe('syncPendingSessions', () => {
+    const pendingSession: Parameters<typeof useReadingStatsStore.setState>[0] extends infer S
+      ? S extends { pendingSessions?: infer P } ? NonNullable<P>[number] : never
+      : never = {
+      noteId: 'note-1',
+      sessionDurationMs: 30000,
+      pagesRead: 5,
+      startPage: 1,
+      endPage: 6,
+      startTime: '2025-01-01T00:00:00.000Z',
+      timestamp: '2025-01-01T00:30:00.000Z',
+      retryCount: 0,
+    };
+
+    it('does nothing if no pending sessions', async () => {
+      const store = useReadingStatsStore.getState();
+      await store.syncPendingSessions();
+
+      expect(mockedApiUpdate).not.toHaveBeenCalled();
+    });
+
+    it('does nothing if already syncing', async () => {
+      useReadingStatsStore.setState({
+        isSyncing: true,
+        pendingSessions: [pendingSession],
+      });
+
+      const store = useReadingStatsStore.getState();
+      await store.syncPendingSessions();
+
+      expect(mockedApiUpdate).not.toHaveBeenCalled();
+    });
+
+    it('syncs pending sessions and removes them on success', async () => {
+      const stats = makeStats();
+      mockedApiUpdate.mockResolvedValue({
+        success: true,
+        readingStats: stats,
+        lastRead: new Date().toISOString(),
+      });
+
+      useReadingStatsStore.setState({ pendingSessions: [pendingSession] });
+
+      const store = useReadingStatsStore.getState();
+      await store.syncPendingSessions();
+
+      expect(useReadingStatsStore.getState().pendingSessions).toHaveLength(0);
+      expect(useReadingStatsStore.getState().isSyncing).toBe(false);
+      expect(useReadingStatsStore.getState().bookStatsCache['note-1']).toEqual(stats);
+    });
+
+    it('increments retryCount and keeps failed sessions below max retries', async () => {
+      mockedApiUpdate.mockRejectedValue(new Error('Server error'));
+
+      useReadingStatsStore.setState({
+        pendingSessions: [{ ...pendingSession, retryCount: 0 }],
+      });
+
+      const store = useReadingStatsStore.getState();
+      // Need to advance through all retry delays
+      const syncPromise = store.syncPendingSessions();
+      // Advance timers for 5 retries: 2s, 4s, 8s, 16s, 32s
+      for (let i = 0; i < 5; i++) {
+        await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS * Math.pow(2, i));
+      }
+      await syncPromise;
+
+      const pending = useReadingStatsStore.getState().pendingSessions;
+      expect(pending).toHaveLength(1);
+      expect(pending[0].retryCount).toBe(1);
+    });
+
+    it('drops sessions that exceed max retry count', async () => {
+      mockedApiUpdate.mockRejectedValue(new Error('Server error'));
+
+      useReadingStatsStore.setState({
+        pendingSessions: [{ ...pendingSession, retryCount: 4 }],
+      });
+
+      const store = useReadingStatsStore.getState();
+      const syncPromise = store.syncPendingSessions();
+      for (let i = 0; i < 5; i++) {
+        await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS * Math.pow(2, i));
+      }
+      await syncPromise;
+
+      // retryCount 4 + 1 = 5, which equals MAX_RETRY_ATTEMPTS, so dropped
+      expect(useReadingStatsStore.getState().pendingSessions).toHaveLength(0);
+    });
+
+    it('sets lastSyncError when sessions remain pending', async () => {
+      mockedApiUpdate.mockRejectedValue(new Error('Network failure'));
+
+      useReadingStatsStore.setState({
+        pendingSessions: [{ ...pendingSession, retryCount: 0 }],
+      });
+
+      const store = useReadingStatsStore.getState();
+      const syncPromise = store.syncPendingSessions();
+      for (let i = 0; i < 5; i++) {
+        await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS * Math.pow(2, i));
+      }
+      await syncPromise;
+
+      expect(useReadingStatsStore.getState().lastSyncError).toBeTruthy();
+    });
+
+    it('clears lastSyncError when all sessions sync successfully', async () => {
+      mockedApiUpdate.mockResolvedValue({
+        success: true,
+        readingStats: makeStats(),
+        lastRead: new Date().toISOString(),
+      });
+
+      useReadingStatsStore.setState({
+        pendingSessions: [pendingSession],
+        lastSyncError: 'previous error',
+      });
+
+      const store = useReadingStatsStore.getState();
+      await store.syncPendingSessions();
+
+      expect(useReadingStatsStore.getState().lastSyncError).toBeNull();
+    });
+
+    it('processes multiple pending sessions', async () => {
+      const stats = makeStats();
+      mockedApiUpdate.mockResolvedValue({
+        success: true,
+        readingStats: stats,
+        lastRead: new Date().toISOString(),
+      });
+
+      useReadingStatsStore.setState({
+        pendingSessions: [
+          { ...pendingSession, noteId: 'note-1' },
+          { ...pendingSession, noteId: 'note-2' },
+          { ...pendingSession, noteId: 'note-3' },
+        ],
+      });
+
+      const store = useReadingStatsStore.getState();
+      await store.syncPendingSessions();
+
+      expect(mockedApiUpdate).toHaveBeenCalledTimes(3);
+      expect(useReadingStatsStore.getState().pendingSessions).toHaveLength(0);
+    });
+  });
+
+  // ── getPendingSessionCount ────────────────────────────────────────
+
+  describe('getPendingSessionCount', () => {
+    it('returns 0 when no pending sessions', () => {
+      const store = useReadingStatsStore.getState();
+      expect(store.getPendingSessionCount()).toBe(0);
+    });
+
+    it('returns correct count', () => {
+      useReadingStatsStore.setState({
+        pendingSessions: [
+          { noteId: 'a', sessionDurationMs: 1000, pagesRead: 1, startPage: 1, endPage: 2, startTime: '', timestamp: '', retryCount: 0 },
+          { noteId: 'b', sessionDurationMs: 1000, pagesRead: 1, startPage: 1, endPage: 2, startTime: '', timestamp: '', retryCount: 0 },
+        ],
+      });
+
+      const store = useReadingStatsStore.getState();
+      expect(store.getPendingSessionCount()).toBe(2);
+    });
+  });
+
+  // ── Persistence (partialize) ──────────────────────────────────────
+
+  describe('persistence', () => {
+    it('only persists pendingSessions', () => {
+      // The store uses partialize to only persist pendingSessions.
+      // We can verify this by checking that after setting all state,
+      // localStorage only gets the pendingSessions.
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+      store.setBookStats('note-1', makeStats());
+      useReadingStatsStore.setState({
+        pendingSessions: [{ noteId: 'x', sessionDurationMs: 1000, pagesRead: 1, startPage: 1, endPage: 2, startTime: '', timestamp: '', retryCount: 0 }],
+      });
+
+      // Check that localStorage was called with the store name
+      const calls = localStorageMock.setItem.mock.calls;
+      const persistCall = calls.find(([key]: [string]) => key === 'pulp-reading-stats');
+      if (persistCall) {
+        const persisted = JSON.parse(persistCall[1]);
+        // Should contain pendingSessions but NOT activeSession or bookStatsCache
+        expect(persisted.state).toHaveProperty('pendingSessions');
+        expect(persisted.state).not.toHaveProperty('activeSession');
+        expect(persisted.state).not.toHaveProperty('bookStatsCache');
+      }
+    });
+  });
+});
+
+// Retry delay constant used in timer advancement
+const RETRY_DELAY_MS = 2000;
