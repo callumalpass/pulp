@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { useDeleteHighlight } from '../../../hooks/useHighlights';
 import { useToast } from '../../../contexts/ToastContext';
 import { ConfirmDialog } from '../../ui/ConfirmDialog';
@@ -200,24 +200,11 @@ export function HighlightsPanel({
         </div>
       </div>
 
-      {/* Category filter pills */}
-      <div className="px-4 py-2 border-b border-text-secondary/10 overflow-x-auto scrollbar-thin">
-        <div className="flex gap-1.5 pb-0.5">
-          {CATEGORY_FILTERS.map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => setCategoryFilter(cat.id)}
-              className={`px-2.5 py-1 text-xs font-medium rounded-full whitespace-nowrap transition-colors ${
-                categoryFilter === cat.id
-                  ? 'bg-accent-primary/20 text-accent-primary'
-                  : 'bg-bg-deep text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              {cat.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* Category filter pills with sliding indicator */}
+      <CategoryFilterPills
+        categoryFilter={categoryFilter}
+        onCategoryChange={setCategoryFilter}
+      />
 
       {/* Highlights list */}
       <div className="flex-1 overflow-y-auto">
@@ -347,6 +334,92 @@ export function HighlightsPanel({
         onConfirm={handleDeleteHighlight}
         onCancel={() => setHighlightToDelete(null)}
       />
+    </div>
+  );
+}
+
+// Sliding indicator component for category filters
+interface CategoryFilterPillsProps {
+  categoryFilter: HighlightCategory | 'all';
+  onCategoryChange: (category: HighlightCategory | 'all') => void;
+}
+
+function CategoryFilterPills({ categoryFilter, onCategoryChange }: CategoryFilterPillsProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
+  const buttonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+
+  const setButtonRef = useCallback((id: string) => (el: HTMLButtonElement | null) => {
+    if (el) {
+      buttonRefs.current.set(id, el);
+    } else {
+      buttonRefs.current.delete(id);
+    }
+  }, []);
+
+  // Update indicator position when category changes
+  useEffect(() => {
+    const activeButton = buttonRefs.current.get(categoryFilter);
+    const container = containerRef.current;
+    if (activeButton && container) {
+      const containerRect = container.getBoundingClientRect();
+      const buttonRect = activeButton.getBoundingClientRect();
+      setIndicatorStyle({
+        left: buttonRect.left - containerRect.left + container.scrollLeft,
+        width: buttonRect.width,
+      });
+    }
+  }, [categoryFilter]);
+
+  // Also update on mount and resize
+  useEffect(() => {
+    const updateIndicator = () => {
+      const activeButton = buttonRefs.current.get(categoryFilter);
+      const container = containerRef.current;
+      if (activeButton && container) {
+        const containerRect = container.getBoundingClientRect();
+        const buttonRect = activeButton.getBoundingClientRect();
+        setIndicatorStyle({
+          left: buttonRect.left - containerRect.left + container.scrollLeft,
+          width: buttonRect.width,
+        });
+      }
+    };
+
+    // Initial position after render
+    requestAnimationFrame(updateIndicator);
+
+    window.addEventListener('resize', updateIndicator);
+    return () => window.removeEventListener('resize', updateIndicator);
+  }, [categoryFilter]);
+
+  return (
+    <div className="px-4 py-2 border-b border-text-secondary/10 overflow-x-auto scrollbar-thin">
+      <div ref={containerRef} className="flex gap-1.5 pb-0.5 relative">
+        {/* Sliding indicator */}
+        <div
+          className="absolute top-0 h-full rounded-full bg-accent-primary/20 transition-all duration-200 ease-out pointer-events-none"
+          style={{
+            left: indicatorStyle.left,
+            width: indicatorStyle.width,
+            opacity: indicatorStyle.width > 0 ? 1 : 0,
+          }}
+        />
+        {CATEGORY_FILTERS.map((cat) => (
+          <button
+            key={cat.id}
+            ref={setButtonRef(cat.id)}
+            onClick={() => onCategoryChange(cat.id)}
+            className={`px-2.5 py-1 text-xs font-medium rounded-full whitespace-nowrap transition-colors relative z-10 ${
+              categoryFilter === cat.id
+                ? 'text-accent-primary'
+                : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            {cat.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
