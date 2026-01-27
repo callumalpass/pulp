@@ -1610,6 +1610,19 @@ body {
   }
 }
 
+/* Save indicator checkmark draw animation */
+.save-indicator-checkmark {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: save-checkmark-draw 300ms ease-out 50ms forwards;
+}
+
+@keyframes save-checkmark-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
 /* Smooth scroll for better UX */
 .scroll-smooth {
   scroll-behavior: smooth;
