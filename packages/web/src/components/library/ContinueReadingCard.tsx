@@ -1,10 +1,53 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import type { LiteratureNoteSummary } from '@pulp/shared';
 import { useReadingStatsStore } from '../../stores/readingStats';
 import { api } from '../../lib/api';
 import { formatLastRead, getEstimatedTimeRemaining } from '../../lib/format';
 import { ProgressIndicator } from './ProgressIndicator';
+
+/**
+ * Custom hook for animating a number from 0 to a target value.
+ * Creates a smooth counting animation effect.
+ */
+function useAnimatedCounter(target: number, duration: number = 800): number {
+  const [count, setCount] = useState(0);
+  const startTimeRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    startTimeRef.current = null;
+
+    const animate = (timestamp: number) => {
+      if (startTimeRef.current === null) {
+        startTimeRef.current = timestamp;
+      }
+
+      const elapsed = timestamp - startTimeRef.current;
+      const progress = Math.min(elapsed / duration, 1);
+
+      // Ease-out cubic for smooth deceleration
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const current = Math.round(eased * target);
+
+      setCount(current);
+
+      if (progress < 1) {
+        rafRef.current = requestAnimationFrame(animate);
+      }
+    };
+
+    rafRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+      }
+    };
+  }, [target, duration]);
+
+  return count;
+}
 
 interface ContinueReadingCardProps {
   note: LiteratureNoteSummary;
@@ -14,6 +57,7 @@ export function ContinueReadingCard({ note }: ContinueReadingCardProps) {
   const [imageError, setImageError] = useState(false);
   const { getFormattedReadingTime } = useReadingStatsStore();
   const bookStats = note.readingStats;
+  const animatedProgress = useAnimatedCounter(Math.round(note.progress), 800);
 
   const estimatedTime = getEstimatedTimeRemaining({
     totalPages: note.totalPages,
@@ -74,8 +118,8 @@ export function ContinueReadingCard({ note }: ContinueReadingCardProps) {
           {/* Progress bar */}
           <div className="mt-3">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs font-medium text-text-secondary">
-                {Math.round(note.progress)}% complete
+              <span className="text-xs font-medium text-text-secondary tabular-nums">
+                {animatedProgress}% complete
               </span>
               {estimatedTime && (
                 <span className="text-xs font-medium text-accent-secondary">
