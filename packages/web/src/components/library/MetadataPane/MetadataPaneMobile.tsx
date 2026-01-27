@@ -9,6 +9,7 @@ import {
   ProgressField,
   RawYamlView,
   WikilinkField,
+  SimpleField,
 } from './fields';
 
 interface MetadataPaneMobileProps {
@@ -75,52 +76,17 @@ export function MetadataPaneMobile({ note, onClose }: MetadataPaneMobileProps) {
             icon={<PublisherIcon />}
             defaultExpanded
           >
-            {csl.publisher && (
-              <div className="metadata-field">
-                <span className="metadata-field-label">Publisher</span>
-                <span className="metadata-field-value">{String(csl.publisher)}</span>
-              </div>
-            )}
-            {csl['publisher-place'] && (
-              <div className="metadata-field">
-                <span className="metadata-field-label">Location</span>
-                <span className="metadata-field-value">{String(csl['publisher-place'])}</span>
-              </div>
-            )}
+            <SimpleField value={csl.publisher} label="Publisher" />
+            <SimpleField value={csl['publisher-place']} label="Location" />
             <DateField date={csl.issued as never} label="Published" />
-            {csl.edition && (
-              <div className="metadata-field">
-                <span className="metadata-field-label">Edition</span>
-                <span className="metadata-field-value">{String(csl.edition)}</span>
-              </div>
-            )}
-            {csl.volume && (
-              <div className="metadata-field">
-                <span className="metadata-field-label">Volume</span>
-                <span className="metadata-field-value">{String(csl.volume)}</span>
-              </div>
-            )}
-            {csl.issue && (
-              <div className="metadata-field">
-                <span className="metadata-field-label">Issue</span>
-                <span className="metadata-field-value">{String(csl.issue)}</span>
-              </div>
-            )}
-            {csl.page && (
-              <div className="metadata-field">
-                <span className="metadata-field-label">Pages</span>
-                <span className="metadata-field-value">{String(csl.page)}</span>
-              </div>
-            )}
-            {csl.language && (
-              <div className="metadata-field">
-                <span className="metadata-field-label">Language</span>
-                <span className="metadata-field-value">{String(csl.language)}</span>
-              </div>
-            )}
+            <SimpleField value={csl.edition} label="Edition" />
+            <SimpleField value={csl.volume} label="Volume" />
+            <SimpleField value={csl.issue} label="Issue" />
+            <SimpleField value={csl.page} label="Pages" />
+            <SimpleField value={csl.language} label="Language" />
             <AuthorField authors={csl.translator as never} label="Translator" />
-            <LinkField value={csl.ISBN as string || null} label="ISBN" type="isbn" />
-            <LinkField value={csl.DOI as string || null} label="DOI" type="doi" />
+            <LinkField value={typeof csl.ISBN === 'string' ? csl.ISBN : null} label="ISBN" type="isbn" />
+            <LinkField value={typeof csl.DOI === 'string' ? csl.DOI : null} label="DOI" type="doi" />
           </MetadataSection>
 
           {/* Reading Progress */}
@@ -150,8 +116,8 @@ export function MetadataPaneMobile({ note, onClose }: MetadataPaneMobileProps) {
                 {note.sourceRelative}
               </span>
             </div>
-            <WikilinkField value={csl.author as string || null} label="Author Links" />
-            <LinkField value={csl.URL as string || null} label="URL" type="url" />
+            <WikilinkField value={typeof csl.author === 'string' ? csl.author : null} label="Author Links" />
+            <LinkField value={typeof csl.URL === 'string' ? csl.URL : null} label="URL" type="url" />
           </MetadataSection>
 
           {/* Tags & Collections */}

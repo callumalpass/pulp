@@ -32,6 +32,7 @@ vi.mock('../frontmatter-parser.js', () => ({
   getReaderPreferences: vi.fn(),
   getCurrentChapter: vi.fn(),
   getBookNotes: vi.fn(),
+  getCSLMetadata: vi.fn(),
 }));
 
 // Mock highlight-parser
@@ -67,6 +68,7 @@ const mockGetTotalPages = vi.mocked(frontmatterParser.getTotalPages);
 const mockGetReaderPreferences = vi.mocked(frontmatterParser.getReaderPreferences);
 const mockGetCurrentChapter = vi.mocked(frontmatterParser.getCurrentChapter);
 const mockGetBookNotes = vi.mocked(frontmatterParser.getBookNotes);
+const mockGetCSLMetadata = vi.mocked(frontmatterParser.getCSLMetadata);
 const mockParseHighlightsFromNote = vi.mocked(highlightParser.parseHighlightsFromNote);
 
 // Helper to create mock config
@@ -153,6 +155,7 @@ function setupDefaultNoteMocks() {
   mockGetReaderPreferences.mockReturnValue(null);
   mockGetCurrentChapter.mockReturnValue(null);
   mockGetBookNotes.mockReturnValue(null);
+  mockGetCSLMetadata.mockReturnValue(null);
   mockParseHighlightsFromNote.mockReturnValue([]);
 }
 

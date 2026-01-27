@@ -4,11 +4,13 @@ import { useSearch, useSearchStatus } from '../hooks/useSearch';
 import { useCollections } from '../hooks/useCollections';
 import { useMobile } from '../hooks/useMobile';
 import { useConnection } from '../contexts/ConnectionContext';
+import { MetadataPaneProvider } from '../contexts/MetadataPaneContext';
 import { LibraryGrid } from '../components/library/LibraryGrid';
 import { LibraryListView } from '../components/library/LibraryListView';
 import { SearchResults } from '../components/library/SearchResults';
 import { MobileLibraryFilters } from '../components/library/MobileLibraryFilters';
 import { ContinueReadingCard, ContinueReadingCardSkeleton } from '../components/library/ContinueReadingCard';
+import { MetadataPane } from '../components/library/MetadataPane';
 import { Button } from '../components/ui/Button';
 import { useLibraryFiltersStore, type SortOption, type ProgressFilter } from '../stores/libraryFilters';
 import type { LiteratureNoteSummary } from '@pulp/shared';
@@ -30,6 +32,14 @@ const PROGRESS_LABELS: Record<ProgressFilter, string> = {
 };
 
 export function LibraryPage() {
+  return (
+    <MetadataPaneProvider>
+      <LibraryPageContent />
+    </MetadataPaneProvider>
+  );
+}
+
+function LibraryPageContent() {
   // Use persisted filter store for preferences that should survive page reloads
   const {
     sort,
@@ -255,11 +265,12 @@ export function LibraryPage() {
   }
 
   return (
-    <div className="p-6">
-      {/* Search and filters */}
-      <div className="flex flex-col gap-4 mb-6">
-        {/* Search bar with mode toggle */}
-        <div className="flex gap-2">
+    <div className="library-page-container">
+      <div className="library-page-main p-6">
+        {/* Search and filters */}
+        <div className="flex flex-col gap-4 mb-6">
+          {/* Search bar with mode toggle */}
+          <div className="flex gap-2">
           <div className="relative flex-1 group/search">
             <SearchIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary transition-colors group-focus-within/search:text-accent-primary" />
             <input
@@ -576,23 +587,27 @@ export function LibraryPage() {
         </>
       )}
 
-      {/* Mobile filters bottom sheet */}
-      {showMobileFilters && (
-        <MobileLibraryFilters
-          dialogId="library-filters-sheet"
-          typeFilter={typeFilter}
-          progressFilter={progressFilter}
-          sort={sort}
-          sortOrder={sortOrder}
-          onTypeChange={setTypeFilter}
-          onProgressChange={setProgressFilter}
-          onSortChange={setSort}
-          onSortOrderToggle={toggleSortOrder}
-          onClearFilters={handleClearFilters}
-          hasActiveFilters={hasActiveFilters}
-          onClose={() => setShowMobileFilters(false)}
-        />
-      )}
+        {/* Mobile filters bottom sheet */}
+        {showMobileFilters && (
+          <MobileLibraryFilters
+            dialogId="library-filters-sheet"
+            typeFilter={typeFilter}
+            progressFilter={progressFilter}
+            sort={sort}
+            sortOrder={sortOrder}
+            onTypeChange={setTypeFilter}
+            onProgressChange={setProgressFilter}
+            onSortChange={setSort}
+            onSortOrderToggle={toggleSortOrder}
+            onClearFilters={handleClearFilters}
+            hasActiveFilters={hasActiveFilters}
+            onClose={() => setShowMobileFilters(false)}
+          />
+        )}
+      </div>
+
+      {/* Metadata Pane */}
+      <MetadataPane />
     </div>
   );
 }

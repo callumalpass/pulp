@@ -4,3 +4,4 @@ export { WikilinkField, WikilinkListField } from './WikilinkField';
 export { LinkField } from './LinkField';
 export { ProgressField } from './ProgressField';
 export { RawYamlView } from './RawYamlView';
+export { SimpleField } from './SimpleField';
