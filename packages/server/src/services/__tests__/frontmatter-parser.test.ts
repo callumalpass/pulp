@@ -25,6 +25,14 @@ import {
   checkMilestones,
   createMilestoneRecord,
   calculateMomentum,
+  getAuthor,
+  getRating,
+  getTotalPages,
+  getPaused,
+  getPausedAt,
+  getReaderPreferences,
+  getCSLMetadata,
+  addReadingSession,
 } from '../frontmatter-parser.js';
 
 describe('hasTag', () => {
@@ -1373,5 +1381,717 @@ describe('getReadingSessions with quality metrics', () => {
     expect(sessions[0].quality).toBeUndefined();
     expect(sessions[0].idlePauseCount).toBeUndefined();
     expect(sessions[0].idlePauseTotalMs).toBeUndefined();
+  });
+});
+
+describe('getAuthor', () => {
+  it('returns null when author key is missing', () => {
+    expect(getAuthor({}, 'author')).toBe(null);
+  });
+
+  it('returns null for empty string', () => {
+    expect(getAuthor({ author: '' }, 'author')).toBe(null);
+  });
+
+  it('returns null for whitespace-only string', () => {
+    expect(getAuthor({ author: '   ' }, 'author')).toBe(null);
+  });
+
+  it('extracts string author', () => {
+    expect(getAuthor({ author: 'Jane Austen' }, 'author')).toBe('Jane Austen');
+  });
+
+  it('trims whitespace from string author', () => {
+    expect(getAuthor({ author: '  Jane Austen  ' }, 'author')).toBe('Jane Austen');
+  });
+
+  it('handles array of string authors', () => {
+    expect(getAuthor({ author: ['Alice', 'Bob'] }, 'author')).toBe('Alice, Bob');
+  });
+
+  it('handles single-element array', () => {
+    expect(getAuthor({ author: ['Alice'] }, 'author')).toBe('Alice');
+  });
+
+  it('returns null for empty array', () => {
+    expect(getAuthor({ author: [] }, 'author')).toBe(null);
+  });
+
+  it('handles {first, last} object format', () => {
+    expect(getAuthor({ author: { first: 'John', last: 'Doe' } }, 'author')).toBe('John Doe');
+  });
+
+  it('handles {first} only object', () => {
+    expect(getAuthor({ author: { first: 'John' } }, 'author')).toBe('John');
+  });
+
+  it('handles {last} only object', () => {
+    expect(getAuthor({ author: { last: 'Doe' } }, 'author')).toBe('Doe');
+  });
+
+  it('handles {given, family} CSL-JSON format', () => {
+    expect(getAuthor({ author: { given: 'Jane', family: 'Austen' } }, 'author')).toBe('Jane Austen');
+  });
+
+  it('handles {given} only CSL-JSON format', () => {
+    expect(getAuthor({ author: { given: 'Jane' } }, 'author')).toBe('Jane');
+  });
+
+  it('handles {name} object format', () => {
+    expect(getAuthor({ author: { name: 'World Health Organization' } }, 'author')).toBe('World Health Organization');
+  });
+
+  it('handles {literal} CSL-JSON format', () => {
+    expect(getAuthor({ author: { literal: 'UNESCO' } }, 'author')).toBe('UNESCO');
+  });
+
+  it('handles array of {given, family} objects', () => {
+    const result = getAuthor({
+      author: [
+        { given: 'John', family: 'Smith' },
+        { given: 'Jane', family: 'Doe' },
+      ],
+    }, 'author');
+    expect(result).toBe('John Smith, Jane Doe');
+  });
+
+  it('handles mixed array of strings and objects', () => {
+    const result = getAuthor({
+      author: [
+        'Plain Author',
+        { first: 'John', last: 'Doe' },
+      ],
+    }, 'author');
+    expect(result).toBe('Plain Author, John Doe');
+  });
+
+  it('filters null values from array', () => {
+    const result = getAuthor({
+      author: [null, 'Valid Author', undefined],
+    }, 'author');
+    expect(result).toBe('Valid Author');
+  });
+
+  it('returns null for non-string, non-array, non-object values', () => {
+    expect(getAuthor({ author: 42 }, 'author')).toBe(null);
+    expect(getAuthor({ author: true }, 'author')).toBe(null);
+  });
+
+  it('uses custom key name', () => {
+    expect(getAuthor({ writer: 'Custom Author' }, 'writer')).toBe('Custom Author');
+  });
+
+  it('handles object with empty strings for first/last', () => {
+    expect(getAuthor({ author: { first: '', last: '' } }, 'author')).toBe(null);
+  });
+
+  it('handles {name} with empty string', () => {
+    expect(getAuthor({ author: { name: '  ' } }, 'author')).toBe(null);
+  });
+});
+
+describe('getRating', () => {
+  it('returns null when rating key is missing', () => {
+    expect(getRating({}, 'rating')).toBe(null);
+  });
+
+  it('returns null for null value', () => {
+    expect(getRating({ rating: null }, 'rating')).toBe(null);
+  });
+
+  it('returns numeric rating within range', () => {
+    expect(getRating({ rating: 3 }, 'rating')).toBe(3);
+    expect(getRating({ rating: 1 }, 'rating')).toBe(1);
+    expect(getRating({ rating: 5 }, 'rating')).toBe(5);
+  });
+
+  it('clamps rating below minimum to 1', () => {
+    expect(getRating({ rating: 0 }, 'rating')).toBe(1);
+    expect(getRating({ rating: -5 }, 'rating')).toBe(1);
+  });
+
+  it('clamps rating above maximum to 5', () => {
+    expect(getRating({ rating: 6 }, 'rating')).toBe(5);
+    expect(getRating({ rating: 100 }, 'rating')).toBe(5);
+  });
+
+  it('rounds decimal ratings', () => {
+    expect(getRating({ rating: 3.7 }, 'rating')).toBe(4);
+    expect(getRating({ rating: 2.2 }, 'rating')).toBe(2);
+    expect(getRating({ rating: 4.5 }, 'rating')).toBe(5);
+  });
+
+  it('parses string ratings', () => {
+    expect(getRating({ rating: '4' }, 'rating')).toBe(4);
+    expect(getRating({ rating: '3.7' }, 'rating')).toBe(4);
+  });
+
+  it('returns null for non-numeric strings', () => {
+    expect(getRating({ rating: 'excellent' }, 'rating')).toBe(null);
+    expect(getRating({ rating: '' }, 'rating')).toBe(null);
+  });
+
+  it('returns null for non-string non-number values', () => {
+    expect(getRating({ rating: true }, 'rating')).toBe(null);
+    expect(getRating({ rating: [] }, 'rating')).toBe(null);
+  });
+
+  it('uses custom key name', () => {
+    expect(getRating({ my_rating: 4 }, 'my_rating')).toBe(4);
+  });
+});
+
+describe('getTotalPages', () => {
+  it('returns null when key is missing', () => {
+    expect(getTotalPages({}, 'total_pages')).toBe(null);
+  });
+
+  it('returns null for null value', () => {
+    expect(getTotalPages({ total_pages: null }, 'total_pages')).toBe(null);
+  });
+
+  it('returns positive number', () => {
+    expect(getTotalPages({ total_pages: 350 }, 'total_pages')).toBe(350);
+  });
+
+  it('rounds decimal values', () => {
+    expect(getTotalPages({ total_pages: 350.7 }, 'total_pages')).toBe(351);
+  });
+
+  it('returns null for zero', () => {
+    expect(getTotalPages({ total_pages: 0 }, 'total_pages')).toBe(null);
+  });
+
+  it('returns null for negative numbers', () => {
+    expect(getTotalPages({ total_pages: -10 }, 'total_pages')).toBe(null);
+  });
+
+  it('parses valid string values', () => {
+    expect(getTotalPages({ total_pages: '250' }, 'total_pages')).toBe(250);
+  });
+
+  it('returns null for non-numeric strings', () => {
+    expect(getTotalPages({ total_pages: 'many' }, 'total_pages')).toBe(null);
+    expect(getTotalPages({ total_pages: '' }, 'total_pages')).toBe(null);
+  });
+
+  it('returns null for string zero', () => {
+    expect(getTotalPages({ total_pages: '0' }, 'total_pages')).toBe(null);
+  });
+
+  it('returns null for string negative', () => {
+    expect(getTotalPages({ total_pages: '-5' }, 'total_pages')).toBe(null);
+  });
+
+  it('returns null for non-string non-number values', () => {
+    expect(getTotalPages({ total_pages: true }, 'total_pages')).toBe(null);
+    expect(getTotalPages({ total_pages: [] }, 'total_pages')).toBe(null);
+  });
+
+  it('uses custom key name', () => {
+    expect(getTotalPages({ pages: 100 }, 'pages')).toBe(100);
+  });
+});
+
+describe('getPausedAt', () => {
+  it('returns null when key is missing', () => {
+    expect(getPausedAt({}, 'paused_at')).toBe(null);
+  });
+
+  it('returns null for null value', () => {
+    expect(getPausedAt({ paused_at: null }, 'paused_at')).toBe(null);
+  });
+
+  it('returns string value directly', () => {
+    expect(getPausedAt({ paused_at: '2024-01-15T10:00:00Z' }, 'paused_at')).toBe('2024-01-15T10:00:00Z');
+  });
+
+  it('converts Date object to ISO string', () => {
+    const date = new Date('2024-06-15T14:30:00Z');
+    expect(getPausedAt({ paused_at: date }, 'paused_at')).toBe('2024-06-15T14:30:00.000Z');
+  });
+
+  it('returns null for numeric values', () => {
+    expect(getPausedAt({ paused_at: 12345 }, 'paused_at')).toBe(null);
+  });
+
+  it('returns null for boolean values', () => {
+    expect(getPausedAt({ paused_at: true }, 'paused_at')).toBe(null);
+  });
+
+  it('uses custom key name', () => {
+    expect(getPausedAt({ custom_paused: '2024-01-01' }, 'custom_paused')).toBe('2024-01-01');
+  });
+});
+
+describe('getPaused', () => {
+  it('returns false when key is missing', () => {
+    expect(getPaused({}, 'paused')).toBe(false);
+  });
+
+  it('handles boolean true', () => {
+    expect(getPaused({ paused: true }, 'paused')).toBe(true);
+  });
+
+  it('handles boolean false', () => {
+    expect(getPaused({ paused: false }, 'paused')).toBe(false);
+  });
+
+  it('handles string "true"', () => {
+    expect(getPaused({ paused: 'true' }, 'paused')).toBe(true);
+  });
+
+  it('handles string "false"', () => {
+    expect(getPaused({ paused: 'false' }, 'paused')).toBe(false);
+  });
+
+  it('returns false for other values', () => {
+    expect(getPaused({ paused: 1 }, 'paused')).toBe(false);
+    expect(getPaused({ paused: 'yes' }, 'paused')).toBe(false);
+    expect(getPaused({ paused: null }, 'paused')).toBe(false);
+  });
+});
+
+describe('getReaderPreferences', () => {
+  it('returns null when key is missing', () => {
+    expect(getReaderPreferences({}, 'reader_preferences')).toBe(null);
+  });
+
+  it('returns null for non-object values', () => {
+    expect(getReaderPreferences({ reader_preferences: 'string' }, 'reader_preferences')).toBe(null);
+    expect(getReaderPreferences({ reader_preferences: 42 }, 'reader_preferences')).toBe(null);
+    expect(getReaderPreferences({ reader_preferences: null }, 'reader_preferences')).toBe(null);
+  });
+
+  it('returns null when object has no valid preferences', () => {
+    expect(getReaderPreferences({ reader_preferences: { invalid_key: 'value' } }, 'reader_preferences')).toBe(null);
+  });
+
+  it('parses zoom level within range', () => {
+    const result = getReaderPreferences({ reader_preferences: { zoom_level: 1.5 } }, 'reader_preferences');
+    expect(result).toEqual({ zoomLevel: 1.5 });
+  });
+
+  it('clamps zoom level to minimum (0.25)', () => {
+    const result = getReaderPreferences({ reader_preferences: { zoom_level: 0.1 } }, 'reader_preferences');
+    expect(result).toEqual({ zoomLevel: 0.25 });
+  });
+
+  it('clamps zoom level to maximum (5.0)', () => {
+    const result = getReaderPreferences({ reader_preferences: { zoom_level: 10 } }, 'reader_preferences');
+    expect(result).toEqual({ zoomLevel: 5 });
+  });
+
+  it('parses valid zoom modes', () => {
+    expect(getReaderPreferences({ reader_preferences: { zoom_mode: 'fit-width' } }, 'reader_preferences'))
+      .toEqual({ zoomMode: 'fit-width' });
+    expect(getReaderPreferences({ reader_preferences: { zoom_mode: 'fit-page' } }, 'reader_preferences'))
+      .toEqual({ zoomMode: 'fit-page' });
+    expect(getReaderPreferences({ reader_preferences: { zoom_mode: 'custom' } }, 'reader_preferences'))
+      .toEqual({ zoomMode: 'custom' });
+  });
+
+  it('ignores invalid zoom modes', () => {
+    expect(getReaderPreferences({ reader_preferences: { zoom_mode: 'invalid' } }, 'reader_preferences')).toBe(null);
+  });
+
+  it('parses valid themes', () => {
+    expect(getReaderPreferences({ reader_preferences: { theme: 'light' } }, 'reader_preferences'))
+      .toEqual({ theme: 'light' });
+    expect(getReaderPreferences({ reader_preferences: { theme: 'dark' } }, 'reader_preferences'))
+      .toEqual({ theme: 'dark' });
+    expect(getReaderPreferences({ reader_preferences: { theme: 'sepia' } }, 'reader_preferences'))
+      .toEqual({ theme: 'sepia' });
+    expect(getReaderPreferences({ reader_preferences: { theme: 'eink' } }, 'reader_preferences'))
+      .toEqual({ theme: 'eink' });
+  });
+
+  it('ignores invalid themes', () => {
+    expect(getReaderPreferences({ reader_preferences: { theme: 'neon' } }, 'reader_preferences')).toBe(null);
+  });
+
+  it('parses font size and clamps to range (8-48)', () => {
+    expect(getReaderPreferences({ reader_preferences: { font_size: 18 } }, 'reader_preferences'))
+      .toEqual({ fontSize: 18 });
+    expect(getReaderPreferences({ reader_preferences: { font_size: 2 } }, 'reader_preferences'))
+      .toEqual({ fontSize: 8 });
+    expect(getReaderPreferences({ reader_preferences: { font_size: 100 } }, 'reader_preferences'))
+      .toEqual({ fontSize: 48 });
+  });
+
+  it('rounds font size to integer', () => {
+    expect(getReaderPreferences({ reader_preferences: { font_size: 16.7 } }, 'reader_preferences'))
+      .toEqual({ fontSize: 17 });
+  });
+
+  it('parses line height and clamps to range (1.0-3.0)', () => {
+    expect(getReaderPreferences({ reader_preferences: { line_height: 1.6 } }, 'reader_preferences'))
+      .toEqual({ lineHeight: 1.6 });
+    expect(getReaderPreferences({ reader_preferences: { line_height: 0.5 } }, 'reader_preferences'))
+      .toEqual({ lineHeight: 1 });
+    expect(getReaderPreferences({ reader_preferences: { line_height: 5 } }, 'reader_preferences'))
+      .toEqual({ lineHeight: 3 });
+  });
+
+  it('parses daily goal minutes and clamps to range (1-1440)', () => {
+    expect(getReaderPreferences({ reader_preferences: { daily_goal_minutes: 60 } }, 'reader_preferences'))
+      .toEqual({ dailyGoalMinutes: 60 });
+    expect(getReaderPreferences({ reader_preferences: { daily_goal_minutes: 0 } }, 'reader_preferences'))
+      .toEqual({ dailyGoalMinutes: 1 });
+    expect(getReaderPreferences({ reader_preferences: { daily_goal_minutes: 2000 } }, 'reader_preferences'))
+      .toEqual({ dailyGoalMinutes: 1440 });
+  });
+
+  it('parses all preferences together', () => {
+    const result = getReaderPreferences({
+      reader_preferences: {
+        zoom_level: 1.25,
+        zoom_mode: 'fit-width',
+        theme: 'dark',
+        font_size: 18,
+        line_height: 1.6,
+        daily_goal_minutes: 45,
+      },
+    }, 'reader_preferences');
+
+    expect(result).toEqual({
+      zoomLevel: 1.25,
+      zoomMode: 'fit-width',
+      theme: 'dark',
+      fontSize: 18,
+      lineHeight: 1.6,
+      dailyGoalMinutes: 45,
+    });
+  });
+
+  it('ignores non-number zoom_level', () => {
+    expect(getReaderPreferences({ reader_preferences: { zoom_level: 'big' } }, 'reader_preferences')).toBe(null);
+  });
+
+  it('ignores non-number font_size', () => {
+    expect(getReaderPreferences({ reader_preferences: { font_size: 'large' } }, 'reader_preferences')).toBe(null);
+  });
+});
+
+describe('getCSLMetadata', () => {
+  it('returns null when no CSL fields are present', () => {
+    expect(getCSLMetadata({})).toBe(null);
+    expect(getCSLMetadata({ title: 'Just a title' })).toBe(null);
+  });
+
+  it('parses string CSL fields', () => {
+    const result = getCSLMetadata({
+      type: 'book',
+      publisher: 'Penguin Books',
+      'publisher-place': 'New York',
+      ISBN: '978-0-14-028329-7',
+      edition: '3rd',
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.type).toBe('book');
+    expect(result!.publisher).toBe('Penguin Books');
+    expect(result!.publisherPlace).toBe('New York');
+    expect(result!.isbn).toBe('978-0-14-028329-7');
+    expect(result!.edition).toBe('3rd');
+  });
+
+  it('parses container-title', () => {
+    const result = getCSLMetadata({
+      'container-title': 'Nature',
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.containerTitle).toBe('Nature');
+  });
+
+  it('parses collection-title', () => {
+    const result = getCSLMetadata({
+      'collection-title': 'Oxford Studies',
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.collectionTitle).toBe('Oxford Studies');
+  });
+
+  it('parses volume, issue, and page', () => {
+    const result = getCSLMetadata({
+      volume: '42',
+      issue: '3',
+      page: '100-120',
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.volume).toBe('42');
+    expect(result!.issue).toBe('3');
+    expect(result!.page).toBe('100-120');
+  });
+
+  it('converts numeric values to strings', () => {
+    const result = getCSLMetadata({
+      volume: 42,
+      issue: 3,
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.volume).toBe('42');
+    expect(result!.issue).toBe('3');
+  });
+
+  it('parses URL field', () => {
+    const result = getCSLMetadata({
+      URL: 'https://example.com/paper',
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.url).toBe('https://example.com/paper');
+  });
+
+  it('parses DOI from direct field', () => {
+    const result = getCSLMetadata({
+      DOI: '10.1038/nature12373',
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.doi).toBe('10.1038/nature12373');
+  });
+
+  it('parses DOI from lowercase doi field', () => {
+    const result = getCSLMetadata({
+      doi: '10.1038/nature12373',
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.doi).toBe('10.1038/nature12373');
+  });
+
+  it('extracts DOI from note field', () => {
+    const result = getCSLMetadata({
+      note: 'Some note text. DOI: 10.1038/nature12373 more text',
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.doi).toBe('10.1038/nature12373');
+  });
+
+  it('parses CSL issued date-parts format (year-month-day)', () => {
+    const result = getCSLMetadata({
+      issued: { 'date-parts': [[2023, 1, 15]] },
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.issued).toBe('2023-01-15');
+  });
+
+  it('parses CSL issued date-parts format (year-month only)', () => {
+    const result = getCSLMetadata({
+      issued: { 'date-parts': [[2023, 6]] },
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.issued).toBe('2023-06');
+  });
+
+  it('parses CSL issued date-parts format (year only)', () => {
+    const result = getCSLMetadata({
+      issued: { 'date-parts': [[2023]] },
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.issued).toBe('2023');
+  });
+
+  it('falls back to year field when issued is missing', () => {
+    const result = getCSLMetadata({
+      year: 2020,
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.issued).toBe('2020');
+  });
+
+  it('falls back to string year field', () => {
+    const result = getCSLMetadata({
+      year: '2020',
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.issued).toBe('2020');
+  });
+
+  it('parses translator as string', () => {
+    const result = getCSLMetadata({
+      translator: 'John Smith',
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.translator).toBe('John Smith');
+  });
+
+  it('parses translator as array of person objects', () => {
+    const result = getCSLMetadata({
+      translator: [
+        { given: 'John', family: 'Smith' },
+        { given: 'Jane', family: 'Doe' },
+      ],
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.translator).toBe('John Smith, Jane Doe');
+  });
+
+  it('uses event-place as fallback for publisher-place', () => {
+    const result = getCSLMetadata({
+      'event-place': 'London',
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.publisherPlace).toBe('London');
+  });
+
+  it('prefers publisher-place over event-place', () => {
+    const result = getCSLMetadata({
+      'publisher-place': 'New York',
+      'event-place': 'London',
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.publisherPlace).toBe('New York');
+  });
+
+  it('handles empty strings as null', () => {
+    const result = getCSLMetadata({
+      publisher: '',
+      ISBN: '   ',
+    });
+
+    // Empty/whitespace strings should be treated as null
+    // If no CSL values found, returns null
+    expect(result).toBe(null);
+  });
+
+  it('parses complete CSL metadata', () => {
+    const result = getCSLMetadata({
+      type: 'article-journal',
+      'container-title': 'Nature',
+      publisher: 'Nature Publishing Group',
+      'publisher-place': 'London',
+      issued: { 'date-parts': [[2023, 6, 15]] },
+      ISBN: '978-0-14-028329-7',
+      DOI: '10.1038/nature12373',
+      URL: 'https://nature.com/articles/1',
+      edition: '1st',
+      volume: '598',
+      issue: '7880',
+      page: '270-274',
+      'collection-title': 'Reviews',
+      translator: 'Anna Schmidt',
+    });
+
+    expect(result).not.toBe(null);
+    expect(result!.type).toBe('article-journal');
+    expect(result!.containerTitle).toBe('Nature');
+    expect(result!.publisher).toBe('Nature Publishing Group');
+    expect(result!.publisherPlace).toBe('London');
+    expect(result!.issued).toBe('2023-06-15');
+    expect(result!.isbn).toBe('978-0-14-028329-7');
+    expect(result!.doi).toBe('10.1038/nature12373');
+    expect(result!.url).toBe('https://nature.com/articles/1');
+    expect(result!.edition).toBe('1st');
+    expect(result!.volume).toBe('598');
+    expect(result!.issue).toBe('7880');
+    expect(result!.page).toBe('270-274');
+    expect(result!.collectionTitle).toBe('Reviews');
+    expect(result!.translator).toBe('Anna Schmidt');
+  });
+});
+
+describe('addReadingSession', () => {
+  const session1: Parameters<typeof addReadingSession>[1] = {
+    startTime: '2024-01-15T10:00:00Z',
+    endTime: '2024-01-15T11:00:00Z',
+    durationMs: 3600000,
+    pagesRead: 30,
+    startPage: 0,
+    endPage: 30,
+  };
+
+  const session2: Parameters<typeof addReadingSession>[1] = {
+    startTime: '2024-01-16T10:00:00Z',
+    endTime: '2024-01-16T11:00:00Z',
+    durationMs: 3600000,
+    pagesRead: 20,
+    startPage: 30,
+    endPage: 50,
+  };
+
+  it('adds a session to an empty array', () => {
+    const result = addReadingSession([], session1);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual(session1);
+  });
+
+  it('adds a new session and sorts by start time descending', () => {
+    const result = addReadingSession([session1], session2);
+    expect(result).toHaveLength(2);
+    expect(result[0].startTime).toBe('2024-01-16T10:00:00Z');
+    expect(result[1].startTime).toBe('2024-01-15T10:00:00Z');
+  });
+
+  it('does not mutate the original array', () => {
+    const original = [session1];
+    const result = addReadingSession(original, session2);
+    expect(original).toHaveLength(1);
+    expect(result).toHaveLength(2);
+  });
+
+  it('limits to 100 sessions', () => {
+    const sessions = Array.from({ length: 100 }, (_, i) => ({
+      startTime: `2024-01-${String(i + 1).padStart(2, '0')}T10:00:00Z`,
+      endTime: `2024-01-${String(i + 1).padStart(2, '0')}T11:00:00Z`,
+      durationMs: 3600000,
+      pagesRead: 10,
+      startPage: i * 10,
+      endPage: (i + 1) * 10,
+    }));
+
+    const newSession = {
+      startTime: '2024-05-01T10:00:00Z',
+      endTime: '2024-05-01T11:00:00Z',
+      durationMs: 3600000,
+      pagesRead: 10,
+      startPage: 1000,
+      endPage: 1010,
+    };
+
+    const result = addReadingSession(sessions, newSession);
+    expect(result).toHaveLength(100);
+    // The newest session should be first
+    expect(result[0].startTime).toBe('2024-05-01T10:00:00Z');
+  });
+
+  it('keeps most recent sessions when over limit', () => {
+    const sessions = Array.from({ length: 100 }, (_, i) => ({
+      startTime: `2024-${String(Math.floor(i / 28) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}T10:00:00Z`,
+      endTime: `2024-${String(Math.floor(i / 28) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}T11:00:00Z`,
+      durationMs: 3600000,
+      pagesRead: 10,
+      startPage: i * 10,
+      endPage: (i + 1) * 10,
+    }));
+
+    const newSession = {
+      startTime: '2025-01-01T10:00:00Z',
+      endTime: '2025-01-01T11:00:00Z',
+      durationMs: 3600000,
+      pagesRead: 10,
+      startPage: 1000,
+      endPage: 1010,
+    };
+
+    const result = addReadingSession(sessions, newSession);
+    expect(result).toHaveLength(100);
+    // Oldest session should be dropped
+    expect(result[0].startTime).toBe('2025-01-01T10:00:00Z');
   });
 });
