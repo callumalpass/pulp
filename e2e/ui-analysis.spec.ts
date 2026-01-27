@@ -186,6 +186,18 @@ test.describe('UI Analysis', () => {
       fullPage: true
     });
 
+    // Screenshot: Light theme - list view
+    await page.getByRole('button', { name: 'List view' }).click();
+    await page.waitForTimeout(300);
+    await page.screenshot({
+      path: 'e2e/screenshots/library-light-theme-list.png',
+      fullPage: true
+    });
+
+    // Back to grid view
+    await page.getByRole('button', { name: 'Grid view' }).click();
+    await page.waitForTimeout(200);
+
     // Back to dark theme
     await page.getByTitle('Toggle theme').click();
     await page.waitForTimeout(300);
@@ -330,6 +342,24 @@ test.describe('UI Analysis', () => {
     await page.waitForTimeout(300);
     await page.screenshot({
       path: 'e2e/screenshots/library-mobile-filters.png',
+      fullPage: true
+    });
+
+    // Close filters and switch to light theme
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    await page.getByTitle('Toggle theme').click();
+    await page.waitForTimeout(300);
+    await page.screenshot({
+      path: 'e2e/screenshots/library-mobile-light.png',
+      fullPage: true
+    });
+
+    // Open filters in light mode
+    await page.getByRole('button', { name: /Filters/i }).click();
+    await page.waitForTimeout(300);
+    await page.screenshot({
+      path: 'e2e/screenshots/library-mobile-filters-light.png',
       fullPage: true
     });
   });

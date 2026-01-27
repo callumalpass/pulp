@@ -205,7 +205,7 @@ export function MobileLibraryFilters({
             <button
               onClick={onSortOrderToggle}
               type="button"
-              className="mt-3 w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-bg-surface border border-white/[0.08] text-text-primary transition-all duration-150 active:scale-[0.98] active:bg-accent-primary/10"
+              className="mt-3 w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-bg-surface border border-subtle text-text-primary transition-all duration-150 active:scale-[0.98] active:bg-accent-primary/10"
               aria-label={`Sort order: ${sortOrder === 'asc' ? 'ascending' : 'descending'}`}
             >
               {sortOrder === 'asc' ? (

@@ -64,7 +64,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           !isDisabled && 'active:scale-[0.96] active:transition-transform active:duration-75',
           {
             'bg-gradient-to-br from-accent-primary to-accent-primary/90 text-bg-deep focus-visible:ring-accent-primary': variant === 'primary',
-            'bg-bg-surface text-text-primary border border-white/[0.08] focus-visible:ring-accent-primary': variant === 'secondary',
+            'bg-bg-surface text-text-primary border border-subtle focus-visible:ring-accent-primary': variant === 'secondary',
             'bg-transparent text-text-primary focus-visible:ring-accent-primary': variant === 'ghost',
             'bg-gradient-to-br from-red-500 to-red-600 text-white focus-visible:ring-red-500': variant === 'danger',
           },

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useDeferredValue, useCallback } from 'react';
+import { useState, useMemo, useEffect, useDeferredValue, useCallback, memo } from 'react';
 import { useLibrary } from '../hooks/useLibrary';
 import { useSearch, useSearchStatus } from '../hooks/useSearch';
 import { useCollections } from '../hooks/useCollections';
@@ -134,22 +134,26 @@ function LibraryPageContent() {
     });
   }, [notes, deferredQuery, typeFilter, progressFilter, collectionFilter, searchMode]);
 
-  const hasActiveFilters = Boolean(searchQuery) || typeFilter !== 'all' || progressFilter !== 'all' || collectionFilter !== null;
+  // Memoize filter calculations to prevent recalculation on unrelated state changes
+  const hasActiveFilters = useMemo(() =>
+    Boolean(searchQuery) || typeFilter !== 'all' || progressFilter !== 'all' || collectionFilter !== null,
+    [searchQuery, typeFilter, progressFilter, collectionFilter]
+  );
 
   // Count active filters for badge display
-  const activeFilterCount = [
+  const activeFilterCount = useMemo(() => [
     typeFilter !== 'all',
     progressFilter !== 'all',
     collectionFilter !== null,
-  ].filter(Boolean).length;
+  ].filter(Boolean).length, [typeFilter, progressFilter, collectionFilter]);
 
   // Get available collections
   const availableCollections = collectionsData?.collections || [];
 
-  const handleClearFilters = () => {
+  const handleClearFilters = useCallback(() => {
     setSearchQuery('');
     clearFilters();
-  };
+  }, [clearFilters]);
 
   const isShowingSearchResults = searchMode === 'content' && debouncedQuery.length >= 2;
 
@@ -244,7 +248,7 @@ function LibraryPageContent() {
         <div className="relative mb-8 animate-float">
           {/* Decorative background circles */}
           <div className="absolute -inset-12 bg-gradient-to-br from-accent-primary/15 via-transparent to-accent-secondary/15 rounded-full blur-3xl" />
-          <div className="relative bg-bg-surface p-8 rounded-3xl border border-white/[0.08] shadow-xl shadow-black/20 animate-pulse-glow">
+          <div className="relative bg-bg-surface p-8 rounded-3xl border border-subtle shadow-xl shadow-black/20 animate-pulse-glow">
             <BookStackIcon className="w-20 h-20 text-accent-primary" />
           </div>
         </div>
@@ -278,7 +282,7 @@ function LibraryPageContent() {
               placeholder={searchMode === 'title' ? 'Search by title...' : 'Search document contents...'}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-10 py-2.5 bg-bg-surface border border-white/[0.08] rounded-xl text-text-primary placeholder:text-text-secondary/60 focus:outline-none focus:ring-2 focus:ring-accent-primary/30 focus:border-accent-primary/50 transition-all duration-200 hover:border-text-secondary/30"
+              className="w-full pl-10 pr-10 py-2.5 bg-bg-surface border border-subtle rounded-xl text-text-primary placeholder:text-text-secondary/60 focus:outline-none focus:ring-2 focus:ring-accent-primary/30 focus:border-accent-primary/50 transition-all duration-200 hover:border-text-secondary/30"
             />
             <button
               onClick={() => setSearchQuery('')}
@@ -444,7 +448,7 @@ function LibraryPageContent() {
                   <select
                     value={collectionFilter || ''}
                     onChange={(e) => setCollectionFilter(e.target.value || null)}
-                    className="collection-select px-3 py-2 text-sm bg-bg-surface border border-white/[0.08] rounded-xl text-text-primary focus:outline-none min-h-[38px]"
+                    className="collection-select px-3 py-2 text-sm bg-bg-surface border border-subtle rounded-xl text-text-primary focus:outline-none min-h-[38px]"
                   >
                     <option value="">All</option>
                     {availableCollections.map((collection) => (
@@ -619,7 +623,7 @@ function LibraryPageContent() {
   );
 }
 
-function FilterButton({
+const FilterButton = memo(function FilterButton({
   active,
   onClick,
   children,
@@ -642,9 +646,9 @@ function FilterButton({
       {children}
     </button>
   );
-}
+});
 
-function FilteredEmptyState({
+const FilteredEmptyState = memo(function FilteredEmptyState({
   query,
   onClear,
 }: {
@@ -672,7 +676,7 @@ function FilteredEmptyState({
       </button>
     </div>
   );
-}
+});
 
 function SearchIcon({ className }: { className?: string }) {
   return (
@@ -767,7 +771,7 @@ function LibraryIcon({ className }: { className?: string }) {
   );
 }
 
-function SectionHeader({ children, icon }: { children: React.ReactNode; icon?: React.ReactNode }) {
+const SectionHeader = memo(function SectionHeader({ children, icon }: { children: React.ReactNode; icon?: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2 mb-4">
       {icon && (
@@ -778,7 +782,7 @@ function SectionHeader({ children, icon }: { children: React.ReactNode; icon?: R
       </h2>
     </div>
   );
-}
+});
 
 function GridViewIcon({ className }: { className?: string }) {
   return (

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, memo } from 'react';
 import { Link } from 'react-router-dom';
 import type { LiteratureNoteSummary } from '@pulp/shared';
 import { ProgressIndicator } from './ProgressIndicator';
@@ -14,7 +14,7 @@ function getStaggerClass(index: number): string {
   return `card-enter card-stagger-${index + 1}`;
 }
 
-export function LibraryListView({ notes }: LibraryListViewProps) {
+export const LibraryListView = memo(function LibraryListView({ notes }: LibraryListViewProps) {
   const { pinned, unpinned } = useMemo(() => {
     const pinned: LiteratureNoteSummary[] = [];
     const unpinned: LiteratureNoteSummary[] = [];
@@ -47,7 +47,7 @@ export function LibraryListView({ notes }: LibraryListViewProps) {
     >
       {/* Column headers (desktop only) */}
       <div
-        className="hidden sm:flex items-center gap-3 px-2 py-2 text-xs text-text-secondary uppercase tracking-wider font-semibold border-b border-white/[0.08] bg-bg-surface/50 rounded-lg mb-2"
+        className="hidden sm:flex items-center gap-3 px-2 py-2 text-xs text-text-secondary uppercase tracking-wider font-semibold border-b border-subtle bg-bg-surface/50 rounded-lg mb-2"
         role="row"
         aria-hidden="true"
       >
@@ -95,9 +95,9 @@ export function LibraryListView({ notes }: LibraryListViewProps) {
       )}
     </div>
   );
-}
+});
 
-function ListRow({ note }: { note: LiteratureNoteSummary }) {
+const ListRow = memo(function ListRow({ note }: { note: LiteratureNoteSummary }) {
   const csl = note.csl;
 
   // Format publication info (for mobile subtitle)
@@ -277,9 +277,9 @@ function ListRow({ note }: { note: LiteratureNoteSummary }) {
       </div>
     </Link>
   );
-}
+});
 
-function StarRating({ rating, size = 10 }: { rating: number; size?: number }) {
+const StarRating = memo(function StarRating({ rating, size = 10 }: { rating: number; size?: number }) {
   return (
     <div className="flex items-center gap-px">
       {[1, 2, 3, 4, 5].map((star) => (
@@ -298,9 +298,9 @@ function StarRating({ rating, size = 10 }: { rating: number; size?: number }) {
       ))}
     </div>
   );
-}
+});
 
-function SectionHeader({ children, icon }: { children: React.ReactNode; icon?: React.ReactNode }) {
+const SectionHeader = memo(function SectionHeader({ children, icon }: { children: React.ReactNode; icon?: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2 mb-3">
       {icon && <span className="text-accent-primary/70">{icon}</span>}
@@ -309,27 +309,27 @@ function SectionHeader({ children, icon }: { children: React.ReactNode; icon?: R
       </h2>
     </div>
   );
-}
+});
 
-function BookIcon({ className }: { className?: string }) {
+const BookIcon = memo(function BookIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M4 19.5A2.5 2.5 0 016.5 17H20" />
       <path strokeLinecap="round" strokeLinejoin="round" d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
     </svg>
   );
-}
+});
 
-function PinIcon({ className }: { className?: string }) {
+const PinIcon = memo(function PinIcon({ className }: { className?: string }) {
   return (
     <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <line x1="12" y1="17" x2="12" y2="22" />
       <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
     </svg>
   );
-}
+});
 
-function ListIcon({ className }: { className?: string }) {
+const ListIcon = memo(function ListIcon({ className }: { className?: string }) {
   return (
     <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <line x1="8" y1="6" x2="21" y2="6" />
@@ -340,12 +340,12 @@ function ListIcon({ className }: { className?: string }) {
       <line x1="3" y1="18" x2="3.01" y2="18" />
     </svg>
   );
-}
+});
 
-function CheckIcon({ className }: { className?: string }) {
+const CheckIcon = memo(function CheckIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
       <polyline points="20 6 9 17 4 12" />
     </svg>
   );
-}
+});
