@@ -1363,6 +1363,53 @@ body {
 }
 
 /* ================================================
+   Enhanced List View Styling
+   ================================================ */
+
+/* List view row hover effect */
+.library-list-row:hover {
+  background-color: rgba(162, 155, 254, 0.05);
+}
+
+/* List view header sticky behavior on scroll */
+@supports (position: sticky) {
+  .library-list-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: var(--color-bg-deep);
+  }
+}
+
+/* ================================================
+   Enhanced Button Interactions
+   ================================================ */
+
+/* Card action buttons with better hover effects */
+.card-action-btn {
+  transition: all 200ms cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.card-action-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.card-action-btn:active {
+  transform: scale(0.95);
+}
+
+/* Smooth image loading transition */
+.book-cover-image {
+  opacity: 0;
+  transition: opacity 300ms ease-out;
+}
+
+.book-cover-image.loaded {
+  opacity: 1;
+}
+
+/* ================================================
    Enhanced Touch Interactions
    ================================================ */
 

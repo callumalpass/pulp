@@ -47,19 +47,19 @@ export function LibraryListView({ notes }: LibraryListViewProps) {
     >
       {/* Column headers (desktop only) */}
       <div
-        className="hidden sm:flex items-center gap-3 px-2 py-1 text-xs text-text-secondary/50 uppercase tracking-wider font-medium border-b border-white/[0.05]"
+        className="hidden sm:flex items-center gap-3 px-2 py-2 text-xs text-text-secondary uppercase tracking-wider font-semibold border-b border-white/[0.08] bg-bg-surface/50 rounded-lg mb-2"
         role="row"
         aria-hidden="true"
       >
         <div className="w-10 flex-shrink-0" /> {/* Cover spacer */}
         <div className="flex-1">Title</div>
         <div className="w-36">Author</div>
-        <div className="w-12 text-center">Year</div>
+        <div className="w-14 text-center">Year</div>
         <div className="w-16 text-center">Type</div>
-        <div className="w-14 text-right">Progress</div>
-        <div className="w-16">Rating</div>
-        <div className="w-16 text-right">Last Read</div>
-        <div className="w-12 text-right">Pages</div>
+        <div className="w-16 text-right">Progress</div>
+        <div className="w-20 text-center">Rating</div>
+        <div className="w-20 text-right">Last Read</div>
+        <div className="w-14 text-right">Pages</div>
       </div>
 
       {pinned.length > 0 && (
@@ -208,7 +208,7 @@ function ListRow({ note }: { note: LiteratureNoteSummary }) {
         </div>
 
         {/* Year/Issued */}
-        <div className="w-12 text-center">
+        <div className="w-14 text-center">
           {csl?.issued ? (
             <span className="text-xs text-text-secondary/70">{csl.issued.slice(0, 4)}</span>
           ) : (
@@ -222,21 +222,21 @@ function ListRow({ note }: { note: LiteratureNoteSummary }) {
         </span>
 
         {/* Progress */}
-        <div className="w-14 text-right" data-testid="list-row-progress">
+        <div className="w-16 text-right" data-testid="list-row-progress">
           {note.progress === 100 ? (
             <span className="text-xs text-green-500 flex items-center justify-end gap-1">
               <CheckIcon className="w-3.5 h-3.5" />
               Done
             </span>
           ) : note.progress > 0 ? (
-            <span className="text-xs text-accent-primary">{note.progress}%</span>
+            <span className="text-xs text-accent-primary font-medium">{note.progress}%</span>
           ) : (
             <span className="text-xs text-text-secondary/50">Unread</span>
           )}
         </div>
 
         {/* Rating */}
-        <div className="w-16" data-testid="list-row-rating">
+        <div className="w-20 flex justify-center" data-testid="list-row-rating">
           {note.rating ? (
             <StarRating rating={note.rating} />
           ) : (
@@ -245,7 +245,7 @@ function ListRow({ note }: { note: LiteratureNoteSummary }) {
         </div>
 
         {/* Last read */}
-        <div className="w-16 text-right">
+        <div className="w-20 text-right">
           {note.lastRead ? (
             <span className="text-xs text-text-secondary">
               {formatLastRead(note.lastRead)}
@@ -256,7 +256,7 @@ function ListRow({ note }: { note: LiteratureNoteSummary }) {
         </div>
 
         {/* Pages */}
-        <div className="w-12 text-right">
+        <div className="w-14 text-right">
           {note.totalPages ? (
             <span className="text-xs text-text-secondary">{note.totalPages}p</span>
           ) : (

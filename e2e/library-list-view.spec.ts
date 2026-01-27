@@ -230,14 +230,16 @@ test.describe('Library List View', () => {
     await page.goto('/');
     await page.getByRole('button', { name: 'List view' }).click();
 
-    // Check that pinned section exists
-    await expect(page.getByRole('heading', { name: 'Pinned' })).toBeVisible();
+    const listView = page.getByTestId('library-list-view');
 
-    // Check that "All Books" section exists when there are pinned items
-    await expect(page.getByRole('heading', { name: 'All Books' })).toBeVisible();
+    // Check that pinned section exists within list view
+    await expect(listView.getByRole('heading', { name: 'Pinned' })).toBeVisible();
+
+    // Check that "All Books" section exists within list view when there are pinned items
+    await expect(listView.getByRole('heading', { name: 'All Books' })).toBeVisible();
 
     // The pinned book should be in the pinned section
-    const pinnedSection = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Pinned' }) });
+    const pinnedSection = listView.locator('section').filter({ has: page.getByRole('heading', { name: 'Pinned' }) });
     await expect(pinnedSection.getByText('Learning to Look')).toBeVisible();
   });
 

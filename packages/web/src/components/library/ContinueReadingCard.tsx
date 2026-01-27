@@ -62,11 +62,11 @@ export function ContinueReadingCard({ note }: ContinueReadingCardProps) {
 
         {/* Book info */}
         <div className="relative flex-1 min-w-0 flex flex-col justify-center">
-          <h3 className="text-base font-semibold text-text-primary line-clamp-1 group-hover:text-accent-primary transition-colors">
+          <h3 className="text-base font-semibold text-text-primary line-clamp-2 sm:line-clamp-1 group-hover:text-accent-primary transition-colors leading-tight">
             {note.title}
           </h3>
           {note.author && (
-            <p className="text-sm text-text-secondary line-clamp-1 mt-0.5">
+            <p className="text-sm text-text-secondary line-clamp-1 mt-1">
               {note.author}
             </p>
           )}

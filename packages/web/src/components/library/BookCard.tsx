@@ -198,7 +198,7 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
             onClick={handleInfoClick}
             type="button"
             aria-label="Show metadata"
-            className="absolute top-1 left-1 w-9 h-9 flex items-center justify-center rounded-full bg-bg-surface/90 backdrop-blur-sm transition-all duration-200 focus-visible:ring-2 focus-visible:ring-accent-primary/60 hover:bg-bg-surface active:scale-90 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+            className="absolute top-2 left-2 w-8 h-8 flex items-center justify-center rounded-lg bg-bg-surface/80 backdrop-blur-sm transition-all duration-200 focus-visible:ring-2 focus-visible:ring-accent-primary/60 hover:bg-bg-surface hover:shadow-lg hover:scale-110 active:scale-95 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 border border-white/10"
             title="Show metadata (i)"
           >
             <InfoIcon />
@@ -210,8 +210,8 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
             type="button"
             aria-label={note.pinned ? 'Unpin' : 'Pin'}
             aria-pressed={note.pinned}
-            className={`absolute top-1 right-1 w-9 h-9 flex items-center justify-center rounded-full bg-bg-surface/90 backdrop-blur-sm transition-all duration-200 focus-visible:ring-2 focus-visible:ring-accent-primary/60 hover:bg-bg-surface active:scale-90 ${
-              note.pinned ? 'opacity-100 shadow-md' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+            className={`absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-lg bg-bg-surface/80 backdrop-blur-sm transition-all duration-200 focus-visible:ring-2 focus-visible:ring-accent-primary/60 hover:bg-bg-surface hover:shadow-lg hover:scale-110 active:scale-95 border border-white/10 ${
+              note.pinned ? 'opacity-100 shadow-md border-accent-primary/30' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
             }`}
             title={note.pinned ? 'Unpin' : 'Pin'}
           >
@@ -424,16 +424,19 @@ function InfoIcon() {
 
 function DefaultCover({ title, type }: { title: string; type: 'pdf' | 'epub' }) {
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-gradient-to-br from-accent-primary/20 via-bg-deep to-accent-secondary/10 relative overflow-hidden">
+    <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-gradient-to-br from-accent-primary/20 via-bg-deep to-accent-secondary/10 relative overflow-hidden group-hover:from-accent-primary/25 group-hover:to-accent-secondary/15 transition-all duration-300">
       {/* Decorative pattern */}
-      <div className="absolute inset-0 opacity-[0.03]" style={{
+      <div className="absolute inset-0 opacity-[0.03] group-hover:opacity-[0.05] transition-opacity duration-300" style={{
         backgroundImage: `radial-gradient(circle at 2px 2px, currentColor 1px, transparent 0)`,
         backgroundSize: '16px 16px'
       }} />
 
-      <div className="relative p-4 rounded-2xl bg-bg-surface/70 backdrop-blur-sm mb-3 shadow-lg shadow-black/10 border border-white/[0.05] group-hover:shadow-xl group-hover:scale-105 transition-all duration-200">
+      {/* Animated glow effect on hover */}
+      <div className="absolute inset-0 bg-gradient-to-t from-accent-primary/0 via-accent-primary/5 to-accent-primary/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+
+      <div className="relative p-4 rounded-2xl bg-bg-surface/70 backdrop-blur-sm mb-3 shadow-lg shadow-black/10 border border-white/[0.05] group-hover:shadow-xl group-hover:shadow-accent-primary/20 group-hover:scale-110 group-hover:border-accent-primary/20 transition-all duration-300 ease-out">
         {type === 'pdf' ? (
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent-primary">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent-primary group-hover:text-accent-secondary transition-colors duration-300">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14 2 14 8 20 8" />
             <line x1="16" y1="13" x2="8" y2="13" />
@@ -441,7 +444,7 @@ function DefaultCover({ title, type }: { title: string; type: 'pdf' | 'epub' }) 
             <line x1="10" y1="9" x2="8" y2="9" />
           </svg>
         ) : (
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent-primary">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent-primary group-hover:text-accent-secondary transition-colors duration-300">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
             <line x1="8" y1="6" x2="16" y2="6" />
@@ -449,7 +452,7 @@ function DefaultCover({ title, type }: { title: string; type: 'pdf' | 'epub' }) 
           </svg>
         )}
       </div>
-      <p className="relative text-xs text-center text-text-primary/90 line-clamp-3 font-medium leading-snug px-2">{title}</p>
+      <p className="relative text-xs text-center text-text-primary/90 line-clamp-3 font-medium leading-snug px-2 group-hover:text-text-primary transition-colors duration-200">{title}</p>
     </div>
   );
 }
