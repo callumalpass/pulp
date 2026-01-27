@@ -579,10 +579,14 @@ function LibraryPageContent() {
               query={searchQuery}
               onClear={handleClearFilters}
             />
-          ) : viewMode === 'list' ? (
-            <LibraryListView notes={filteredNotes} />
           ) : (
-            <LibraryGrid notes={filteredNotes} />
+            <div key={viewMode} className="view-switch-enter">
+              {viewMode === 'list' ? (
+                <LibraryListView notes={filteredNotes} />
+              ) : (
+                <LibraryGrid notes={filteredNotes} />
+              )}
+            </div>
           )}
         </>
       )}

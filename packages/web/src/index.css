@@ -1176,6 +1176,20 @@ body {
   opacity: 0;
 }
 
+/* View switch transition (grid <-> list) */
+@keyframes view-switch-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.view-switch-enter {
+  animation: view-switch-enter 200ms ease-out forwards;
+}
+
 /* Staggered card animations */
 .card-stagger-1 { animation-delay: 0ms; }
 .card-stagger-2 { animation-delay: 40ms; }
