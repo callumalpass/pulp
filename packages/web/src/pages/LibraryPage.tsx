@@ -13,6 +13,7 @@ import { MobileLibraryFilters } from '../components/library/MobileLibraryFilters
 import { ContinueReadingCard, ContinueReadingCardSkeleton } from '../components/library/ContinueReadingCard';
 import { MetadataPane } from '../components/library/MetadataPane';
 import { LibraryShortcutsPanel } from '../components/library/LibraryShortcutsPanel';
+import { LibraryStats } from '../components/library/LibraryStats';
 import { Button } from '../components/ui/Button';
 import { useLibraryFiltersStore, type SortOption, type ProgressFilter, type TypeFilter, type SearchMode, type ViewMode } from '../stores/libraryFilters';
 import type { LiteratureNoteSummary } from '@pulp/shared';
@@ -552,6 +553,13 @@ function LibraryPageContent() {
             </div>
         )}
       </div>
+
+      {/* Reading stats bar */}
+      {!isShowingSearchResults && !hasActiveFilters && (
+        <div className="mb-6">
+          <LibraryStats />
+        </div>
+      )}
 
       {/* Continue Reading Section */}
       {!isShowingSearchResults && !hasActiveFilters && (
