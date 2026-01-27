@@ -280,16 +280,19 @@ function LibraryPageContent() {
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-10 py-2.5 bg-bg-surface border border-white/[0.08] rounded-xl text-text-primary placeholder:text-text-secondary/60 focus:outline-none focus:ring-2 focus:ring-accent-primary/30 focus:border-accent-primary/50 transition-all duration-200 hover:border-text-secondary/30"
             />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                type="button"
-                aria-label="Clear search"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary"
-              >
-                <XIcon className="w-4 h-4" />
-              </button>
-            )}
+            <button
+              onClick={() => setSearchQuery('')}
+              type="button"
+              aria-label="Clear search"
+              className={`absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary transition-all duration-150 ${
+                searchQuery
+                  ? 'opacity-100 scale-100'
+                  : 'opacity-0 scale-75 pointer-events-none'
+              }`}
+              tabIndex={searchQuery ? 0 : -1}
+            >
+              <XIcon className="w-4 h-4" />
+            </button>
           </div>
 
           {/* Search mode toggle */}
@@ -463,7 +466,7 @@ function LibraryPageContent() {
                   <button
                     onClick={() => setViewMode('grid')}
                     type="button"
-                    className={`filter-btn p-2 transition-all duration-150 ${
+                    className={`filter-btn p-2.5 min-h-[38px] min-w-[38px] flex items-center justify-center transition-all duration-150 ${
                       viewMode === 'grid'
                         ? 'filter-btn-active text-accent-primary'
                         : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep/50'
@@ -477,7 +480,7 @@ function LibraryPageContent() {
                   <button
                     onClick={() => setViewMode('list')}
                     type="button"
-                    className={`filter-btn p-2 transition-all duration-150 ${
+                    className={`filter-btn p-2.5 min-h-[38px] min-w-[38px] flex items-center justify-center transition-all duration-150 ${
                       viewMode === 'list'
                         ? 'filter-btn-active text-accent-primary'
                         : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep/50'
