@@ -6,6 +6,7 @@ import { ProgressIndicator } from './ProgressIndicator';
 import { usePinned } from '../../hooks/usePinned';
 import { useRating } from '../../hooks/useRating';
 import { useReadingStatsStore } from '../../stores/readingStats';
+import { useMetadataPane } from '../../contexts/MetadataPaneContext';
 import { api } from '../../lib/api';
 import { formatLastRead, getEstimatedTimeRemaining, formatEstimatedCompletion } from '../../lib/format';
 
@@ -20,8 +21,11 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
   const { togglePin, isPending: isPinPending } = usePinned();
   const { setRating, isPending: isRatingPending } = useRating();
   const { getFormattedReadingTime } = useReadingStatsStore();
+  const { openPane } = useMetadataPane();
   const ratingMenuRef = useRef<HTMLDivElement>(null);
   const ratingButtonRef = useRef<HTMLButtonElement>(null);
+  const cardRef = useRef<HTMLAnchorElement>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Use stats from note data (from API)
   const bookStats = note.readingStats;
 
@@ -60,6 +64,42 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
       togglePin(note.id, note.pinned);
     }
   }, [note.id, note.pinned, togglePin, isPinPending]);
+
+  const handleInfoClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openPane(note.id);
+  }, [note.id, openPane]);
+
+  // Long-press handlers for mobile
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    longPressTimer.current = setTimeout(() => {
+      e.preventDefault();
+      openPane(note.id);
+    }, 500);
+  }, [note.id, openPane]);
+
+  const handleTouchEnd = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
+  const handleTouchMove = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
+  // Keyboard handler for 'i' key when focused
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'i' || e.key === 'I') {
+      e.preventDefault();
+      openPane(note.id);
+    }
+  }, [note.id, openPane]);
 
   const handleRatingClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -129,9 +169,14 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
 
   return (
     <Link
+      ref={cardRef}
       to={`/read/${note.id}`}
       className="group block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-deep rounded-xl"
       aria-label={accessibleLabel}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchMove={handleTouchMove}
+      onKeyDown={handleKeyDown}
     >
       <Card hover className="library-card flex flex-col relative active:scale-[0.98]">
         <div className="aspect-[2/3] bg-bg-deep relative overflow-hidden rounded-t-xl">
@@ -147,6 +192,17 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
           ) : (
             <DefaultCover title={note.title} type={note.sourceType} />
           )}
+
+          {/* Top-left action: Info button */}
+          <button
+            onClick={handleInfoClick}
+            type="button"
+            aria-label="Show metadata"
+            className="absolute top-1 left-1 w-9 h-9 flex items-center justify-center rounded-full bg-bg-surface/90 backdrop-blur-sm transition-all duration-200 focus-visible:ring-2 focus-visible:ring-accent-primary/60 hover:bg-bg-surface active:scale-90 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+            title="Show metadata (i)"
+          >
+            <InfoIcon />
+          </button>
 
           {/* Top-right actions: Pin button */}
           <button
@@ -275,10 +331,10 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
                 <button
                   key={star}
                   onClick={(e) => handleSetRating(e, star)}
-                  className={`p-1 rounded transition-colors ${
+                  className={`p-1.5 rounded transition-all duration-150 rating-star-btn ${
                     focusedStar === star
-                      ? 'ring-2 ring-accent-primary bg-bg-deep'
-                      : 'hover:bg-bg-deep'
+                      ? 'ring-2 ring-accent-primary bg-bg-deep scale-110'
+                      : 'hover:bg-bg-deep hover:scale-110'
                   } ${isRatingPending ? 'opacity-50 cursor-not-allowed' : ''}`}
                   title={`Rate ${star} star${star > 1 ? 's' : ''}`}
                   aria-label={`${star} star${star > 1 ? 's' : ''}`}
@@ -288,19 +344,19 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
                   disabled={isRatingPending}
                 >
                   <svg
-                    width="20"
-                    height="20"
+                    width="24"
+                    height="24"
                     viewBox="0 0 24 24"
                     fill={note.rating && star <= note.rating ? 'currentColor' : (focusedStar && star <= focusedStar ? 'currentColor' : 'none')}
                     stroke="currentColor"
                     strokeWidth="2"
-                    className={
+                    className={`transition-all duration-150 ${
                       note.rating && star <= note.rating
-                        ? 'text-yellow-500'
+                        ? 'text-yellow-500 drop-shadow-[0_0_3px_rgba(234,179,8,0.5)]'
                         : focusedStar && star <= focusedStar
-                          ? 'text-yellow-500/50'
-                          : 'text-text-secondary'
-                    }
+                          ? 'text-yellow-500/60'
+                          : 'text-text-secondary/50'
+                    }`}
                   >
                     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                   </svg>
@@ -311,13 +367,13 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
               <button
                 onClick={(e) => handleSetRating(e, null)}
                 type="button"
-                className={`w-full text-xs text-text-secondary hover:text-text-primary hover:bg-bg-deep rounded px-2 py-1 transition-colors ${isRatingPending ? 'opacity-50 cursor-not-allowed' : ''}`}
+                className={`w-full text-xs text-text-secondary hover:text-text-primary hover:bg-bg-deep rounded px-2 py-1.5 transition-colors ${isRatingPending ? 'opacity-50 cursor-not-allowed' : ''}`}
                 disabled={isRatingPending}
               >
                 Remove rating
               </button>
             )}
-            <p className="text-xs text-text-secondary/60 text-center mt-1">
+            <p className="text-xs text-text-secondary/60 text-center mt-1.5">
               Use arrow keys to select
             </p>
           </div>
@@ -342,6 +398,26 @@ function PinIcon({ filled }: { filled: boolean }) {
     >
       <line x1="12" y1="17" x2="12" y2="22" />
       <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
+    </svg>
+  );
+}
+
+function InfoIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="text-text-secondary"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="16" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
     </svg>
   );
 }
