@@ -193,24 +193,24 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
             <DefaultCover title={note.title} type={note.sourceType} />
           )}
 
-          {/* Top-left action: Info button */}
+          {/* Top-left action: Info button - 44px touch target on mobile */}
           <button
             onClick={handleInfoClick}
             type="button"
             aria-label="Show metadata"
-            className="absolute top-2 left-2 w-8 h-8 flex items-center justify-center rounded-lg bg-bg-surface/80 backdrop-blur-sm transition-all duration-200 focus-visible:ring-2 focus-visible:ring-accent-primary/60 hover:bg-bg-surface hover:shadow-lg hover:scale-110 active:scale-95 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 border border-white/10"
+            className="absolute top-1 left-1 min-w-[44px] min-h-[44px] w-9 h-9 md:w-8 md:h-8 md:min-w-[32px] md:min-h-[32px] flex items-center justify-center rounded-lg bg-bg-surface/80 backdrop-blur-sm transition-all duration-200 focus-visible:ring-2 focus-visible:ring-accent-primary/60 hover:bg-bg-surface hover:shadow-lg hover:scale-110 active:scale-95 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 border border-white/10"
             title="Show metadata (i)"
           >
             <InfoIcon />
           </button>
 
-          {/* Top-right actions: Pin button */}
+          {/* Top-right actions: Pin button - 44px touch target on mobile */}
           <button
             onClick={handlePinClick}
             type="button"
             aria-label={note.pinned ? 'Unpin' : 'Pin'}
             aria-pressed={note.pinned}
-            className={`absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-lg bg-bg-surface/80 backdrop-blur-sm transition-all duration-200 focus-visible:ring-2 focus-visible:ring-accent-primary/60 hover:bg-bg-surface hover:shadow-lg hover:scale-110 active:scale-95 border border-white/10 ${
+            className={`absolute top-1 right-1 min-w-[44px] min-h-[44px] w-9 h-9 md:w-8 md:h-8 md:min-w-[32px] md:min-h-[32px] flex items-center justify-center rounded-lg bg-bg-surface/80 backdrop-blur-sm transition-all duration-200 focus-visible:ring-2 focus-visible:ring-accent-primary/60 hover:bg-bg-surface hover:shadow-lg hover:scale-110 active:scale-95 border border-white/10 ${
               note.pinned ? 'opacity-100 shadow-md border-accent-primary/30' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
             }`}
             title={note.pinned ? 'Unpin' : 'Pin'}
@@ -221,7 +221,7 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
           {/* Completed badge */}
           {note.progress === 100 && note.dateFinished && (
             <div
-              className="absolute bottom-2 right-2 p-1 rounded-full bg-green-600/90 backdrop-blur-sm"
+              className="completion-badge absolute bottom-2 right-2 p-1.5 rounded-full bg-green-600/90 backdrop-blur-sm"
               title={`Completed ${formatDateFinished(note.dateFinished)}`}
             >
               <CheckIcon />
