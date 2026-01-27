@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Button } from './Button';
 
 interface ConfirmDialogProps {
@@ -24,6 +24,31 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  // Track whether the dialog should be rendered (stays true during exit animation)
+  const [isRendered, setIsRendered] = useState(false);
+  // Track whether we're in the closing phase
+  const [isClosing, setIsClosing] = useState(false);
+
+  // Handle open/close transitions
+  useEffect(() => {
+    if (isOpen) {
+      setIsRendered(true);
+      setIsClosing(false);
+    } else if (isRendered) {
+      // Start exit animation
+      setIsClosing(true);
+      const timer = setTimeout(() => {
+        setIsRendered(false);
+        setIsClosing(false);
+      }, 150); // Match exit animation duration
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Wrap onCancel to trigger exit animation
+  const handleCancel = useCallback(() => {
+    onCancel();
+  }, [onCancel]);
 
   // Focus trap and escape key handling
   useEffect(() => {
@@ -31,21 +56,25 @@ export function ConfirmDialog({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onCancel();
+        handleCancel();
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
-    confirmButtonRef.current?.focus();
+    // Delay focus slightly to allow enter animation to start
+    const focusTimer = setTimeout(() => {
+      confirmButtonRef.current?.focus();
+    }, 50);
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
+      clearTimeout(focusTimer);
     };
-  }, [isOpen, onCancel]);
+  }, [isOpen, handleCancel]);
 
   // Prevent body scroll when dialog is open
   useEffect(() => {
-    if (isOpen) {
+    if (isRendered) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
@@ -53,9 +82,9 @@ export function ConfirmDialog({
     return () => {
       document.body.style.overflow = '';
     };
-  }, [isOpen]);
+  }, [isRendered]);
 
-  if (!isOpen) return null;
+  if (!isRendered) return null;
 
   const variantStyles = {
     danger: 'text-red-400',
@@ -72,15 +101,19 @@ export function ConfirmDialog({
     >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onCancel}
+        className={`absolute inset-0 bg-black/60 backdrop-blur-sm ${
+          isClosing ? 'confirm-dialog-backdrop-exit' : 'confirm-dialog-backdrop-enter'
+        }`}
+        onClick={handleCancel}
         aria-hidden="true"
       />
 
       {/* Dialog */}
       <div
         ref={dialogRef}
-        className="relative bg-bg-surface rounded-lg shadow-xl border border-text-secondary/20 w-full max-w-sm p-5 animate-in fade-in zoom-in-95 duration-200"
+        className={`relative bg-bg-surface rounded-xl border border-text-secondary/20 w-full max-w-sm p-5 ${
+          isClosing ? 'confirm-dialog-panel-exit' : 'confirm-dialog-panel-enter'
+        }`}
       >
         <h2
           id="confirm-dialog-title"
@@ -91,7 +124,7 @@ export function ConfirmDialog({
         <p className="text-sm text-text-secondary mb-5">{message}</p>
 
         <div className="flex gap-3 justify-end">
-          <Button variant="ghost" size="sm" onClick={onCancel}>
+          <Button variant="ghost" size="sm" onClick={handleCancel}>
             {cancelLabel}
           </Button>
           <Button
