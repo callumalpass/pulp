@@ -1,3 +1,4 @@
+import { useCallback, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { ConnectionStatus } from '../ui/ConnectionStatus';
 import { usePreferencesStore } from '../../stores/preferences';
@@ -26,10 +27,20 @@ export function Header() {
 function ThemeToggle() {
   const theme = usePreferencesStore((state) => state.theme);
   const setTheme = usePreferencesStore((state) => state.setTheme);
+  const transitionTimer = useRef<ReturnType<typeof setTimeout>>();
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
+    // Add transitioning class so all colors crossfade smoothly
+    document.documentElement.classList.add('theme-transitioning');
+    clearTimeout(transitionTimer.current);
+
     setTheme(theme === 'light' ? 'dark' : 'light');
-  };
+
+    // Remove the class after the transition completes
+    transitionTimer.current = setTimeout(() => {
+      document.documentElement.classList.remove('theme-transitioning');
+    }, 450);
+  }, [theme, setTheme]);
 
   const isLight = theme === 'light';
 

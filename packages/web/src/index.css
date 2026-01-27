@@ -62,6 +62,14 @@ html {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Smooth theme transitions — colors crossfade when toggling light/dark */
+html.theme-transitioning,
+html.theme-transitioning *,
+html.theme-transitioning *::before,
+html.theme-transitioning *::after {
+  transition: background-color 400ms ease, color 400ms ease, border-color 400ms ease, fill 400ms ease, stroke 400ms ease !important;
+}
+
 body {
   margin: 0;
   padding: 0;
