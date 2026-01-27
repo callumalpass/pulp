@@ -117,7 +117,7 @@ export function calculatePopupPositionFromSelection({
 }): PopupPosition {
   // Convert selection position to container-relative
   const anchor = {
-    x: selectionRect.x - containerRect.left + (selectionRect.x - containerRect.left) / 2,
+    x: selectionRect.x - containerRect.left,
     y: selectionRect.bottom - containerRect.top,
   };
 
