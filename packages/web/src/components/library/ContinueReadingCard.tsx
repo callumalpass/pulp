@@ -102,7 +102,7 @@ export function ContinueReadingCard({ note }: ContinueReadingCardProps) {
 
         {/* Continue button */}
         <div className="relative flex items-center">
-          <div className="w-12 h-12 flex items-center justify-center rounded-full bg-accent-primary text-bg-deep shadow-lg shadow-accent-primary/30 group-hover:shadow-accent-primary/50 group-hover:scale-105 transition-all duration-200">
+          <div className="play-button-pulse w-12 h-12 flex items-center justify-center rounded-full bg-accent-primary text-bg-deep group-hover:scale-105 transition-all duration-200">
             <PlayIcon className="w-5 h-5 ml-0.5" />
           </div>
         </div>
