@@ -8,5 +8,9 @@ export function useLibrary(
   return useQuery({
     queryKey: ['library', sort, order],
     queryFn: () => api.library.list(sort, order),
+    // Keep data fresh for 30 seconds - reduces refetches when navigating between pages
+    staleTime: 30 * 1000,
+    // Cache unused data for 5 minutes
+    gcTime: 5 * 60 * 1000,
   });
 }

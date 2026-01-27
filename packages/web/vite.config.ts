@@ -117,6 +117,18 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Split heavy dependencies into separate chunks for better caching
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-query': ['@tanstack/react-query'],
+          'vendor-pdf': ['pdfjs-dist'],
+          'vendor-epub': ['epubjs'],
+          'vendor-codemirror': ['@codemirror/state', '@codemirror/view', '@codemirror/lang-markdown', '@codemirror/language', '@codemirror/commands', '@replit/codemirror-vim'],
+        },
+      },
+    },
   },
   worker: {
     format: 'es',
