@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useDeferredValue, useCallback, memo } from 'react';
+import { useState, useMemo, useEffect, useDeferredValue, useCallback, useRef, memo } from 'react';
 import { useLibrary } from '../hooks/useLibrary';
 import { useSearch, useSearchStatus } from '../hooks/useSearch';
 import { useCollections } from '../hooks/useCollections';
@@ -12,7 +12,7 @@ import { MobileLibraryFilters } from '../components/library/MobileLibraryFilters
 import { ContinueReadingCard, ContinueReadingCardSkeleton } from '../components/library/ContinueReadingCard';
 import { MetadataPane } from '../components/library/MetadataPane';
 import { Button } from '../components/ui/Button';
-import { useLibraryFiltersStore, type SortOption, type ProgressFilter } from '../stores/libraryFilters';
+import { useLibraryFiltersStore, type SortOption, type ProgressFilter, type TypeFilter, type SearchMode, type ViewMode } from '../stores/libraryFilters';
 import type { LiteratureNoteSummary } from '@pulp/shared';
 
 const SORT_LABELS: Record<SortOption, string> = {
@@ -30,6 +30,30 @@ const PROGRESS_LABELS: Record<ProgressFilter, string> = {
   reading: 'Reading',
   completed: 'Completed',
 };
+
+const TYPE_FILTER_OPTIONS: FilterOption<TypeFilter>[] = [
+  { value: 'all', label: 'All' },
+  { value: 'pdf', label: 'PDF' },
+  { value: 'epub', label: 'EPUB' },
+];
+
+const PROGRESS_FILTER_OPTIONS: FilterOption<ProgressFilter>[] = (
+  Object.keys(PROGRESS_LABELS) as ProgressFilter[]
+).map((key) => ({ value: key, label: PROGRESS_LABELS[key] }));
+
+const SORT_FILTER_OPTIONS: FilterOption<SortOption>[] = (
+  Object.keys(SORT_LABELS) as SortOption[]
+).map((key) => ({ value: key, label: SORT_LABELS[key] }));
+
+const SEARCH_MODE_OPTIONS: FilterOption<SearchMode>[] = [
+  { value: 'title', label: <><TitleIcon className="w-4 h-4" /><span className="hidden sm:inline">Title</span></>, ariaLabel: 'Search by title' },
+  { value: 'content', label: <><ContentIcon className="w-4 h-4" /><span className="hidden sm:inline">Content</span></>, ariaLabel: 'Search document contents' },
+];
+
+const VIEW_MODE_OPTIONS: FilterOption<ViewMode>[] = [
+  { value: 'grid', label: <GridViewIcon className="w-4 h-4" />, ariaLabel: 'Grid view', iconOnly: true },
+  { value: 'list', label: <ListViewIcon className="w-4 h-4" />, ariaLabel: 'List view', iconOnly: true },
+];
 
 export function LibraryPage() {
   return (
@@ -300,36 +324,11 @@ function LibraryPageContent() {
           </div>
 
           {/* Search mode toggle */}
-          <div className="flex rounded-xl filter-btn-group overflow-hidden">
-            <button
-              onClick={() => setSearchMode('title')}
-              type="button"
-              className={`filter-btn px-3 py-2 text-sm transition-all duration-150 flex items-center gap-1.5 ${
-                searchMode === 'title'
-                  ? 'filter-btn-active text-accent-primary'
-                  : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep/50'
-              }`}
-              title="Search by title"
-              aria-pressed={searchMode === 'title'}
-            >
-              <TitleIcon className="w-4 h-4" />
-              <span className="hidden sm:inline">Title</span>
-            </button>
-            <button
-              onClick={() => setSearchMode('content')}
-              type="button"
-              className={`filter-btn px-3 py-2 text-sm transition-all duration-150 flex items-center gap-1.5 ${
-                searchMode === 'content'
-                  ? 'filter-btn-active text-accent-primary'
-                  : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep/50'
-              }`}
-              title="Search document contents"
-              aria-pressed={searchMode === 'content'}
-            >
-              <ContentIcon className="w-4 h-4" />
-              <span className="hidden sm:inline">Content</span>
-            </button>
-          </div>
+          <FilterButtonGroup
+            options={SEARCH_MODE_OPTIONS}
+            value={searchMode}
+            onChange={setSearchMode}
+          />
         </div>
 
         {/* Indexing status indicator (only show when content search is active and indexing) */}
@@ -403,42 +402,21 @@ function LibraryPageContent() {
               {/* Type filter */}
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-text-secondary/70 uppercase tracking-wider font-medium">Type</span>
-                <div className="flex rounded-xl filter-btn-group overflow-hidden">
-                  <FilterButton
-                    active={typeFilter === 'all'}
-                    onClick={() => handleTypeFilter('all')}
-                  >
-                    All
-                  </FilterButton>
-                  <FilterButton
-                    active={typeFilter === 'pdf'}
-                    onClick={() => handleTypeFilter('pdf')}
-                  >
-                    PDF
-                  </FilterButton>
-                  <FilterButton
-                    active={typeFilter === 'epub'}
-                    onClick={() => handleTypeFilter('epub')}
-                  >
-                    EPUB
-                  </FilterButton>
-                </div>
+                <FilterButtonGroup
+                  options={TYPE_FILTER_OPTIONS}
+                  value={typeFilter}
+                  onChange={handleTypeFilter}
+                />
               </div>
 
               {/* Progress filter */}
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-text-secondary/70 uppercase tracking-wider font-medium">Status</span>
-                <div className="flex rounded-xl filter-btn-group overflow-hidden">
-                  {(Object.keys(PROGRESS_LABELS) as ProgressFilter[]).map((key) => (
-                    <FilterButton
-                      key={key}
-                      active={progressFilter === key}
-                      onClick={() => handleProgressFilter(key)}
-                    >
-                      {PROGRESS_LABELS[key]}
-                    </FilterButton>
-                  ))}
-                </div>
+                <FilterButtonGroup
+                  options={PROGRESS_FILTER_OPTIONS}
+                  value={progressFilter}
+                  onChange={handleProgressFilter}
+                />
               </div>
 
               {/* Collection filter */}
@@ -466,52 +444,21 @@ function LibraryPageContent() {
               {/* View mode toggle */}
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-text-secondary/70 uppercase tracking-wider font-medium">View</span>
-                <div className="flex rounded-xl filter-btn-group overflow-hidden">
-                  <button
-                    onClick={() => setViewMode('grid')}
-                    type="button"
-                    className={`filter-btn p-2.5 min-h-[38px] min-w-[38px] flex items-center justify-center transition-all duration-150 ${
-                      viewMode === 'grid'
-                        ? 'filter-btn-active text-accent-primary'
-                        : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep/50'
-                    }`}
-                    title="Grid view"
-                    aria-label="Grid view"
-                    aria-pressed={viewMode === 'grid'}
-                  >
-                    <GridViewIcon className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setViewMode('list')}
-                    type="button"
-                    className={`filter-btn p-2.5 min-h-[38px] min-w-[38px] flex items-center justify-center transition-all duration-150 ${
-                      viewMode === 'list'
-                        ? 'filter-btn-active text-accent-primary'
-                        : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep/50'
-                    }`}
-                    title="List view"
-                    aria-label="List view"
-                    aria-pressed={viewMode === 'list'}
-                  >
-                    <ListViewIcon className="w-4 h-4" />
-                  </button>
-                </div>
+                <FilterButtonGroup
+                  options={VIEW_MODE_OPTIONS}
+                  value={viewMode}
+                  onChange={setViewMode}
+                />
               </div>
 
               {/* Sort controls */}
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-text-secondary/70 uppercase tracking-wider font-medium">Sort</span>
-                <div className="flex rounded-xl filter-btn-group overflow-hidden">
-                  {(Object.keys(SORT_LABELS) as SortOption[]).map((key) => (
-                    <FilterButton
-                      key={key}
-                      active={sort === key}
-                      onClick={() => handleSortChange(key)}
-                    >
-                      {SORT_LABELS[key]}
-                    </FilterButton>
-                  ))}
-                </div>
+                <FilterButtonGroup
+                  options={SORT_FILTER_OPTIONS}
+                  value={sort}
+                  onChange={handleSortChange}
+                />
                 <button
                   onClick={toggleSortOrder}
                   type="button"
@@ -623,30 +570,92 @@ function LibraryPageContent() {
   );
 }
 
-const FilterButton = memo(function FilterButton({
-  active,
-  onClick,
-  children,
+interface FilterOption<T extends string> {
+  value: T;
+  label: React.ReactNode;
+  ariaLabel?: string;
+  /** Use for icon-only buttons */
+  iconOnly?: boolean;
+}
+
+const FilterButtonGroup = memo(function FilterButtonGroup<T extends string>({
+  options,
+  value,
+  onChange,
 }: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
+  options: FilterOption<T>[];
+  value: T;
+  onChange: (value: T) => void;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
+  const buttonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+
+  const setButtonRef = useCallback((id: string) => (el: HTMLButtonElement | null) => {
+    if (el) {
+      buttonRefs.current.set(id, el);
+    } else {
+      buttonRefs.current.delete(id);
+    }
+  }, []);
+
+  // Update indicator position when value changes
+  useEffect(() => {
+    const updateIndicator = () => {
+      const activeButton = buttonRefs.current.get(value);
+      const container = containerRef.current;
+      if (activeButton && container) {
+        const containerRect = container.getBoundingClientRect();
+        const buttonRect = activeButton.getBoundingClientRect();
+        setIndicatorStyle({
+          left: buttonRect.left - containerRect.left,
+          width: buttonRect.width,
+        });
+      }
+    };
+
+    updateIndicator();
+
+    window.addEventListener('resize', updateIndicator);
+    return () => window.removeEventListener('resize', updateIndicator);
+  }, [value]);
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`filter-btn px-3.5 py-2 text-sm font-medium transition-all duration-150 select-none min-h-[38px] ${
-        active
-          ? 'filter-btn-active text-accent-primary'
-          : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep/50 active:scale-95'
-      }`}
-    >
-      {children}
-    </button>
+    <div ref={containerRef} className="flex rounded-xl filter-btn-group overflow-hidden relative">
+      {/* Sliding indicator */}
+      <div
+        className="absolute top-0 h-full filter-btn-active rounded-xl transition-all duration-200 ease-stoody pointer-events-none"
+        style={{
+          left: indicatorStyle.left,
+          width: indicatorStyle.width,
+          opacity: indicatorStyle.width > 0 ? 1 : 0,
+        }}
+      />
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          ref={setButtonRef(opt.value)}
+          type="button"
+          onClick={() => onChange(opt.value)}
+          aria-pressed={value === opt.value}
+          aria-label={opt.ariaLabel}
+          title={opt.ariaLabel}
+          className={`filter-btn ${opt.iconOnly ? 'p-2.5 min-h-[38px] min-w-[38px] flex items-center justify-center' : 'px-3.5 py-2 min-h-[38px] flex items-center gap-1.5'} text-sm font-medium transition-colors duration-150 select-none relative z-[1] ${
+            value === opt.value
+              ? 'text-accent-primary'
+              : 'text-text-secondary hover:text-text-primary'
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
   );
-});
+}) as <T extends string>(props: {
+  options: FilterOption<T>[];
+  value: T;
+  onChange: (value: T) => void;
+}) => React.ReactElement;
 
 const FilteredEmptyState = memo(function FilteredEmptyState({
   query,
