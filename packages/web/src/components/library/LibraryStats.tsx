@@ -7,7 +7,7 @@ export function LibraryStats() {
   const { data: libraryStats } = useLibraryStats();
 
   if (isLoading || !data) {
-    return null;
+    return <LibraryStatsSkeleton />;
   }
 
   const { streak, todayProgress, goals } = data;
@@ -204,5 +204,41 @@ function WarningIcon({ className }: { className?: string }) {
       <line x1="12" y1="9" x2="12" y2="13" />
       <line x1="12" y1="17" x2="12.01" y2="17" />
     </svg>
+  );
+}
+
+function LibraryStatsSkeleton() {
+  return (
+    <div className="flex items-center gap-4 text-sm flex-wrap">
+      {/* Today's reading time skeleton */}
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          <div className="w-3.5 h-3.5 skeleton rounded" />
+          <div className="w-8 h-3 skeleton rounded" />
+        </div>
+        <div className="w-10 h-4 skeleton rounded" />
+        <div className="w-12 h-1.5 skeleton rounded-full" />
+      </div>
+
+      {/* Divider */}
+      <div className="h-4 w-px bg-text-secondary/20" />
+
+      {/* Streak skeleton */}
+      <div className="flex items-center gap-1.5">
+        <div className="w-4 h-4 skeleton rounded" />
+        <div className="w-4 h-4 skeleton rounded" />
+        <div className="w-8 h-3 skeleton rounded" />
+      </div>
+
+      {/* Divider */}
+      <div className="h-4 w-px bg-text-secondary/20" />
+
+      {/* Books skeleton */}
+      <div className="flex items-center gap-1.5">
+        <div className="w-3.5 h-3.5 skeleton rounded" />
+        <div className="w-6 h-4 skeleton rounded" />
+        <div className="w-10 h-3 skeleton rounded" />
+      </div>
+    </div>
   );
 }
