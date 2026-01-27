@@ -2151,3 +2151,20 @@ body {
   background: #f5f5f5;
   border: 1px solid #cccccc;
 }
+
+/* ================================================
+   Toast Notifications
+   ================================================ */
+
+@keyframes toast-progress {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+.animate-toast-progress {
+  animation: toast-progress linear forwards;
+}
