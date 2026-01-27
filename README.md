@@ -4,9 +4,29 @@ Self-hosted PDF and EPUB reader that syncs with Obsidian literature notes. Store
 
 Works best with [BibLib](https://github.com/callumalpass/obsidian-biblib), an Obsidian plugin for managing literature notes with bibliographic metadata.
 
-![Library view](screenshots/library.png)
+## Screenshots
 
-![Reader view](screenshots/reader.png)
+### Library
+
+<p>
+  <img src="screenshots/library.png" alt="Library - Dark Mode" width="600">
+</p>
+
+<p>
+  <img src="screenshots/library-light.png" alt="Library - Light Mode" width="600">
+</p>
+
+### Reader
+
+<p>
+  <img src="screenshots/reader.png" alt="PDF Reader" width="600">
+</p>
+
+### Mobile
+
+<p>
+  <img src="screenshots/mobile.png" alt="Mobile View" width="200">
+</p>
 
 ## Features
 
