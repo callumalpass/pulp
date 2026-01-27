@@ -313,6 +313,13 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
     view.focus();
   }, []);
 
+  // Keep refs for callbacks used in CM setup so the effect doesn't
+  // re-run (destroying/recreating the editor) when they change.
+  const handleSaveRef = useRef(handleSave);
+  handleSaveRef.current = handleSave;
+  const saveDebouncedRef = useRef(saveDebounced);
+  saveDebouncedRef.current = saveDebounced;
+
   // Initialize CodeMirror editor
   useEffect(() => {
     if (!editorRef.current || content === undefined) return;
@@ -380,7 +387,7 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
           {
             key: 'Mod-s',
             run: () => {
-              handleSave();
+              handleSaveRef.current();
               return true;
             },
           },
@@ -420,7 +427,7 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
             const newContent = update.state.doc.toString();
             contentRef.current = newContent;
             setSaveStatus('unsaved');
-            saveDebounced(newContent);
+            saveDebouncedRef.current(newContent);
             // Debounce preview update in split view for better typing performance
             if (viewMode === 'split') {
               if (previewUpdateTimer.current) {
@@ -443,14 +450,34 @@ export function MarkdownEditorPanel({ noteId, onClose }: MarkdownEditorPanelProp
 
     viewRef.current = view;
 
+    // Workaround: CodeMirror's .cm-scroller uses display:flex with overflow:auto,
+    // which the browser compositor may not recognize as a scroll target.
+    // Manually handle wheel events to ensure the editor scrolls.
+    const scroller = view.scrollDOM;
+    const handleWheel = (e: WheelEvent) => {
+      const { scrollTop, scrollHeight, clientHeight } = scroller;
+      const maxScroll = scrollHeight - clientHeight;
+      if (maxScroll <= 0) return;
+
+      const atTop = scrollTop <= 0 && e.deltaY < 0;
+      const atBottom = scrollTop >= maxScroll && e.deltaY > 0;
+      if (atTop || atBottom) return;
+
+      e.preventDefault();
+      scroller.scrollTop += e.deltaY;
+    };
+    scroller.addEventListener('wheel', handleWheel, { passive: false });
+
     return () => {
+      scroller.removeEventListener('wheel', handleWheel);
       view.destroy();
       viewRef.current = null;
       if (previewUpdateTimer.current) {
         clearTimeout(previewUpdateTimer.current);
       }
     };
-  }, [content, handleSave, saveDebounced, insertFormatting, insertLink, insertCodeBlock, isEink, viewMode]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content, isEink, viewMode]);
 
   // Handle keyboard shortcut for closing panel
   useEffect(() => {

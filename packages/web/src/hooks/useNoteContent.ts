@@ -23,16 +23,23 @@ export function useUpdateNoteContent(id: string | undefined) {
     },
   });
 
+  // Use a ref for mutation.mutate to keep callbacks stable across renders.
+  // The mutation object from useMutation gets a new reference when mutation
+  // state changes (isPending, isSuccess, etc.), which would make callbacks
+  // unstable if used directly as a dependency.
+  const mutateRef = useRef(mutation.mutate);
+  mutateRef.current = mutation.mutate;
+
   const saveDebounced = useCallback(
     (content: string) => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
       debounceTimerRef.current = setTimeout(() => {
-        mutation.mutate(content);
+        mutateRef.current(content);
       }, 1500);
     },
-    [mutation]
+    []
   );
 
   const saveImmediately = useCallback(
@@ -41,9 +48,9 @@ export function useUpdateNoteContent(id: string | undefined) {
         clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = null;
       }
-      mutation.mutate(content);
+      mutateRef.current(content);
     },
-    [mutation]
+    []
   );
 
   const cancelPendingSave = useCallback(() => {
