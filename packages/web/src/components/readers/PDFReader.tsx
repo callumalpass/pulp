@@ -1878,7 +1878,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
             </svg>
           </div>
           <h2 className="text-xl font-semibold text-text-primary mb-2">
-            Failed to load PDF
+            Failed to load document
           </h2>
           <p className="text-text-secondary mb-4">
             {loadError}

@@ -42,12 +42,13 @@ export function SearchResults({ results, query, isLoading }: SearchResultsProps)
 
 function SearchResultCard({ result, query }: { result: SearchResult; query: string }) {
   return (
-    <div className="bg-bg-surface border border-text-secondary/20 rounded-lg overflow-hidden">
+    <article className="bg-bg-surface border border-text-secondary/20 rounded-lg overflow-hidden" aria-label={`Search results for ${result.title}`}>
       {/* Header */}
       <div className="px-4 py-3 border-b border-text-secondary/10 flex items-center justify-between">
         <Link
           to={`/read/${result.noteId}`}
           className="font-medium text-text-primary hover:text-accent-primary transition-colors"
+          aria-label={`Open ${result.title}`}
         >
           {result.title}
         </Link>
@@ -80,12 +81,13 @@ function SearchResultCard({ result, query }: { result: SearchResult; query: stri
           <Link
             to={`/read/${result.noteId}`}
             className="text-sm text-accent-primary hover:underline"
+            aria-label={`View all ${result.totalMatches} matches in ${result.title}`}
           >
             View all {result.totalMatches} matches in document
           </Link>
         </div>
       )}
-    </div>
+    </article>
   );
 }
 
@@ -108,10 +110,15 @@ function MatchRow({
   // Highlight the query in the match text
   const highlightedText = highlightQuery(match.text, query);
 
+  const locationLabel = sourceType === 'pdf'
+    ? `Page ${match.pageLabel || match.page}`
+    : match.chapter || 'Chapter';
+
   return (
     <Link
       to={link}
       className="block px-4 py-3 hover:bg-bg-deep/50 active:bg-bg-deep transition-all duration-150"
+      aria-label={`Match on ${locationLabel}: ${match.text.substring(0, 50)}...`}
     >
       <div className="flex items-start gap-3">
         {/* Location indicator */}
@@ -162,7 +169,7 @@ function escapeHtml(text: string): string {
 
 function SearchIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
       <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
     </svg>
   );
@@ -170,7 +177,7 @@ function SearchIcon({ className }: { className?: string }) {
 
 function PageIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
   );
@@ -178,7 +185,7 @@ function PageIcon({ className }: { className?: string }) {
 
 function ChapterIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
     </svg>
   );

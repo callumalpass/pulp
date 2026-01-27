@@ -175,13 +175,14 @@ export function ReaderControls({
   if (isMobile) {
     return (
       <>
-        <div className="h-14 bg-bg-surface border-b border-text-secondary/10 flex items-center px-2 gap-2">
+        <header className="h-14 bg-bg-surface border-b border-text-secondary/10 flex items-center px-2 gap-2" role="toolbar" aria-label="Reader controls">
           {/* Back button - 44x44px touch target */}
           <Link
             to="/"
             className="touch-target rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-smooth"
+            aria-label="Back to library"
           >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
           </Link>
@@ -245,7 +246,7 @@ export function ReaderControls({
               <circle cx="12" cy="19" r="1" />
             </svg>
           </button>
-        </div>
+        </header>
 
         {/* Mobile menu bottom sheet */}
         {showMobileMenu && (
@@ -524,7 +525,7 @@ export function ReaderControls({
               size="sm"
               onClick={prevMatch}
               disabled={searchResults.length === 0}
-              className="w-6 h-6 !p-0"
+              className="w-7 h-7 !p-0 !min-h-[28px]"
               aria-label="Previous match (Shift+Enter)"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -536,7 +537,7 @@ export function ReaderControls({
               size="sm"
               onClick={nextMatch}
               disabled={searchResults.length === 0}
-              className="w-6 h-6 !p-0"
+              className="w-7 h-7 !p-0 !min-h-[28px]"
               aria-label="Next match (Enter)"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -547,7 +548,7 @@ export function ReaderControls({
               variant="ghost"
               size="sm"
               onClick={clearSearch}
-              className="w-6 h-6 !p-0"
+              className="w-7 h-7 !p-0 !min-h-[28px]"
               aria-label="Close search (Escape)"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">

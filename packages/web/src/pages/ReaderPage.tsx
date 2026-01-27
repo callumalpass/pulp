@@ -33,7 +33,7 @@ export function ReaderPage() {
           <DocumentErrorIcon />
         </div>
         <h1 className="text-xl font-medium text-text-primary mb-2">
-          {is404 ? 'Document Not Found' : 'Failed to Load Document'}
+          {is404 ? 'Document not found' : 'Failed to load document'}
         </h1>
         <p className="mb-6 text-center max-w-md">
           {is404

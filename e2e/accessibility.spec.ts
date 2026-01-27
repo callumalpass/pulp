@@ -3,10 +3,12 @@ import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
-// Load test EPUB file
+// Load test fixtures
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const testEpubPath = join(__dirname, 'fixtures', 'test.epub');
 const testEpubData = readFileSync(testEpubPath);
+const testPdfPath = join(__dirname, 'fixtures', 'test.pdf');
+const testPdfData = readFileSync(testPdfPath);
 
 test.describe('Accessibility - EPUB Reader', () => {
   test.beforeEach(async ({ page }) => {
@@ -202,14 +204,23 @@ test.describe('Accessibility - PDF Reader', () => {
       });
     });
 
-    // The PDF tests check toolbar accessibility which is visible even before PDF loads
-    // We don't need to mock the actual PDF file for these tests
+    // Serve the actual PDF file for the toolbar to appear
+    await page.route('**/api/files/pdf1', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/pdf',
+        body: testPdfData,
+      });
+    });
   });
 
   test('should have accessible toolbar with proper ARIA attributes', async ({ page }) => {
     await page.goto('/read/pdf1');
 
-    // Wait for toolbar to appear (don't wait for PDF to fully load)
+    // Wait for PDF to load
+    await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
+
+    // Wait for toolbar to appear
     const toolbar = page.locator('header[role="toolbar"]');
     await expect(toolbar).toBeVisible({ timeout: 10000 });
     await expect(toolbar).toHaveAttribute('aria-label', 'PDF reader controls');
@@ -221,6 +232,9 @@ test.describe('Accessibility - PDF Reader', () => {
 
   test('should have accessible page navigation', async ({ page }) => {
     await page.goto('/read/pdf1');
+
+    // Wait for PDF to load
+    await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
 
     // Wait for toolbar to appear
     const toolbar = page.locator('header[role="toolbar"]');
@@ -242,6 +256,9 @@ test.describe('Accessibility - PDF Reader', () => {
   test('should have accessible zoom controls', async ({ page }) => {
     await page.goto('/read/pdf1');
 
+    // Wait for PDF to load
+    await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
+
     // Wait for toolbar to appear
     const toolbar = page.locator('header[role="toolbar"]');
     await expect(toolbar).toBeVisible({ timeout: 10000 });
@@ -262,6 +279,9 @@ test.describe('Accessibility - PDF Reader', () => {
 
   test('should have accessible search functionality', async ({ page }) => {
     await page.goto('/read/pdf1');
+
+    // Wait for PDF to load
+    await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
 
     // Wait for toolbar to appear
     const toolbar = page.locator('header[role="toolbar"]');
@@ -289,6 +309,9 @@ test.describe('Accessibility - PDF Reader', () => {
   test('should have accessible view mode controls', async ({ page }) => {
     await page.goto('/read/pdf1');
 
+    // Wait for PDF to load
+    await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
+
     // Wait for toolbar to appear
     const toolbar = page.locator('header[role="toolbar"]');
     await expect(toolbar).toBeVisible({ timeout: 10000 });
@@ -309,6 +332,9 @@ test.describe('Accessibility - PDF Reader', () => {
 
   test('should have accessible progress indicator', async ({ page }) => {
     await page.goto('/read/pdf1');
+
+    // Wait for PDF to load
+    await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
 
     // Wait for toolbar to appear
     const toolbar = page.locator('header[role="toolbar"]');
@@ -373,13 +399,14 @@ test.describe('Accessibility - Error Handling', () => {
     await page.goto('/read/invalid');
 
     // Wait for the error text to appear (gives time for React to render)
-    await expect(page.getByText('Failed to load document')).toBeVisible({ timeout: 10000 });
+    // 404 shows "Document not found" error message
+    await expect(page.getByText('Document not found')).toBeVisible({ timeout: 10000 });
 
     // Error message should be in an alert region
     const errorAlert = page.locator('[role="alert"]');
     await expect(errorAlert).toBeVisible();
 
     // Should have a link back to library
-    await expect(page.getByText('Back to library')).toBeVisible();
+    await expect(page.getByText('Back to Library')).toBeVisible();
   });
 });

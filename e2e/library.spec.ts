@@ -178,4 +178,48 @@ test.describe('Library Page', () => {
 
     expect(newTheme).not.toBe(initialTheme);
   });
+
+  test('should have accessible pinned and unpinned book sections', async ({ page }) => {
+    // Mock library response with pinned and unpinned books
+    await page.route('**/api/library**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          {
+            id: 'note1',
+            title: 'Pinned Book',
+            sourceType: 'pdf',
+            progress: 45,
+            lastRead: new Date().toISOString(),
+            cover: null,
+            pinned: true,
+          },
+          {
+            id: 'note2',
+            title: 'Regular Book',
+            sourceType: 'epub',
+            progress: 0,
+            lastRead: null,
+            cover: null,
+            pinned: false,
+          },
+        ]),
+      });
+    });
+
+    await page.goto('/');
+
+    // Verify pinned section has accessible heading (use exact match)
+    await expect(page.locator('#pinned-books-heading')).toBeVisible();
+    await expect(page.locator('#pinned-books-heading')).toHaveText('Pinned');
+
+    // Verify list elements have proper role
+    const pinnedList = page.locator('[role="list"][aria-label="Pinned books"]');
+    await expect(pinnedList).toBeVisible();
+
+    // Verify All Books section exists
+    await expect(page.locator('#all-books-heading')).toBeVisible();
+    await expect(page.locator('#all-books-heading')).toHaveText('All Books');
+  });
 });

@@ -1,4 +1,12 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'fs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+
+// Load test PDF file
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const testPdfPath = join(__dirname, 'fixtures', 'test.pdf');
+const testPdfData = readFileSync(testPdfPath);
 
 test.describe('PDF Reader', () => {
   test.beforeEach(async ({ page }) => {
@@ -31,10 +39,22 @@ test.describe('PDF Reader', () => {
         body: JSON.stringify([]),
       });
     });
+
+    // Serve the actual PDF file
+    await page.route('**/api/files/note1', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/pdf',
+        body: testPdfData,
+      });
+    });
   });
 
   test('should display reader controls', async ({ page }) => {
     await page.goto('/read/note1');
+
+    // Wait for PDF to load - the spinner should disappear
+    await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
 
     // Check for navigation controls - using aria-label now
     const backLink = page.locator('a[aria-label="Back to library"]');
@@ -54,13 +74,16 @@ test.describe('PDF Reader', () => {
     const isLoading = await spinner.isVisible().catch(() => false);
     // If loading is visible, it should eventually disappear
     if (isLoading) {
-      await expect(spinner).toBeHidden({ timeout: 10000 });
+      await expect(spinner).toBeHidden({ timeout: 15000 });
     }
   });
 
   test('should navigate back to library', async ({ page }) => {
     // First set up the reader page route
     await page.goto('/read/note1');
+
+    // Wait for PDF to load
+    await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
 
     // Wait for back button to be visible
     const backLink = page.locator('a[aria-label="Back to library"]');
@@ -85,7 +108,10 @@ test.describe('PDF Reader', () => {
   test('should handle keyboard navigation', async ({ page }) => {
     await page.goto('/read/note1');
 
-    // Wait for toolbar to appear instead of networkidle
+    // Wait for PDF to load
+    await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
+
+    // Wait for toolbar to appear
     const toolbar = page.locator('header[role="toolbar"]');
     await expect(toolbar).toBeVisible({ timeout: 10000 });
 
@@ -110,7 +136,8 @@ test.describe('PDF Reader', () => {
 
     await page.goto('/read/invalid');
 
-    await expect(page.getByText('Failed to load document')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText('Back to library')).toBeVisible();
+    // 404 shows "Document not found" error message
+    await expect(page.getByText('Document not found')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Back to Library')).toBeVisible();
   });
 });
