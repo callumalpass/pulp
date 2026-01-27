@@ -138,13 +138,13 @@ const ListRow = memo(function ListRow({ note }: { note: LiteratureNoteSummary })
   return (
     <Link
       to={`/read/${note.id}`}
-      className="group flex items-center gap-3 p-2 rounded-xl hover:bg-bg-surface transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/60 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
+      className="group flex items-center gap-3 p-2 rounded-xl hover:bg-bg-surface transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/60 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep relative list-row-hover"
       data-testid="library-list-row"
       role="listitem"
       aria-label={accessibleLabel}
     >
       {/* Cover thumbnail */}
-      <div className="w-10 h-14 flex-shrink-0 rounded-md overflow-hidden bg-bg-deep relative">
+      <div className="w-10 h-14 flex-shrink-0 rounded-md overflow-hidden bg-bg-deep relative transition-transform duration-200 group-hover:scale-105">
         {note.cover ? (
           <img
             src={api.covers.getUrl(note.id)}
