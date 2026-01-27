@@ -7,6 +7,8 @@ import { usePreferencesStore } from '../../stores/preferences';
 import { useReadingStatsStore } from '../../stores/readingStats';
 import { useProgress } from '../../hooks/useProgress';
 import { useHighlights } from '../../hooks/useNote';
+import { useCreateHighlight } from '../../hooks/useHighlights';
+import { useToast } from '../../contexts/ToastContext';
 import { useMobile } from '../../hooks/useMobile';
 import { useIdleDetection } from '../../hooks/useIdleDetection';
 import { useSwipeGesture } from '../../hooks/useSwipeGesture';
@@ -15,6 +17,7 @@ import { HighlightPopup } from './shared/HighlightPopup';
 import { HighlightEditPopup } from './shared/HighlightEditPopup';
 import { KeyboardShortcutsPanel } from './shared/KeyboardShortcutsPanel';
 import { BookmarksPanel } from './shared/BookmarksPanel';
+import { HighlightsPanel } from './shared/HighlightsPanel';
 import { ReadingStatsPanel } from './shared/ReadingStatsPanel';
 import { ReadingGoalsPanel } from './shared/ReadingGoalsPanel';
 import { ReadingTimeIndicator } from './shared/ReadingTimeIndicator';
@@ -64,6 +67,9 @@ export function EPUBReader({ note }: EPUBReaderProps) {
     toggleShortcuts,
     setBookmarksOpen,
     toggleBookmarks,
+    highlightsOpen,
+    setHighlightsOpen,
+    toggleHighlights,
     setStatsOpen,
     toggleStats,
     setGoalsOpen,
@@ -93,6 +99,8 @@ export function EPUBReader({ note }: EPUBReaderProps) {
   const { readerTheme, fontSize, lineHeight, setFontSize, setLineHeight, setReaderTheme } = usePreferencesStore();
   const { updateProgress, saveImmediately, hasPendingChanges, saveStatus } = useProgress(note.id);
   const { data: highlights } = useHighlights(note.id);
+  const createHighlight = useCreateHighlight(note.id);
+  const { showToast } = useToast();
 
   // Save progress before the tab is closed or navigated away
   useBeforeUnload({
@@ -510,6 +518,34 @@ export function EPUBReader({ note }: EPUBReaderProps) {
     setTocOpen(false);
   };
 
+  // Quick highlight with category (for keyboard shortcuts)
+  const quickHighlight = useCallback(async (category: HighlightCategory = 'highlight') => {
+    if (!selection) return;
+
+    try {
+      await createHighlight.mutateAsync({
+        type: 'epub',
+        cfi: selection.cfi,
+        text: selection.text,
+        category,
+      });
+      // Clear selection
+      window.getSelection()?.removeAllRanges();
+      setSelection(null);
+      showToast('Highlight saved', 'success');
+    } catch (error) {
+      console.error('Failed to create highlight:', error);
+      showToast('Failed to create highlight', 'error');
+    }
+  }, [selection, createHighlight, showToast]);
+
+  // Navigate to a highlight and flash it
+  const navigateToHighlight = useCallback((_page?: number, cfi?: string, _highlightId?: string) => {
+    if (cfi && renditionRef.current) {
+      renditionRef.current.display(cfi);
+    }
+  }, []);
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -537,6 +573,12 @@ export function EPUBReader({ note }: EPUBReaderProps) {
       // Close bookmarks panel on Escape (if open)
       if (e.key === 'Escape' && bookmarksOpen) {
         setBookmarksOpen(false);
+        return;
+      }
+
+      // Close highlights panel on Escape (if open)
+      if (e.key === 'Escape' && highlightsOpen) {
+        setHighlightsOpen(false);
         return;
       }
 
@@ -571,6 +613,30 @@ export function EPUBReader({ note }: EPUBReaderProps) {
       if (e.key === 'Escape' && goalsOpen) {
         setGoalsOpen(false);
         return;
+      }
+
+      // Highlights panel: A
+      if (e.key === 'a' || e.key === 'A') {
+        e.preventDefault();
+        toggleHighlights();
+        return;
+      }
+
+      // Quick highlight shortcuts (when text is selected)
+      if (selection) {
+        // 1-5 - Quick highlight with specific category
+        const categoryKeys: Record<string, HighlightCategory> = {
+          '1': 'highlight',
+          '2': 'important',
+          '3': 'question',
+          '4': 'todo',
+          '5': 'definition',
+        };
+        if (categoryKeys[e.key]) {
+          e.preventDefault();
+          quickHighlight(categoryKeys[e.key]);
+          return;
+        }
       }
 
       // Close markdown panel on Escape (if open)
@@ -640,7 +706,7 @@ export function EPUBReader({ note }: EPUBReaderProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [shortcutsOpen, bookmarksOpen, statsOpen, goalsOpen, markdownPanelOpen, tocOpen, theme, fontSize, toggleShortcuts, setShortcutsOpen, toggleBookmarks, setBookmarksOpen, toggleStats, setStatsOpen, toggleGoals, setGoalsOpen, toggleMarkdownPanel, setMarkdownPanelOpen, setReaderTheme, setFontSize]);
+  }, [shortcutsOpen, bookmarksOpen, highlightsOpen, statsOpen, goalsOpen, markdownPanelOpen, tocOpen, theme, fontSize, toggleShortcuts, setShortcutsOpen, toggleBookmarks, setBookmarksOpen, toggleHighlights, setHighlightsOpen, toggleStats, setStatsOpen, toggleGoals, setGoalsOpen, toggleMarkdownPanel, setMarkdownPanelOpen, setReaderTheme, setFontSize, selection, quickHighlight]);
 
   const progress = totalPages > 0 ? (currentPage / totalPages) * 100 : 0;
   const colors = THEME_STYLES[theme];
@@ -815,6 +881,19 @@ export function EPUBReader({ note }: EPUBReaderProps) {
           </svg>
         </button>
 
+        {/* Highlights button */}
+        <button
+          onClick={() => { toggleHighlights(); setTocOpen(false); setSettingsOpen(false); }}
+          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-current/50 ${highlightsOpen ? 'bg-current/20' : 'hover:bg-current/10'}`}
+          aria-label="Highlights (A)"
+          aria-expanded={highlightsOpen}
+          aria-controls="highlights-panel"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+          </svg>
+        </button>
+
         {/* Notes button */}
         <button
           onClick={() => { toggleMarkdownPanel(); setTocOpen(false); setSettingsOpen(false); }}
@@ -887,6 +966,16 @@ export function EPUBReader({ note }: EPUBReaderProps) {
             currentCfi={currentCfi || undefined}
             onNavigate={(_, cfi) => cfi && renditionRef.current?.display(cfi)}
             onClose={() => setBookmarksOpen(false)}
+          />
+        )}
+
+        {/* Highlights Panel */}
+        {highlightsOpen && (
+          <HighlightsPanel
+            noteId={note.id}
+            highlights={highlights || []}
+            onNavigate={navigateToHighlight}
+            onClose={() => setHighlightsOpen(false)}
           />
         )}
 

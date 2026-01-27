@@ -70,6 +70,9 @@ interface ReaderState {
   // Bookmarks panel state (data comes from API via useBookmarks hook)
   bookmarksOpen: boolean;
 
+  // Highlights panel state (data comes from API via useHighlights hook)
+  highlightsOpen: boolean;
+
   // Reading stats panel state
   statsOpen: boolean;
 
@@ -116,6 +119,10 @@ interface ReaderState {
   setBookmarksOpen: (open: boolean) => void;
   toggleBookmarks: () => void;
 
+  // Highlights panel actions (data managed via useHighlights hook)
+  setHighlightsOpen: (open: boolean) => void;
+  toggleHighlights: () => void;
+
   // Reading stats actions
   setStatsOpen: (open: boolean) => void;
   toggleStats: () => void;
@@ -161,6 +168,9 @@ export const useReaderStore = create<ReaderState>((set) => ({
 
   // Bookmarks panel state (data from API)
   bookmarksOpen: false,
+
+  // Highlights panel state (data from API)
+  highlightsOpen: false,
 
   // Reading stats state
   statsOpen: false,
@@ -229,6 +239,10 @@ export const useReaderStore = create<ReaderState>((set) => ({
   setBookmarksOpen: (open) => set({ bookmarksOpen: open }),
   toggleBookmarks: () => set((state) => ({ bookmarksOpen: !state.bookmarksOpen })),
 
+  // Highlights panel actions
+  setHighlightsOpen: (open) => set({ highlightsOpen: open }),
+  toggleHighlights: () => set((state) => ({ highlightsOpen: !state.highlightsOpen })),
+
   // Reading stats actions
   setStatsOpen: (open) => set({ statsOpen: open }),
   toggleStats: () => set((state) => ({ statsOpen: !state.statsOpen })),
@@ -258,6 +272,7 @@ export const useReaderStore = create<ReaderState>((set) => ({
     mobileMenuOpen: false,
     shortcutsOpen: false,
     bookmarksOpen: false,
+    highlightsOpen: false,
     statsOpen: false,
     goalsOpen: false,
   }),

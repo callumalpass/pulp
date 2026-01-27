@@ -8,6 +8,8 @@ import { useReaderStore, type ZoomMode, type SearchMatch } from '../../stores/re
 import { useReadingStatsStore } from '../../stores/readingStats';
 import { useProgress } from '../../hooks/useProgress';
 import { useHighlights } from '../../hooks/useNote';
+import { useCreateHighlight } from '../../hooks/useHighlights';
+import { useToast } from '../../contexts/ToastContext';
 import { useMobile } from '../../hooks/useMobile';
 import { useSwipeGesture } from '../../hooks/useSwipeGesture';
 import { usePinchZoom } from '../../hooks/usePinchZoom';
@@ -21,6 +23,7 @@ import { PDFTableOfContents } from './shared/PDFTableOfContents';
 import { MarkdownEditorPanel } from './shared/MarkdownEditorPanel';
 import { KeyboardShortcutsPanel } from './shared/KeyboardShortcutsPanel';
 import { BookmarksPanel } from './shared/BookmarksPanel';
+import { HighlightsPanel } from './shared/HighlightsPanel';
 import { ReadingStatsPanel } from './shared/ReadingStatsPanel';
 import { ReadingGoalsPanel } from './shared/ReadingGoalsPanel';
 import { api } from '../../lib/api';
@@ -111,6 +114,9 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     toggleShortcuts,
     setBookmarksOpen,
     toggleBookmarks,
+    highlightsOpen,
+    setHighlightsOpen,
+    toggleHighlights,
     setStatsOpen,
     toggleStats,
     setGoalsOpen,
@@ -141,6 +147,8 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
   const { updateProgress, saveImmediately, hasPendingChanges, saveStatus } = useProgress(note.id);
   const { data: highlights } = useHighlights(note.id);
+  const createHighlight = useCreateHighlight(note.id);
+  const { showToast } = useToast();
 
   // Save progress before the tab is closed or navigated away
   useBeforeUnload({
@@ -1158,7 +1166,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     // Create highlight elements
     for (const rect of mergedRects) {
       const highlightEl = document.createElement('div');
-      highlightEl.className = 'pdf-highlight';
+      highlightEl.className = `pdf-highlight${highlight.note ? ' has-note' : ''}`;
       highlightEl.dataset.highlightId = highlight.id;
       highlightEl.dataset.category = category;
       highlightEl.style.cssText = `
@@ -1626,6 +1634,47 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     }
   }, []);
 
+  // Quick highlight with category (for keyboard shortcuts)
+  const quickHighlight = useCallback(async (category: HighlightCategory = 'highlight') => {
+    if (!selection) return;
+
+    try {
+      await createHighlight.mutateAsync({
+        type: 'pdf',
+        page: selection.page,
+        pageLabel: selection.pageLabel,
+        selection: selection.selection,
+        text: selection.text,
+        category,
+      });
+      window.getSelection()?.removeAllRanges();
+      setSelection(null);
+      showToast('Highlight saved', 'success');
+    } catch (error) {
+      console.error('Failed to create highlight:', error);
+      showToast('Failed to create highlight', 'error');
+    }
+  }, [selection, createHighlight, showToast]);
+
+  // Navigate to a highlight and flash it
+  const navigateToHighlight = useCallback((page?: number, _cfi?: string, highlightId?: string) => {
+    if (page) {
+      goToPage(page);
+      // Flash the highlight after scrolling
+      if (highlightId) {
+        setTimeout(() => {
+          const highlightEl = document.querySelector(`[data-highlight-id="${highlightId}"]`);
+          if (highlightEl) {
+            highlightEl.classList.add('highlight-flash');
+            setTimeout(() => {
+              highlightEl.classList.remove('highlight-flash');
+            }, 1200);
+          }
+        }, 300); // Wait for scroll to complete
+      }
+    }
+  }, [goToPage]);
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1672,6 +1721,12 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
       // Close bookmarks panel on Escape (if open)
       if (e.key === 'Escape' && bookmarksOpen) {
         setBookmarksOpen(false);
+        return;
+      }
+
+      // Close highlights panel on Escape (if open)
+      if (e.key === 'Escape' && highlightsOpen) {
+        setHighlightsOpen(false);
         return;
       }
 
@@ -1747,6 +1802,44 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         return;
       }
 
+      // Highlights panel: A
+      if (e.key === 'a' || e.key === 'A') {
+        e.preventDefault();
+        toggleHighlights();
+        return;
+      }
+
+      // Quick highlight shortcuts (when text is selected)
+      if (selection) {
+        // H - Quick highlight with default category
+        if (e.key === 'h' || e.key === 'H') {
+          e.preventDefault();
+          quickHighlight('highlight');
+          return;
+        }
+
+        // 1-5 - Quick highlight with specific category
+        const categoryKeys: Record<string, HighlightCategory> = {
+          '1': 'highlight',
+          '2': 'important',
+          '3': 'question',
+          '4': 'todo',
+          '5': 'definition',
+        };
+        if (categoryKeys[e.key]) {
+          e.preventDefault();
+          quickHighlight(categoryKeys[e.key]);
+          return;
+        }
+
+        // N - Open note input for selected text (handled by existing popup)
+        if (e.key === 'n' || e.key === 'N') {
+          // Selection popup is already open, just let it handle notes
+          // The popup has its own note button
+          return;
+        }
+      }
+
       // Normal navigation
       if (e.key === 'ArrowRight' || e.key === 'PageDown') {
         goToPage(currentPage + 1);
@@ -1767,7 +1860,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentPage, totalPages, zoom, goToPage, setZoom, toggleSearch, isSearchOpen, clearSearch, isPresentation, exitPresentation, shortcutsOpen, bookmarksOpen, statsOpen, goalsOpen, toggleShortcuts, setShortcutsOpen, toggleBookmarks, setBookmarksOpen, toggleStats, setStatsOpen, toggleGoals, setGoalsOpen, toggleToc, togglePdfColorMode, handleZoomModeChange, enterPresentation]);
+  }, [currentPage, totalPages, zoom, goToPage, setZoom, toggleSearch, isSearchOpen, clearSearch, isPresentation, exitPresentation, shortcutsOpen, bookmarksOpen, highlightsOpen, statsOpen, goalsOpen, toggleShortcuts, setShortcutsOpen, toggleBookmarks, setBookmarksOpen, toggleHighlights, setHighlightsOpen, toggleStats, setStatsOpen, toggleGoals, setGoalsOpen, toggleToc, togglePdfColorMode, handleZoomModeChange, enterPresentation, selection, quickHighlight]);
 
   // Render a single page container - use debouncedZoom to match canvas size
   const renderPageContainer = (pageNum: number) => {
@@ -2007,6 +2100,18 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
           />
         )}
 
+        {/* Highlights Panel */}
+        {highlightsOpen && (
+          <HighlightsPanel
+            noteId={note.id}
+            highlights={highlights || []}
+            currentPage={currentPage}
+            pageLabels={pageLabels}
+            onNavigate={navigateToHighlight}
+            onClose={() => setHighlightsOpen(false)}
+          />
+        )}
+
         {/* TOC Sidebar */}
         {tocOpen && (
           <PDFTableOfContents pdfDoc={pdfDocRef.current} pageLabels={pageLabels} onClose={() => setTocOpen(false)} />
@@ -2129,7 +2234,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
       </div>
 
       {selection && (
-        <HighlightPopup selection={selection} noteId={note.id} onClose={() => setSelection(null)} />
+        <HighlightPopup selection={selection} noteId={note.id} onClose={() => setSelection(null)} containerRef={scrollContainerRef} />
       )}
 
       {editingHighlight && (
@@ -2138,6 +2243,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
           noteId={note.id}
           position={editingHighlight.position}
           onClose={() => setEditingHighlight(null)}
+          containerRef={scrollContainerRef}
         />
       )}
 

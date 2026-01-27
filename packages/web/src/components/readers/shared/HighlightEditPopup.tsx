@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import type { Highlight, PDFHighlight, HighlightCategory } from '@pulp/shared';
 import { HIGHLIGHT_CATEGORIES } from '@pulp/shared';
 import { Button } from '../../ui/Button';
@@ -7,6 +7,7 @@ import { useUpdateHighlight, useDeleteHighlight } from '../../../hooks/useHighli
 import { useToast } from '../../../contexts/ToastContext';
 import { DictionaryDefinition } from './DictionaryDefinition';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
+import { calculatePopupPosition, type PopupPlacement } from '../../../lib/popup-position';
 
 const categoryOrder: HighlightCategory[] = ['highlight', 'important', 'question', 'todo', 'definition'];
 
@@ -32,9 +33,10 @@ interface HighlightEditPopupProps {
   noteId: string;
   position: { x: number; y: number };
   onClose: () => void;
+  containerRef?: React.RefObject<HTMLElement | null>; // Container for position clamping
 }
 
-export function HighlightEditPopup({ highlight, noteId, position, onClose }: HighlightEditPopupProps) {
+export function HighlightEditPopup({ highlight, noteId, position, onClose, containerRef }: HighlightEditPopupProps) {
   const [note, setNote] = useState(highlight.note || '');
   const [category, setCategory] = useState<HighlightCategory>(highlight.category || 'highlight');
   const [isEditing, setIsEditing] = useState(false);
@@ -47,6 +49,36 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose }: Hig
   const updateHighlight = useUpdateHighlight(noteId);
   const deleteHighlight = useDeleteHighlight(noteId);
   const { showToast } = useToast();
+
+  // Calculate popup position with bounds clamping and flip logic
+  const POPUP_WIDTH = 288; // w-72 = 288px
+  const POPUP_HEIGHT = isEditing ? 350 : 300; // Estimated heights
+
+  const popupPosition = useMemo(() => {
+    const container = containerRef?.current;
+    if (!container) {
+      // Fallback to viewport-based positioning
+      return {
+        x: Math.max(10, Math.min(position.x - POPUP_WIDTH / 2, window.innerWidth - POPUP_WIDTH - 10)),
+        y: position.y + 10,
+        placement: 'below' as PopupPlacement,
+      };
+    }
+
+    const containerRect = container.getBoundingClientRect();
+
+    return calculatePopupPosition({
+      anchor: {
+        x: position.x,
+        y: position.y,
+      },
+      popupWidth: POPUP_WIDTH,
+      popupHeight: POPUP_HEIGHT,
+      containerRect,
+      padding: 10,
+      gap: 10,
+    });
+  }, [position.x, position.y, POPUP_HEIGHT, containerRef]);
 
   // Focus input when editing mode is opened
   useEffect(() => {
@@ -134,10 +166,12 @@ export function HighlightEditPopup({ highlight, noteId, position, onClose }: Hig
       aria-label={isEditing ? 'Edit highlight note' : 'Highlight details'}
       className="absolute z-50 bg-bg-surface rounded-lg shadow-xl border border-text-secondary/20 overflow-hidden w-72 highlight-edit-popup-enter"
       style={{
-        left: Math.max(10, Math.min(position.x - 144, window.innerWidth - 300)),
-        top: position.y,
+        left: popupPosition.x,
+        top: popupPosition.y,
       }}
     >
+      {/* Arrow indicator */}
+      <div className={`highlight-popup-arrow ${popupPosition.placement}`} />
       {/* Highlighted text preview with metadata */}
       <div className="p-3 border-b border-text-secondary/20">
         {/* Metadata row: page/location and date */}

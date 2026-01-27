@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import type { TextSelection, HighlightCategory } from '@pulp/shared';
 import { HIGHLIGHT_CATEGORIES } from '@pulp/shared';
 import { Button } from '../../ui/Button';
@@ -6,6 +6,7 @@ import { useCreateHighlight } from '../../../hooks/useHighlights';
 import { useToast } from '../../../contexts/ToastContext';
 import { DictionaryDefinition } from './DictionaryDefinition';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
+import { calculatePopupPosition, type PopupPlacement } from '../../../lib/popup-position';
 
 const categoryOrder: HighlightCategory[] = ['highlight', 'important', 'question', 'todo', 'definition'];
 
@@ -32,11 +33,12 @@ interface HighlightPopupProps {
   onClose: () => void;
   type?: 'pdf' | 'epub';
   cfi?: string; // Kept for backwards compatibility
+  containerRef?: React.RefObject<HTMLElement | null>; // Container for position clamping
 }
 
 type SaveState = 'idle' | 'saving' | 'error';
 
-export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }: HighlightPopupProps) {
+export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, containerRef }: HighlightPopupProps) {
   const [note, setNote] = useState('');
   const [category, setCategory] = useState<HighlightCategory>('highlight');
   const [showNoteInput, setShowNoteInput] = useState(false);
@@ -47,6 +49,36 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
 
   // Use focus trap for accessibility - trap focus and close on Escape
   const popupRef = useFocusTrap<HTMLDivElement>(true, onClose);
+
+  // Calculate popup position with bounds clamping and flip logic
+  const POPUP_WIDTH = showNoteInput ? 288 : 300; // w-72 = 288px in note mode, estimate for main menu
+  const POPUP_HEIGHT = showNoteInput ? 300 : 100; // Estimated heights
+
+  const popupPosition = useMemo(() => {
+    const container = containerRef?.current;
+    if (!container) {
+      // Fallback to viewport-based positioning
+      return {
+        x: Math.max(10, Math.min(selection.position.x - POPUP_WIDTH / 2, window.innerWidth - POPUP_WIDTH - 10)),
+        y: selection.position.y + 10,
+        placement: 'below' as PopupPlacement,
+      };
+    }
+
+    const containerRect = container.getBoundingClientRect();
+
+    return calculatePopupPosition({
+      anchor: {
+        x: selection.position.x,
+        y: selection.position.y,
+      },
+      popupWidth: POPUP_WIDTH,
+      popupHeight: POPUP_HEIGHT,
+      containerRect,
+      padding: 10,
+      gap: 10,
+    });
+  }, [selection.position.x, selection.position.y, POPUP_WIDTH, POPUP_HEIGHT, containerRef]);
 
   const createHighlight = useCreateHighlight(noteId);
   const { showToast } = useToast();
@@ -151,10 +183,12 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi }
       aria-label={showNoteInput ? 'Add highlight with note' : 'Create highlight'}
       className="absolute z-50 bg-bg-surface rounded-lg shadow-xl border border-text-secondary/20 overflow-hidden highlight-popup-enter"
       style={{
-        left: Math.max(10, Math.min(selection.position.x - 100, window.innerWidth - 220)),
-        top: selection.position.y,
+        left: popupPosition.x,
+        top: popupPosition.y,
       }}
     >
+      {/* Arrow indicator */}
+      <div className={`highlight-popup-arrow ${popupPosition.placement}`} />
       {!showNoteInput ? (
         <>
           {/* Error state banner */}
