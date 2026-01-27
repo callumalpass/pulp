@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { LiteratureNote } from '@pulp/shared';
 import { api } from '../../../lib/api';
 
@@ -11,6 +12,8 @@ interface MetadataPaneHeaderProps {
  * Displays title, author, type badge, and cover thumbnail.
  */
 export function MetadataPaneHeader({ note, onClose }: MetadataPaneHeaderProps) {
+  const [imageLoaded, setImageLoaded] = useState(false);
+
   return (
     <div className="metadata-pane-header">
       <div className="flex items-start gap-4">
@@ -19,7 +22,8 @@ export function MetadataPaneHeader({ note, onClose }: MetadataPaneHeaderProps) {
           <img
             src={api.covers.getUrl(note.id)}
             alt={note.title}
-            className="metadata-header-cover"
+            className={`metadata-header-cover transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+            onLoad={() => setImageLoaded(true)}
           />
         ) : (
           <div className="metadata-header-cover-placeholder">

@@ -1,4 +1,4 @@
-import { useMemo, memo } from 'react';
+import { useMemo, useState, memo } from 'react';
 import { Link } from 'react-router-dom';
 import type { LiteratureNoteSummary } from '@pulp/shared';
 import { ProgressIndicator } from './ProgressIndicator';
@@ -98,6 +98,7 @@ export const LibraryListView = memo(function LibraryListView({ notes }: LibraryL
 });
 
 const ListRow = memo(function ListRow({ note }: { note: LiteratureNoteSummary }) {
+  const [imageLoaded, setImageLoaded] = useState(false);
   const csl = note.csl;
 
   // Format publication info (for mobile subtitle)
@@ -148,8 +149,9 @@ const ListRow = memo(function ListRow({ note }: { note: LiteratureNoteSummary })
           <img
             src={api.covers.getUrl(note.id)}
             alt=""
-            className="w-full h-full object-cover"
+            className={`w-full h-full object-cover transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
             loading="lazy"
+            onLoad={() => setImageLoaded(true)}
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-accent-primary/20 to-accent-secondary/10">

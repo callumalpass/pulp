@@ -55,6 +55,7 @@ interface ContinueReadingCardProps {
 
 export function ContinueReadingCard({ note }: ContinueReadingCardProps) {
   const [imageError, setImageError] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const { getFormattedReadingTime } = useReadingStatsStore();
   const bookStats = note.readingStats;
   const animatedProgress = useAnimatedCounter(Math.round(note.progress), 800);
@@ -84,7 +85,8 @@ export function ContinueReadingCard({ note }: ContinueReadingCardProps) {
             <img
               src={api.covers.getUrl(note.id)}
               alt={note.title}
-              className="w-full h-full object-cover"
+              className={`w-full h-full object-cover transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+              onLoad={() => setImageLoaded(true)}
               onError={() => setImageError(true)}
             />
           ) : (

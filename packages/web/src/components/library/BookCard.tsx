@@ -16,6 +16,7 @@ interface BookCardProps {
 
 export const BookCard = memo(function BookCard({ note }: BookCardProps) {
   const [imageError, setImageError] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const [showRatingMenu, setShowRatingMenu] = useState(false);
   const [focusedStar, setFocusedStar] = useState<number | null>(null);
   const { togglePin, isPending: isPinPending } = usePinned();
@@ -184,9 +185,10 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
             <img
               src={api.covers.getUrl(note.id)}
               alt={note.title}
-              className="w-full h-full object-cover"
+              className={`w-full h-full object-cover transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
               loading="lazy"
               decoding="async"
+              onLoad={() => setImageLoaded(true)}
               onError={() => setImageError(true)}
             />
           ) : (
