@@ -75,125 +75,156 @@ test.describe('Markdown Editor - Scroll Debugging', () => {
     const cmScroller = page.locator('.cm-scroller');
     await expect(cmScroller).toBeVisible();
 
-    // Test 1: Programmatic scrollTop assignment
-    const progScroll = await cmScroller.evaluate(el => {
-      el.scrollTop = 200;
-      return el.scrollTop;
-    });
-    console.log(`\n=== Test 1: Programmatic scrollTop ===`);
-    console.log(`Set scrollTop=200, actual: ${progScroll}`);
+    // Get CDP session for deeper inspection
+    const client = await page.context().newCDPSession(page);
 
-    // Reset
-    await cmScroller.evaluate(el => { el.scrollTop = 0; });
-
-    // Test 2: Check what element is at the center of cmScroller
-    const elementAtCenter = await page.evaluate(() => {
-      const scroller = document.querySelector('.cm-scroller') as HTMLElement;
-      const rect = scroller.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
-      const el = document.elementFromPoint(cx, cy) as HTMLElement;
-      return {
-        tagName: el?.tagName,
-        className: el?.className?.slice?.(0, 80) || '',
-        scrollerRect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
-        pointChecked: { x: cx, y: cy },
-      };
-    });
-    console.log(`\n=== Test 2: Element at center of cmScroller ===`);
-    console.log(JSON.stringify(elementAtCenter, null, 2));
-
-    // Test 3: Check for wheel event listeners that preventDefault
-    const wheelEventCheck = await page.evaluate(() => {
-      return new Promise<{ scrolled: boolean; defaultPrevented: boolean; scrollTop: number }>(resolve => {
-        const scroller = document.querySelector('.cm-scroller') as HTMLElement;
-        scroller.scrollTop = 0;
-
-        // Listen for wheel event to see if it's prevented
-        let prevented = false;
-        const listener = (e: WheelEvent) => {
-          prevented = e.defaultPrevented;
-        };
-        scroller.addEventListener('wheel', listener, { capture: false });
-
-        // Dispatch a synthetic wheel event
-        const wheelEvent = new WheelEvent('wheel', {
-          deltaY: 300,
-          bubbles: true,
-          cancelable: true,
-        });
-        scroller.dispatchEvent(wheelEvent);
-
-        // Check after a frame
-        requestAnimationFrame(() => {
-          scroller.removeEventListener('wheel', listener);
-          resolve({
-            scrolled: scroller.scrollTop > 0,
-            defaultPrevented: prevented,
-            scrollTop: scroller.scrollTop,
-          });
-        });
-      });
-    });
-    console.log(`\n=== Test 3: Synthetic wheel event ===`);
-    console.log(JSON.stringify(wheelEventCheck, null, 2));
-
-    // Test 4: Check all ancestors for event listeners / overflow
-    const ancestorInfo = await page.evaluate(() => {
-      const scroller = document.querySelector('.cm-scroller') as HTMLElement;
-      const ancestors: any[] = [];
-      let el: HTMLElement | null = scroller;
-      while (el) {
-        const cs = getComputedStyle(el);
-        ancestors.push({
-          tag: el.tagName,
-          className: el.className?.slice?.(0, 60) || '',
-          overflow: cs.overflow,
-          overflowY: cs.overflowY,
-          pointerEvents: cs.pointerEvents,
-          touchAction: cs.touchAction,
-          position: cs.position,
-          zIndex: cs.zIndex,
-          height: el.offsetHeight,
-        });
-        el = el.parentElement;
-      }
-      return ancestors;
-    });
-    console.log(`\n=== Test 4: Ancestor chain ===`);
-    ancestorInfo.forEach((a, i) => {
-      console.log(`  ${i}: <${a.tag}> .${a.className} | overflow=${a.overflow} overflowY=${a.overflowY} pointerEvents=${a.pointerEvents} touchAction=${a.touchAction} h=${a.height}`);
+    // Get the DOM node ID for cm-scroller
+    const doc = await client.send('DOM.getDocument');
+    const scrollerNode = await client.send('DOM.querySelector', {
+      nodeId: doc.root.nodeId,
+      selector: '.cm-scroller',
     });
 
-    // Test 5: keyboard scrolling - click into editor, press Page Down
-    const cmContent = page.locator('.cm-content');
-    await cmContent.click();
-    await page.waitForTimeout(100);
+    // Get event listeners on the scroller
+    const listeners = await client.send('DOMDebugger.getEventListeners', {
+      objectId: (await client.send('DOM.resolveNode', { nodeId: scrollerNode.nodeId })).object.objectId!,
+    });
 
-    const scrollBeforeKey = await cmScroller.evaluate(el => el.scrollTop);
-    await page.keyboard.press('PageDown');
-    await page.waitForTimeout(200);
-    const scrollAfterKey = await cmScroller.evaluate(el => el.scrollTop);
-    console.log(`\n=== Test 5: Keyboard PageDown ===`);
-    console.log(`scrollTop before: ${scrollBeforeKey}, after: ${scrollAfterKey}, moved: ${scrollAfterKey - scrollBeforeKey}`);
-
-    // Test 6: mouse.wheel with explicit coordinates on cm-content
-    await cmScroller.evaluate(el => { el.scrollTop = 0; });
-    await page.waitForTimeout(100);
-    const box = await cmContent.boundingBox();
-    if (box) {
-      await page.mouse.move(box.x + box.width / 2, box.y + 50);
-      await page.waitForTimeout(100);
-      const before = await cmScroller.evaluate(el => el.scrollTop);
-      await page.mouse.wheel(0, 500);
-      await page.waitForTimeout(500);
-      const after = await cmScroller.evaluate(el => el.scrollTop);
-      console.log(`\n=== Test 6: mouse.wheel on cm-content ===`);
-      console.log(`Mouse at (${box.x + box.width / 2}, ${box.y + 50})`);
-      console.log(`scrollTop before: ${before}, after: ${after}, moved: ${after - before}`);
+    console.log('\n=== Event listeners on .cm-scroller ===');
+    for (const l of listeners.listeners) {
+      console.log(`  ${l.type} | passive=${l.passive} | once=${l.once} | useCapture=${l.useCapture}`);
     }
 
-    // Final screenshot
-    await page.screenshot({ path: 'test-results/scroll-debug-final.png', fullPage: true });
+    // Also check event listeners on ancestors
+    for (const selector of ['.cm-editor', '.absolute.inset-0', '.panel-content', '.markdown-editor-panel']) {
+      const node = await client.send('DOM.querySelector', {
+        nodeId: doc.root.nodeId,
+        selector,
+      });
+      if (node.nodeId) {
+        const resolved = await client.send('DOM.resolveNode', { nodeId: node.nodeId });
+        const ancestorListeners = await client.send('DOMDebugger.getEventListeners', {
+          objectId: resolved.object.objectId!,
+        });
+        const wheelListeners = ancestorListeners.listeners.filter(l => l.type === 'wheel' || l.type === 'scroll' || l.type === 'mousewheel');
+        if (wheelListeners.length > 0) {
+          console.log(`\n  ${selector} has wheel/scroll listeners:`);
+          for (const l of wheelListeners) {
+            console.log(`    ${l.type} | passive=${l.passive} | once=${l.once} | useCapture=${l.useCapture}`);
+          }
+        }
+      }
+    }
+
+    // Check window-level wheel listeners
+    const windowObj = await page.evaluateHandle(() => window);
+    const windowListeners = await client.send('DOMDebugger.getEventListeners', {
+      objectId: (windowObj as any)._remoteObject?.objectId || (await page.evaluate(() => 'window')),
+    });
+
+    console.log('\n=== Window-level scroll/wheel listeners ===');
+    const windowScrollListeners = windowListeners.listeners.filter(l =>
+      l.type === 'wheel' || l.type === 'scroll' || l.type === 'mousewheel'
+    );
+    for (const l of windowScrollListeners) {
+      console.log(`  ${l.type} | passive=${l.passive} | once=${l.once} | useCapture=${l.useCapture}`);
+    }
+
+    // Now test: add an actual wheel event listener to catch what happens
+    const wheelResult = await page.evaluate(() => {
+      return new Promise<any>(resolve => {
+        const scroller = document.querySelector('.cm-scroller') as HTMLElement;
+        const results: any = {
+          scrollerScrollTop: scroller.scrollTop,
+          scrollerScrollHeight: scroller.scrollHeight,
+          scrollerClientHeight: scroller.clientHeight,
+          wheelEventReceived: false,
+          wheelEventPrevented: false,
+          scrollEventReceived: false,
+          finalScrollTop: 0,
+        };
+
+        const wheelHandler = (e: WheelEvent) => {
+          results.wheelEventReceived = true;
+          results.wheelEventPrevented = e.defaultPrevented;
+          results.wheelEventTarget = (e.target as HTMLElement)?.className?.slice(0, 50);
+          results.wheelEventCurrentTarget = (e.currentTarget as HTMLElement)?.className?.slice(0, 50);
+        };
+
+        const scrollHandler = () => {
+          results.scrollEventReceived = true;
+          results.finalScrollTop = scroller.scrollTop;
+        };
+
+        scroller.addEventListener('wheel', wheelHandler, { passive: true });
+        scroller.addEventListener('scroll', scrollHandler, { passive: true });
+
+        // Also listen on document to catch bubbled events
+        document.addEventListener('wheel', (e: WheelEvent) => {
+          results.documentWheelReceived = true;
+          results.documentWheelPrevented = e.defaultPrevented;
+        }, { passive: true });
+
+        // Give time for events to fire and then resolve
+        setTimeout(() => {
+          scroller.removeEventListener('wheel', wheelHandler);
+          scroller.removeEventListener('scroll', scrollHandler);
+          results.finalScrollTop = scroller.scrollTop;
+          resolve(results);
+        }, 2000);
+      });
+    });
+
+    // Now dispatch the actual mouse wheel via Playwright
+    const box = await cmScroller.boundingBox();
+    if (box) {
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.waitForTimeout(100);
+      await page.mouse.wheel(0, 300);
+    }
+
+    // Wait for the promise to resolve
+    await page.waitForTimeout(2500);
+    const result = await page.evaluate(() => {
+      const scroller = document.querySelector('.cm-scroller') as HTMLElement;
+      return { currentScrollTop: scroller.scrollTop };
+    });
+
+    console.log('\n=== Wheel event result ===');
+    console.log('scrollTop after wheel:', result.currentScrollTop);
+
+    // Now try using CDP directly to dispatch mouse wheel
+    if (box) {
+      // Reset scroll
+      await cmScroller.evaluate(el => { el.scrollTop = 0; });
+
+      await client.send('Input.dispatchMouseEvent', {
+        type: 'mouseWheel',
+        x: Math.round(box.x + box.width / 2),
+        y: Math.round(box.y + box.height / 2),
+        deltaX: 0,
+        deltaY: 300,
+      });
+      await page.waitForTimeout(500);
+      const cdpResult = await cmScroller.evaluate(el => el.scrollTop);
+      console.log('\n=== CDP direct mouseWheel ===');
+      console.log('scrollTop after CDP wheel:', cdpResult);
+    }
+
+    // Final test: try scrollIntoView on the last line
+    await cmScroller.evaluate(el => { el.scrollTop = 0; });
+    await page.waitForTimeout(100);
+    const scrollIntoViewResult = await page.evaluate(() => {
+      const scroller = document.querySelector('.cm-scroller') as HTMLElement;
+      const lines = scroller.querySelectorAll('.cm-line');
+      const lastLine = lines[lines.length - 1] as HTMLElement;
+      lastLine.scrollIntoView({ block: 'center' });
+      return {
+        scrollTopAfterScrollIntoView: scroller.scrollTop,
+        totalLines: lines.length,
+      };
+    });
+    console.log('\n=== scrollIntoView last line ===');
+    console.log(JSON.stringify(scrollIntoViewResult, null, 2));
   });
 });
