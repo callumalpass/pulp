@@ -33,6 +33,8 @@ import {
   getReaderPreferences,
   getCSLMetadata,
   addReadingSession,
+  createReaderPreferencesForFrontmatter,
+  getCurrentChapter,
 } from '../frontmatter-parser.js';
 
 describe('hasTag', () => {
@@ -2093,5 +2095,472 @@ describe('addReadingSession', () => {
     expect(result).toHaveLength(100);
     // Oldest session should be dropped
     expect(result[0].startTime).toBe('2025-01-01T10:00:00Z');
+  });
+});
+
+describe('createReaderPreferencesForFrontmatter', () => {
+  it('converts all preference fields to frontmatter format', () => {
+    const result = createReaderPreferencesForFrontmatter({
+      zoomLevel: 1.5,
+      zoomMode: 'fit-width',
+      theme: 'dark',
+      fontSize: 18,
+      lineHeight: 1.6,
+      dailyGoalMinutes: 45,
+    });
+
+    expect(result.zoom_level).toBe(1.5);
+    expect(result.zoom_mode).toBe('fit-width');
+    expect(result.theme).toBe('dark');
+    expect(result.font_size).toBe(18);
+    expect(result.line_height).toBe(1.6);
+    expect(result.daily_goal_minutes).toBe(45);
+  });
+
+  it('omits undefined fields', () => {
+    const result = createReaderPreferencesForFrontmatter({
+      zoomLevel: 1.25,
+    });
+
+    expect(result.zoom_level).toBe(1.25);
+    expect(result).not.toHaveProperty('zoom_mode');
+    expect(result).not.toHaveProperty('theme');
+    expect(result).not.toHaveProperty('font_size');
+    expect(result).not.toHaveProperty('line_height');
+    expect(result).not.toHaveProperty('daily_goal_minutes');
+  });
+
+  it('returns empty object when all fields are undefined', () => {
+    const result = createReaderPreferencesForFrontmatter({});
+
+    expect(Object.keys(result)).toHaveLength(0);
+  });
+
+  it('rounds zoom level to 2 decimal places', () => {
+    const result = createReaderPreferencesForFrontmatter({
+      zoomLevel: 1.33333,
+    });
+
+    expect(result.zoom_level).toBe(1.33);
+  });
+
+  it('rounds line height to 1 decimal place', () => {
+    const result = createReaderPreferencesForFrontmatter({
+      lineHeight: 1.666,
+    });
+
+    expect(result.line_height).toBe(1.7);
+  });
+
+  it('passes through integer font size unchanged', () => {
+    const result = createReaderPreferencesForFrontmatter({
+      fontSize: 16,
+    });
+
+    expect(result.font_size).toBe(16);
+  });
+
+  it('handles each zoom mode value', () => {
+    for (const mode of ['fit-width', 'fit-page', 'custom'] as const) {
+      const result = createReaderPreferencesForFrontmatter({ zoomMode: mode });
+      expect(result.zoom_mode).toBe(mode);
+    }
+  });
+
+  it('handles each theme value', () => {
+    for (const theme of ['light', 'dark', 'sepia', 'eink'] as const) {
+      const result = createReaderPreferencesForFrontmatter({ theme });
+      expect(result.theme).toBe(theme);
+    }
+  });
+});
+
+describe('getCurrentChapter', () => {
+  it('returns null when key is missing', () => {
+    expect(getCurrentChapter({}, 'current_chapter')).toBeNull();
+  });
+
+  it('returns string chapter name', () => {
+    expect(getCurrentChapter({ current_chapter: 'Chapter 5: The Journey' }, 'current_chapter'))
+      .toBe('Chapter 5: The Journey');
+  });
+
+  it('trims whitespace from chapter name', () => {
+    expect(getCurrentChapter({ current_chapter: '  Chapter 1  ' }, 'current_chapter'))
+      .toBe('Chapter 1');
+  });
+
+  it('returns null for empty string', () => {
+    expect(getCurrentChapter({ current_chapter: '' }, 'current_chapter')).toBeNull();
+  });
+
+  it('returns null for whitespace-only string', () => {
+    expect(getCurrentChapter({ current_chapter: '   ' }, 'current_chapter')).toBeNull();
+  });
+
+  it('returns null for non-string values', () => {
+    expect(getCurrentChapter({ current_chapter: 42 }, 'current_chapter')).toBeNull();
+    expect(getCurrentChapter({ current_chapter: true }, 'current_chapter')).toBeNull();
+    expect(getCurrentChapter({ current_chapter: null }, 'current_chapter')).toBeNull();
+    expect(getCurrentChapter({ current_chapter: undefined }, 'current_chapter')).toBeNull();
+    expect(getCurrentChapter({ current_chapter: ['Chapter 1'] }, 'current_chapter')).toBeNull();
+  });
+
+  it('uses custom key name', () => {
+    expect(getCurrentChapter({ chapter: 'Prologue' }, 'chapter')).toBe('Prologue');
+  });
+});
+
+describe('getReadingStats (estimated_completion and avg_daily_reading_ms)', () => {
+  it('parses estimated_completion as Date object', () => {
+    const stats = getReadingStats({
+      reading_stats: {
+        total_time_ms: 3600000,
+        total_sessions: 5,
+        estimated_completion: new Date('2024-06-15T10:30:00Z'),
+      },
+    }, 'reading_stats');
+
+    expect(stats).not.toBeNull();
+    expect(stats!.estimatedCompletionDate).toBe('2024-06-15');
+  });
+
+  it('parses estimated_completion as ISO date string', () => {
+    const stats = getReadingStats({
+      reading_stats: {
+        total_time_ms: 3600000,
+        total_sessions: 5,
+        estimated_completion: '2024-06-15T10:30:00Z',
+      },
+    }, 'reading_stats');
+
+    expect(stats).not.toBeNull();
+    expect(stats!.estimatedCompletionDate).toBe('2024-06-15');
+  });
+
+  it('parses estimated_completion as YYYY-MM-DD string', () => {
+    const stats = getReadingStats({
+      reading_stats: {
+        total_time_ms: 3600000,
+        total_sessions: 5,
+        estimated_completion: '2024-06-15',
+      },
+    }, 'reading_stats');
+
+    expect(stats).not.toBeNull();
+    expect(stats!.estimatedCompletionDate).toBe('2024-06-15');
+  });
+
+  it('returns null for invalid estimated_completion string', () => {
+    const stats = getReadingStats({
+      reading_stats: {
+        total_time_ms: 3600000,
+        total_sessions: 5,
+        estimated_completion: 'not-a-date',
+      },
+    }, 'reading_stats');
+
+    expect(stats).not.toBeNull();
+    expect(stats!.estimatedCompletionDate).toBeNull();
+  });
+
+  it('returns null for missing estimated_completion', () => {
+    const stats = getReadingStats({
+      reading_stats: {
+        total_time_ms: 3600000,
+        total_sessions: 5,
+      },
+    }, 'reading_stats');
+
+    expect(stats).not.toBeNull();
+    expect(stats!.estimatedCompletionDate).toBeNull();
+  });
+
+  it('parses avg_daily_reading_ms', () => {
+    const stats = getReadingStats({
+      reading_stats: {
+        total_time_ms: 7200000,
+        total_sessions: 10,
+        avg_daily_reading_ms: 1800000,
+      },
+    }, 'reading_stats');
+
+    expect(stats).not.toBeNull();
+    expect(stats!.averageDailyReadingMs).toBe(1800000);
+  });
+
+  it('returns null for missing avg_daily_reading_ms', () => {
+    const stats = getReadingStats({
+      reading_stats: {
+        total_time_ms: 3600000,
+        total_sessions: 5,
+      },
+    }, 'reading_stats');
+
+    expect(stats).not.toBeNull();
+    expect(stats!.averageDailyReadingMs).toBeNull();
+  });
+
+  it('returns null for non-number avg_daily_reading_ms', () => {
+    const stats = getReadingStats({
+      reading_stats: {
+        total_time_ms: 3600000,
+        total_sessions: 5,
+        avg_daily_reading_ms: 'not-a-number',
+      },
+    }, 'reading_stats');
+
+    expect(stats).not.toBeNull();
+    expect(stats!.averageDailyReadingMs).toBeNull();
+  });
+
+  it('clamps negative momentum_score to -100', () => {
+    const stats = getReadingStats({
+      reading_stats: {
+        total_time_ms: 3600000,
+        total_sessions: 5,
+        momentum_score: -200,
+      },
+    }, 'reading_stats');
+
+    expect(stats!.momentumScore).toBe(-100);
+  });
+});
+
+describe('getReadingSessions (edge cases)', () => {
+  it('parses start and end as Date objects', () => {
+    const sessions = getReadingSessions({
+      reading_sessions: [
+        {
+          start: new Date('2024-01-15T10:00:00Z'),
+          end: new Date('2024-01-15T11:00:00Z'),
+          duration_ms: 3600000,
+          pages: 30,
+          start_page: 0,
+          end_page: 30,
+        },
+      ],
+    }, 'reading_sessions');
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].startTime).toBe('2024-01-15T10:00:00.000Z');
+    expect(sessions[0].endTime).toBe('2024-01-15T11:00:00.000Z');
+  });
+
+  it('skips sessions with invalid start time', () => {
+    const sessions = getReadingSessions({
+      reading_sessions: [
+        {
+          start: 'not-a-date',
+          end: '2024-01-15T11:00:00Z',
+          duration_ms: 3600000,
+          pages: 30,
+          start_page: 0,
+          end_page: 30,
+        },
+        {
+          start: '2024-01-16T10:00:00Z',
+          end: '2024-01-16T11:00:00Z',
+          duration_ms: 3600000,
+          pages: 20,
+          start_page: 30,
+          end_page: 50,
+        },
+      ],
+    }, 'reading_sessions');
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].startTime).toBe('2024-01-16T10:00:00.000Z');
+  });
+
+  it('skips sessions with invalid end time', () => {
+    const sessions = getReadingSessions({
+      reading_sessions: [
+        {
+          start: '2024-01-15T10:00:00Z',
+          end: 'invalid',
+          duration_ms: 3600000,
+          pages: 30,
+          start_page: 0,
+          end_page: 30,
+        },
+      ],
+    }, 'reading_sessions');
+
+    expect(sessions).toHaveLength(0);
+  });
+
+  it('skips sessions with missing start or end', () => {
+    const sessions = getReadingSessions({
+      reading_sessions: [
+        { end: '2024-01-15T11:00:00Z', duration_ms: 3600000 },
+        { start: '2024-01-15T10:00:00Z', duration_ms: 3600000 },
+        { duration_ms: 3600000 },
+      ],
+    }, 'reading_sessions');
+
+    expect(sessions).toHaveLength(0);
+  });
+
+  it('defaults numeric fields to 0 when missing', () => {
+    const sessions = getReadingSessions({
+      reading_sessions: [
+        {
+          start: '2024-01-15T10:00:00Z',
+          end: '2024-01-15T11:00:00Z',
+          // Missing: duration_ms, pages, start_page, end_page
+        },
+      ],
+    }, 'reading_sessions');
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].durationMs).toBe(0);
+    expect(sessions[0].pagesRead).toBe(0);
+    expect(sessions[0].startPage).toBe(0);
+    expect(sessions[0].endPage).toBe(0);
+  });
+
+  it('rejects negative idle_pause_count', () => {
+    const sessions = getReadingSessions({
+      reading_sessions: [
+        {
+          start: '2024-01-15T10:00:00Z',
+          end: '2024-01-15T11:00:00Z',
+          duration_ms: 3600000,
+          pages: 30,
+          start_page: 0,
+          end_page: 30,
+          idle_pause_count: -1,
+          idle_pause_total_ms: -500,
+        },
+      ],
+    }, 'reading_sessions');
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].idlePauseCount).toBeUndefined();
+    expect(sessions[0].idlePauseTotalMs).toBeUndefined();
+  });
+
+  it('skips null and non-object entries', () => {
+    const sessions = getReadingSessions({
+      reading_sessions: [
+        null,
+        'invalid',
+        123,
+        undefined,
+        {
+          start: '2024-01-15T10:00:00Z',
+          end: '2024-01-15T11:00:00Z',
+          duration_ms: 3600000,
+          pages: 30,
+          start_page: 0,
+          end_page: 30,
+        },
+      ],
+    }, 'reading_sessions');
+
+    expect(sessions).toHaveLength(1);
+  });
+
+  it('sorts multiple sessions by start time descending', () => {
+    const sessions = getReadingSessions({
+      reading_sessions: [
+        {
+          start: '2024-01-10T10:00:00Z',
+          end: '2024-01-10T11:00:00Z',
+          duration_ms: 3600000,
+          pages: 10,
+          start_page: 0,
+          end_page: 10,
+        },
+        {
+          start: '2024-01-20T10:00:00Z',
+          end: '2024-01-20T11:00:00Z',
+          duration_ms: 3600000,
+          pages: 20,
+          start_page: 10,
+          end_page: 30,
+        },
+        {
+          start: '2024-01-15T10:00:00Z',
+          end: '2024-01-15T11:00:00Z',
+          duration_ms: 3600000,
+          pages: 15,
+          start_page: 0,
+          end_page: 15,
+        },
+      ],
+    }, 'reading_sessions');
+
+    expect(sessions).toHaveLength(3);
+    expect(sessions[0].startTime).toBe('2024-01-20T10:00:00.000Z');
+    expect(sessions[1].startTime).toBe('2024-01-15T10:00:00.000Z');
+    expect(sessions[2].startTime).toBe('2024-01-10T10:00:00.000Z');
+  });
+});
+
+describe('createReadingStatsForFrontmatter (estimated_completion and avg_daily_reading_ms)', () => {
+  it('includes estimated_completion when present', () => {
+    const result = createReadingStatsForFrontmatter({
+      totalReadingTimeMs: 3600000,
+      totalSessions: 5,
+      averageSessionMs: 720000,
+      firstReadDate: '2024-01-15T10:00:00Z',
+      pagesPerHour: null,
+      totalPagesRead: 0,
+      longestSessionMs: null,
+      estimatedCompletionDate: '2024-06-15',
+      averageDailyReadingMs: null,
+    });
+
+    expect(result.estimated_completion).toBe('2024-06-15');
+  });
+
+  it('omits estimated_completion when null', () => {
+    const result = createReadingStatsForFrontmatter({
+      totalReadingTimeMs: 3600000,
+      totalSessions: 5,
+      averageSessionMs: 720000,
+      firstReadDate: '2024-01-15T10:00:00Z',
+      pagesPerHour: null,
+      totalPagesRead: 0,
+      longestSessionMs: null,
+      estimatedCompletionDate: null,
+      averageDailyReadingMs: null,
+    });
+
+    expect(result).not.toHaveProperty('estimated_completion');
+  });
+
+  it('includes avg_daily_reading_ms when present', () => {
+    const result = createReadingStatsForFrontmatter({
+      totalReadingTimeMs: 3600000,
+      totalSessions: 5,
+      averageSessionMs: 720000,
+      firstReadDate: '2024-01-15T10:00:00Z',
+      pagesPerHour: null,
+      totalPagesRead: 0,
+      longestSessionMs: null,
+      estimatedCompletionDate: null,
+      averageDailyReadingMs: 1800000,
+    });
+
+    expect(result.avg_daily_reading_ms).toBe(1800000);
+  });
+
+  it('omits avg_daily_reading_ms when null', () => {
+    const result = createReadingStatsForFrontmatter({
+      totalReadingTimeMs: 3600000,
+      totalSessions: 5,
+      averageSessionMs: 720000,
+      firstReadDate: '2024-01-15T10:00:00Z',
+      pagesPerHour: null,
+      totalPagesRead: 0,
+      longestSessionMs: null,
+      estimatedCompletionDate: null,
+      averageDailyReadingMs: null,
+    });
+
+    expect(result).not.toHaveProperty('avg_daily_reading_ms');
   });
 });
