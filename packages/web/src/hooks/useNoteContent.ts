@@ -36,6 +36,7 @@ export function useUpdateNoteContent(id: string | undefined) {
         clearTimeout(debounceTimerRef.current);
       }
       debounceTimerRef.current = setTimeout(() => {
+        debounceTimerRef.current = null;
         mutateRef.current(content);
       }, 1500);
     },
