@@ -27,12 +27,16 @@ vi.mock('epub2', () => ({
 
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+import EPub from 'epub2';
 
 const mockExistsSync = vi.mocked(existsSync);
 const mockMkdirSync = vi.mocked(mkdirSync);
 const mockReadFileSync = vi.mocked(readFileSync);
 const mockReadFile = vi.mocked(readFile);
 const mockWriteFile = vi.mocked(writeFile);
+const mockGetDocument = vi.mocked(pdfjsLib.getDocument);
+const mockEPub = vi.mocked(EPub);
 
 // Test configuration
 const testConfig: Config = {
@@ -732,6 +736,780 @@ describe('SearchIndex', () => {
 
       // Should have attempted to read each note's file
       expect(mockReadFile).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('indexNote - PDF extraction', () => {
+    // Helper to create a mock PDF document with controllable pages
+    function createMockPdfDocument(pages: Array<{ items: Array<{ str: string }> }>, pageLabels?: string[] | null) {
+      const mockPages = pages.map((page, i) => ({
+        getTextContent: vi.fn().mockResolvedValue({ items: page.items }),
+        pageNum: i + 1,
+      }));
+
+      const mockPdf = {
+        numPages: pages.length,
+        getPage: vi.fn().mockImplementation((num: number) => Promise.resolve(mockPages[num - 1])),
+        getPageLabels: vi.fn().mockResolvedValue(pageLabels ?? null),
+        destroy: vi.fn().mockResolvedValue(undefined),
+      };
+
+      return mockPdf;
+    }
+
+    beforeEach(() => {
+      mockExistsSync.mockReturnValue(false);
+    });
+
+    it('indexes a PDF and makes it searchable', async () => {
+      const index = new SearchIndex(testConfig);
+
+      const mockPdf = createMockPdfDocument([
+        { items: [{ str: 'Hello' }, { str: 'world' }] },
+        { items: [{ str: 'Second page content here' }] },
+      ]);
+      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf') as unknown as ReturnType<typeof readFile>);
+      mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
+
+      const note = createTestNote({ id: 'pdf-note', title: 'PDF Book', sourceType: 'pdf' });
+      await index.indexNote(note);
+
+      expect(index.isIndexed('pdf-note')).toBe(true);
+      expect(index.getIndexedCount()).toBe(1);
+
+      // Verify the indexed content is searchable
+      const results = index.search('Hello');
+      expect(results).toHaveLength(1);
+      expect(results[0].noteId).toBe('pdf-note');
+      expect(results[0].title).toBe('PDF Book');
+      expect(results[0].sourceType).toBe('pdf');
+      expect(results[0].matches[0].page).toBe(1);
+    });
+
+    it('includes page labels in indexed pages', async () => {
+      const index = new SearchIndex(testConfig);
+
+      const mockPdf = createMockPdfDocument(
+        [
+          { items: [{ str: 'Preface content' }] },
+          { items: [{ str: 'Chapter one begins' }] },
+        ],
+        ['iv', '1'],
+      );
+      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf') as unknown as ReturnType<typeof readFile>);
+      mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
+
+      const note = createTestNote({ id: 'labeled-pdf', sourceType: 'pdf' });
+      await index.indexNote(note);
+
+      const results = index.search('Preface');
+      expect(results).toHaveLength(1);
+      expect(results[0].matches[0].pageLabel).toBe('iv');
+
+      const results2 = index.search('Chapter one');
+      expect(results2).toHaveLength(1);
+      expect(results2[0].matches[0].pageLabel).toBe('1');
+    });
+
+    it('skips pages with empty text content', async () => {
+      const index = new SearchIndex(testConfig);
+
+      const mockPdf = createMockPdfDocument([
+        { items: [{ str: '' }] },
+        { items: [{ str: '   ' }] },
+        { items: [{ str: 'Real content here' }] },
+      ]);
+      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf') as unknown as ReturnType<typeof readFile>);
+      mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
+
+      const note = createTestNote({ id: 'sparse-pdf', sourceType: 'pdf' });
+      await index.indexNote(note);
+
+      // Only the non-empty page should be searchable
+      const results = index.search('Real content');
+      expect(results).toHaveLength(1);
+      expect(results[0].matches[0].page).toBe(3);
+    });
+
+    it('continues extracting after a page error', async () => {
+      const index = new SearchIndex(testConfig);
+
+      const goodPage = {
+        getTextContent: vi.fn().mockResolvedValue({ items: [{ str: 'Good page content' }] }),
+      };
+      const badPage = {
+        getTextContent: vi.fn().mockRejectedValue(new Error('Page corrupted')),
+      };
+      const anotherGoodPage = {
+        getTextContent: vi.fn().mockResolvedValue({ items: [{ str: 'Another good page' }] }),
+      };
+
+      const mockPdf = {
+        numPages: 3,
+        getPage: vi.fn()
+          .mockResolvedValueOnce(goodPage)
+          .mockResolvedValueOnce(badPage)
+          .mockResolvedValueOnce(anotherGoodPage),
+        getPageLabels: vi.fn().mockResolvedValue(null),
+        destroy: vi.fn().mockResolvedValue(undefined),
+      };
+
+      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf') as unknown as ReturnType<typeof readFile>);
+      mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const note = createTestNote({ id: 'partial-pdf', sourceType: 'pdf' });
+      await index.indexNote(note);
+      consoleSpy.mockRestore();
+
+      // Both good pages should be indexed
+      expect(index.search('Good page')).toHaveLength(1);
+      expect(index.search('Another good')).toHaveLength(1);
+    });
+
+    it('joins text items with spaces and normalizes whitespace', async () => {
+      const index = new SearchIndex(testConfig);
+
+      const mockPdf = createMockPdfDocument([
+        { items: [{ str: 'Multiple' }, { str: '  spaces  ' }, { str: 'between' }] },
+      ]);
+      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf') as unknown as ReturnType<typeof readFile>);
+      mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
+
+      const note = createTestNote({ id: 'spaced-pdf', sourceType: 'pdf' });
+      await index.indexNote(note);
+
+      // Search for normalized text
+      const results = index.search('Multiple spaces between');
+      expect(results).toHaveLength(1);
+    });
+
+    it('destroys PDF document after extraction', async () => {
+      const index = new SearchIndex(testConfig);
+
+      const mockPdf = createMockPdfDocument([
+        { items: [{ str: 'Some text' }] },
+      ]);
+      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf') as unknown as ReturnType<typeof readFile>);
+      mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
+
+      const note = createTestNote({ id: 'cleanup-pdf', sourceType: 'pdf' });
+      await index.indexNote(note);
+
+      expect(mockPdf.destroy).toHaveBeenCalled();
+    });
+
+    it('handles PDF read failure gracefully', async () => {
+      const index = new SearchIndex(testConfig);
+
+      mockReadFile.mockRejectedValue(new Error('ENOENT: no such file'));
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const note = createTestNote({ id: 'missing-pdf', sourceType: 'pdf' });
+      await index.indexNote(note);
+      consoleSpy.mockRestore();
+
+      // extractPDFText catches the error and returns empty pages,
+      // so the note is indexed but has no searchable content
+      expect(index.isIndexed('missing-pdf')).toBe(true);
+      expect(index.search('anything')).toHaveLength(0);
+    });
+
+    it('handles getDocument failure gracefully', async () => {
+      const index = new SearchIndex(testConfig);
+
+      mockReadFile.mockResolvedValue(Buffer.from('bad-data') as unknown as ReturnType<typeof readFile>);
+      mockGetDocument.mockReturnValue({ promise: Promise.reject(new Error('Invalid PDF')) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const note = createTestNote({ id: 'invalid-pdf', sourceType: 'pdf' });
+      await index.indexNote(note);
+      consoleSpy.mockRestore();
+
+      // Empty pages result — the note gets indexed with 0 pages
+      // because extractPDFText catches errors and returns empty array
+      expect(index.isIndexed('invalid-pdf')).toBe(true);
+    });
+
+    it('handles items without str property', async () => {
+      const index = new SearchIndex(testConfig);
+
+      const mockPage = {
+        getTextContent: vi.fn().mockResolvedValue({
+          items: [
+            { str: 'Normal text' },
+            { transform: [1, 0, 0, 1, 0, 0] }, // Item without str
+            { str: 'more text' },
+          ],
+        }),
+      };
+      const mockPdf = {
+        numPages: 1,
+        getPage: vi.fn().mockResolvedValue(mockPage),
+        getPageLabels: vi.fn().mockResolvedValue(null),
+        destroy: vi.fn().mockResolvedValue(undefined),
+      };
+
+      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf') as unknown as ReturnType<typeof readFile>);
+      mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
+
+      const note = createTestNote({ id: 'mixed-items', sourceType: 'pdf' });
+      await index.indexNote(note);
+
+      const results = index.search('Normal text');
+      expect(results).toHaveLength(1);
+    });
+  });
+
+  describe('indexNote - EPUB extraction', () => {
+    // Helper to create a mock EPub class
+    function createMockEpubClass(options: {
+      flow?: Array<{ id: string }>;
+      toc?: Array<{ href?: string; title?: string; subitems?: unknown[] }>;
+      manifest?: Record<string, { href?: string }>;
+      chapters?: Record<string, string>;
+      parseError?: boolean;
+      chapterErrors?: Record<string, Error>;
+    } = {}) {
+      const eventHandlers: Record<string, Array<(...args: unknown[]) => void>> = {};
+
+      class MockEPubClass {
+        flow = options.flow || [];
+        toc = options.toc || [];
+        manifest = options.manifest || {};
+
+        on(event: string, callback: (...args: unknown[]) => void) {
+          if (!eventHandlers[event]) eventHandlers[event] = [];
+          eventHandlers[event].push(callback);
+          return this;
+        }
+
+        parse() {
+          process.nextTick(() => {
+            if (options.parseError) {
+              eventHandlers['error']?.forEach(cb => cb(new Error('Parse error')));
+            } else {
+              eventHandlers['end']?.forEach(cb => cb());
+            }
+          });
+        }
+
+        getChapter(id: string, callback: (err: Error | null, text: string | null) => void) {
+          if (options.chapterErrors?.[id]) {
+            callback(options.chapterErrors[id], null);
+          } else {
+            callback(null, options.chapters?.[id] || null);
+          }
+        }
+      }
+
+      return MockEPubClass;
+    }
+
+    beforeEach(() => {
+      mockExistsSync.mockReturnValue(false);
+    });
+
+    it('indexes an EPUB and makes it searchable', async () => {
+      const index = new SearchIndex(testConfig);
+
+      const MockClass = createMockEpubClass({
+        flow: [{ id: 'ch1' }, { id: 'ch2' }],
+        toc: [
+          { href: 'chapter1.xhtml', title: 'Introduction' },
+          { href: 'chapter2.xhtml', title: 'Getting Started' },
+        ],
+        manifest: {
+          ch1: { href: 'chapter1.xhtml' },
+          ch2: { href: 'chapter2.xhtml' },
+        },
+        chapters: {
+          ch1: '<p>Welcome to the introduction chapter.</p>',
+          ch2: '<p>Let us get started with the basics.</p>',
+        },
+      });
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const note = createTestNote({ id: 'epub-note', title: 'EPUB Book', sourceType: 'epub', filePath: '/path/to/book.epub' });
+      await index.indexNote(note);
+
+      expect(index.isIndexed('epub-note')).toBe(true);
+
+      const results = index.search('introduction');
+      expect(results).toHaveLength(1);
+      expect(results[0].noteId).toBe('epub-note');
+      expect(results[0].sourceType).toBe('epub');
+      expect(results[0].matches[0].chapter).toBe('Introduction');
+      expect(results[0].matches[0].chapterHref).toBe('chapter1.xhtml');
+    });
+
+    it('strips HTML tags from chapter content', async () => {
+      const index = new SearchIndex(testConfig);
+
+      const MockClass = createMockEpubClass({
+        flow: [{ id: 'ch1' }],
+        manifest: { ch1: { href: 'ch1.xhtml' } },
+        chapters: {
+          ch1: '<h1>Title</h1><p>Some <strong>bold</strong> and <em>italic</em> text.</p>',
+        },
+      });
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const note = createTestNote({ id: 'html-epub', sourceType: 'epub', filePath: '/path/to/book.epub' });
+      await index.indexNote(note);
+
+      // HTML tags should be stripped — search for plain text
+      const results = index.search('bold and italic text');
+      expect(results).toHaveLength(1);
+    });
+
+    it('strips script and style tags from chapter content', async () => {
+      const index = new SearchIndex(testConfig);
+
+      const MockClass = createMockEpubClass({
+        flow: [{ id: 'ch1' }],
+        manifest: { ch1: { href: 'ch1.xhtml' } },
+        chapters: {
+          ch1: '<style>.cls { color: red; }</style><script>alert("hi")</script><p>Visible content only.</p>',
+        },
+      });
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const note = createTestNote({ id: 'script-epub', sourceType: 'epub', filePath: '/path/to/book.epub' });
+      await index.indexNote(note);
+
+      // Script and style content should not be indexed
+      expect(index.search('alert')).toHaveLength(0);
+      expect(index.search('color: red')).toHaveLength(0);
+      expect(index.search('Visible content')).toHaveLength(1);
+    });
+
+    it('decodes HTML entities in chapter content', async () => {
+      const index = new SearchIndex(testConfig);
+
+      const MockClass = createMockEpubClass({
+        flow: [{ id: 'ch1' }],
+        manifest: { ch1: { href: 'ch1.xhtml' } },
+        chapters: {
+          ch1: '<p>A &amp; B &lt; C &gt; D &quot;quoted&quot; and&nbsp;non-breaking.</p>',
+        },
+      });
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const note = createTestNote({ id: 'entity-epub', sourceType: 'epub', filePath: '/path/to/book.epub' });
+      await index.indexNote(note);
+
+      const results = index.search('A & B');
+      expect(results).toHaveLength(1);
+    });
+
+    it('maps chapter titles from TOC including nested subitems', async () => {
+      const index = new SearchIndex(testConfig);
+
+      const MockClass = createMockEpubClass({
+        flow: [{ id: 'ch1' }, { id: 'ch2' }],
+        toc: [
+          {
+            href: 'part1.xhtml',
+            title: 'Part 1',
+            subitems: [
+              { href: 'ch1.xhtml', title: 'Chapter 1: Nested' },
+            ],
+          },
+          { href: 'ch2.xhtml', title: 'Chapter 2: Top Level' },
+        ],
+        manifest: {
+          ch1: { href: 'ch1.xhtml' },
+          ch2: { href: 'ch2.xhtml' },
+        },
+        chapters: {
+          ch1: '<p>Nested chapter content here.</p>',
+          ch2: '<p>Top level chapter content here.</p>',
+        },
+      });
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const note = createTestNote({ id: 'nested-toc', sourceType: 'epub', filePath: '/path/to/book.epub' });
+      await index.indexNote(note);
+
+      const results1 = index.search('Nested chapter');
+      expect(results1).toHaveLength(1);
+      expect(results1[0].matches[0].chapter).toBe('Chapter 1: Nested');
+
+      const results2 = index.search('Top level chapter');
+      expect(results2).toHaveLength(1);
+      expect(results2[0].matches[0].chapter).toBe('Chapter 2: Top Level');
+    });
+
+    it('uses href as fallback when no TOC title for chapter', async () => {
+      const index = new SearchIndex(testConfig);
+
+      const MockClass = createMockEpubClass({
+        flow: [{ id: 'ch1' }],
+        toc: [], // No TOC entries
+        manifest: { ch1: { href: 'chapter1.xhtml' } },
+        chapters: {
+          ch1: '<p>Content without TOC title.</p>',
+        },
+      });
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const note = createTestNote({ id: 'no-toc', sourceType: 'epub', filePath: '/path/to/book.epub' });
+      await index.indexNote(note);
+
+      const results = index.search('without TOC');
+      expect(results).toHaveLength(1);
+      // Should fall back to href as chapter title
+      expect(results[0].matches[0].chapter).toBe('chapter1.xhtml');
+    });
+
+    it('skips spine items without id', async () => {
+      const index = new SearchIndex(testConfig);
+
+      const MockClass = createMockEpubClass({
+        flow: [{ id: '' }, { id: 'ch1' }] as Array<{ id: string }>,
+        manifest: { ch1: { href: 'ch1.xhtml' } },
+        chapters: {
+          ch1: '<p>Valid chapter content.</p>',
+        },
+      });
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const note = createTestNote({ id: 'no-id-spine', sourceType: 'epub', filePath: '/path/to/book.epub' });
+      await index.indexNote(note);
+
+      const results = index.search('Valid chapter');
+      expect(results).toHaveLength(1);
+    });
+
+    it('skips chapters that return empty text', async () => {
+      const index = new SearchIndex(testConfig);
+
+      const MockClass = createMockEpubClass({
+        flow: [{ id: 'empty' }, { id: 'full' }],
+        manifest: {
+          empty: { href: 'empty.xhtml' },
+          full: { href: 'full.xhtml' },
+        },
+        chapters: {
+          empty: '',
+          full: '<p>This chapter has content.</p>',
+        },
+      });
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const note = createTestNote({ id: 'empty-chapters', sourceType: 'epub', filePath: '/path/to/book.epub' });
+      await index.indexNote(note);
+
+      const results = index.search('has content');
+      expect(results).toHaveLength(1);
+    });
+
+    it('continues after chapter extraction errors', async () => {
+      const index = new SearchIndex(testConfig);
+
+      const MockClass = createMockEpubClass({
+        flow: [{ id: 'bad' }, { id: 'good' }],
+        manifest: {
+          bad: { href: 'bad.xhtml' },
+          good: { href: 'good.xhtml' },
+        },
+        chapters: {
+          good: '<p>Good chapter text.</p>',
+        },
+        chapterErrors: {
+          bad: new Error('Chapter read failed'),
+        },
+      });
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const note = createTestNote({ id: 'partial-epub', sourceType: 'epub', filePath: '/path/to/book.epub' });
+      await index.indexNote(note);
+      consoleSpy.mockRestore();
+
+      // The good chapter should still be indexed
+      const results = index.search('Good chapter');
+      expect(results).toHaveLength(1);
+    });
+
+    it('handles EPUB parse errors gracefully', async () => {
+      const index = new SearchIndex(testConfig);
+
+      const MockClass = createMockEpubClass({ parseError: true });
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const note = createTestNote({ id: 'broken-epub', sourceType: 'epub', filePath: '/path/to/book.epub' });
+      await index.indexNote(note);
+      consoleSpy.mockRestore();
+
+      // EPUB parse errors resolve with empty pages, so note is indexed with no content
+      expect(index.isIndexed('broken-epub')).toBe(true);
+      expect(index.search('anything')).toHaveLength(0);
+    });
+
+    it('handles EPUB constructor throwing', async () => {
+      const index = new SearchIndex(testConfig);
+
+      mockEPub.mockImplementation(function () { throw new Error('EPUB init failed'); } as unknown as typeof EPub);
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const note = createTestNote({ id: 'throw-epub', sourceType: 'epub', filePath: '/path/to/book.epub' });
+      await index.indexNote(note);
+      consoleSpy.mockRestore();
+
+      // Constructor error resolves with empty pages, so note is indexed with no content
+      expect(index.isIndexed('throw-epub')).toBe(true);
+    });
+
+    it('strips TOC href fragments when matching chapter titles', async () => {
+      const index = new SearchIndex(testConfig);
+
+      const MockClass = createMockEpubClass({
+        flow: [{ id: 'ch1' }],
+        toc: [
+          { href: 'chapter1.xhtml#section-1', title: 'Section One' },
+        ],
+        manifest: { ch1: { href: 'chapter1.xhtml' } },
+        chapters: {
+          ch1: '<p>Section content with specific chapter.</p>',
+        },
+      });
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const note = createTestNote({ id: 'frag-epub', sourceType: 'epub', filePath: '/path/to/book.epub' });
+      await index.indexNote(note);
+
+      const results = index.search('Section content');
+      expect(results).toHaveLength(1);
+      // TOC title should still match despite fragment in href
+      expect(results[0].matches[0].chapter).toBe('Section One');
+    });
+  });
+
+  describe('indexNote - error handling', () => {
+    beforeEach(() => {
+      mockExistsSync.mockReturnValue(false);
+    });
+
+    it('cleans up indexingInProgress set after extraction failure', async () => {
+      const index = new SearchIndex(testConfig);
+
+      // Make the PDF extraction fail at the indexNote level (timeout)
+      // by making readFile hang, then rejecting with timeout
+      mockReadFile.mockImplementation(() => new Promise(() => {
+        // never resolves - will be caught by indexNote's timeout
+      }) as unknown as ReturnType<typeof readFile>);
+
+      vi.useFakeTimers();
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const note = createTestNote({ id: 'timeout-note', sourceType: 'pdf' });
+      const indexPromise = index.indexNote(note);
+
+      // Advance past the 60s timeout
+      await vi.advanceTimersByTimeAsync(61000);
+      await indexPromise;
+      consoleSpy.mockRestore();
+
+      vi.useRealTimers();
+
+      // After failure, should not be indexed (timeout prevents indexing)
+      expect(index.isIndexed('timeout-note')).toBe(false);
+
+      // The note should be retryable (not stuck in indexingInProgress)
+      const mockPdf = {
+        numPages: 1,
+        getPage: vi.fn().mockResolvedValue({
+          getTextContent: vi.fn().mockResolvedValue({ items: [{ str: 'Retry success' }] }),
+        }),
+        getPageLabels: vi.fn().mockResolvedValue(null),
+        destroy: vi.fn().mockResolvedValue(undefined),
+      };
+      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf') as unknown as ReturnType<typeof readFile>);
+      mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
+
+      await index.indexNote(note);
+
+      // Should now be indexed
+      const results = index.search('Retry success');
+      expect(results).toHaveLength(1);
+    });
+
+    it('logs extraction errors to console', async () => {
+      const index = new SearchIndex(testConfig);
+
+      // Make readFile throw to trigger the extractPDFText error path
+      mockReadFile.mockRejectedValue(new Error('disk read error'));
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const note = createTestNote({ id: 'string-error', sourceType: 'pdf' });
+      await index.indexNote(note);
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'PDF text extraction failed:',
+        expect.any(Error),
+      );
+      consoleSpy.mockRestore();
+    });
+  });
+
+  describe('saveCache debouncing', () => {
+    it('coalesces multiple invalidations into a single write', async () => {
+      vi.useFakeTimers();
+
+      const index = createPopulatedSearchIndex();
+      mockWriteFile.mockClear();
+
+      // Trigger multiple saves rapidly
+      index.invalidateIndex('note-1');
+      index.invalidateIndex('note-2');
+
+      // Advance past the 1000ms debounce
+      await vi.advanceTimersByTimeAsync(1100);
+
+      // Should only write once due to debouncing
+      expect(mockWriteFile).toHaveBeenCalledTimes(1);
+
+      vi.useRealTimers();
+    });
+
+    it('handles write failure gracefully', async () => {
+      vi.useFakeTimers();
+
+      const index = createPopulatedSearchIndex();
+      mockWriteFile.mockClear();
+      mockWriteFile.mockRejectedValue(new Error('Disk full'));
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      index.invalidateIndex('note-1');
+
+      // Advance past the debounce
+      await vi.advanceTimersByTimeAsync(1100);
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Failed to save search index cache:',
+        expect.any(Error),
+      );
+      consoleSpy.mockRestore();
+
+      vi.useRealTimers();
+    });
+
+    it('writes the correct cache file path', async () => {
+      vi.useFakeTimers();
+
+      const index = createPopulatedSearchIndex();
+      mockWriteFile.mockClear();
+
+      index.invalidateIndex('note-1');
+
+      await vi.advanceTimersByTimeAsync(1100);
+
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        '/test/library/.pulp-cache/search/index.json',
+        expect.any(String),
+      );
+
+      vi.useRealTimers();
+    });
+  });
+
+  describe('search - additional coverage', () => {
+    it('includes sourceType in all search results', () => {
+      const index = createPopulatedSearchIndex();
+
+      const results = index.search('the');
+
+      for (const result of results) {
+        expect(['pdf', 'epub']).toContain(result.sourceType);
+      }
+    });
+
+    it('correctly distinguishes PDF and EPUB source types', () => {
+      const index = createPopulatedSearchIndex();
+
+      // note-1 and note-2 are pdf, note-3 is epub
+      const pdfResults = index.search('father');
+      expect(pdfResults[0].sourceType).toBe('pdf');
+
+      const epubResults = index.search('algorithm');
+      expect(epubResults[0].sourceType).toBe('epub');
+    });
+
+    it('calculates correct position across multiple pages', () => {
+      const index = createPopulatedSearchIndex();
+
+      // 'advantages' appears in note-1 page 2 (position 260+offset within text)
+      const results = index.search('advantages', ['note-1']);
+      expect(results).toHaveLength(1);
+
+      const match = results[0].matches[0];
+      // Position should include the base position of page 2 (260)
+      expect(match.position).toBeGreaterThanOrEqual(260);
+    });
+
+    it('stops searching pages once max matches reached', () => {
+      // Create a document with many matches spread across pages
+      const cacheData = {
+        version: 1,
+        documents: {
+          'multi-page': {
+            noteId: 'multi-page',
+            title: 'Multi Page',
+            sourceType: 'pdf' as const,
+            pages: [
+              { pageNum: 1, text: 'a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a', position: 0 },
+              { pageNum: 2, text: 'a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a', position: 100 },
+              { pageNum: 3, text: 'unique text only here', position: 200 },
+            ],
+            indexedAt: Date.now(),
+          },
+        },
+      };
+
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify(cacheData));
+
+      // Use a very low max to test the limit behavior
+      const customConfig = { ...testConfig, search_max_matches_per_doc: 3, search_results_per_doc: 2 };
+      const index = new SearchIndex(customConfig);
+
+      const results = index.search('a');
+      expect(results).toHaveLength(1);
+      // totalMatches should be capped at maxMatchesPerDoc
+      expect(results[0].totalMatches).toBe(3);
+      // returned matches should be capped at resultsPerDoc
+      expect(results[0].matches.length).toBe(2);
+    });
+
+    it('does not add ellipsis when match context covers entire text', () => {
+      const cacheData = {
+        version: 1,
+        documents: {
+          'short': {
+            noteId: 'short',
+            title: 'Short',
+            sourceType: 'pdf' as const,
+            pages: [
+              { pageNum: 1, text: 'tiny', position: 0 },
+            ],
+            indexedAt: Date.now(),
+          },
+        },
+      };
+
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify(cacheData));
+      const index = new SearchIndex(testConfig);
+
+      const results = index.search('tiny');
+      expect(results).toHaveLength(1);
+      expect(results[0].matches[0].text).toBe('tiny');
+      // No ellipsis on either side
+      expect(results[0].matches[0].text.startsWith('...')).toBe(false);
+      expect(results[0].matches[0].text.endsWith('...')).toBe(false);
     });
   });
 });
