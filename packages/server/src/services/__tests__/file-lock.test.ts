@@ -256,6 +256,138 @@ Content`);
 
       expect(isFileLocked(filePath)).toBe(false);
     });
+
+    it('releases lock even when read throws', async () => {
+      const filePath = '/test/content-read-fail.md';
+      mockReadFileSync.mockImplementation(() => {
+        throw new Error('Read error');
+      });
+
+      await expect(
+        atomicFrontmatterAndContentUpdate(filePath, ({ frontmatter, content }) => ({
+          frontmatter,
+          content,
+        }))
+      ).rejects.toThrow('Read error');
+
+      expect(isFileLocked(filePath)).toBe(false);
+    });
+
+    it('releases lock even when write throws', async () => {
+      const filePath = '/test/content-write-fail.md';
+      mockReadFileSync.mockReturnValue(`---
+title: Test
+---
+Content`);
+      mockWriteFileSync.mockImplementation(() => {
+        throw new Error('Write error');
+      });
+
+      await expect(
+        atomicFrontmatterAndContentUpdate(filePath, ({ frontmatter, content }) => ({
+          frontmatter,
+          content,
+        }))
+      ).rejects.toThrow('Write error');
+
+      expect(isFileLocked(filePath)).toBe(false);
+    });
+
+    it('passes frontmatter and content to modifier', async () => {
+      const filePath = '/test/content-parsed.md';
+      const originalContent = `---
+author: Jane Austen
+year: 1813
+---
+
+Pride and Prejudice content here.`;
+
+      mockReadFileSync.mockReturnValue(originalContent);
+
+      let receivedParsed: { frontmatter: Record<string, unknown>; content: string } | null = null;
+
+      await atomicFrontmatterAndContentUpdate(filePath, (parsed) => {
+        receivedParsed = parsed;
+        return { frontmatter: parsed.frontmatter, content: parsed.content };
+      });
+
+      expect(receivedParsed).not.toBeNull();
+      expect(receivedParsed!.frontmatter).toEqual({ author: 'Jane Austen', year: 1813 });
+      expect(receivedParsed!.content.trim()).toBe('Pride and Prejudice content here.');
+    });
+
+    it('handles empty frontmatter with content update', async () => {
+      const filePath = '/test/empty-fm-content.md';
+      mockReadFileSync.mockReturnValue(`---
+---
+Just content`);
+
+      const result = await atomicFrontmatterAndContentUpdate(filePath, () => ({
+        frontmatter: { added: 'field' },
+        content: 'Updated content',
+      }));
+
+      expect(result).not.toBeNull();
+      expect(result!.frontmatter).toEqual({ added: 'field' });
+      expect(result!.content).toBe('Updated content');
+    });
+
+    it('handles file without frontmatter delimiter', async () => {
+      const filePath = '/test/no-fm-content.md';
+      mockReadFileSync.mockReturnValue('Plain content without frontmatter');
+
+      const result = await atomicFrontmatterAndContentUpdate(filePath, ({ content }) => ({
+        frontmatter: { title: 'Added' },
+        content: content + ' and more',
+      }));
+
+      expect(result).not.toBeNull();
+      expect(result!.frontmatter).toEqual({ title: 'Added' });
+      expect(result!.content).toContain('Plain content without frontmatter');
+      expect(result!.content).toContain('and more');
+    });
+
+    it('handles setting content to empty string', async () => {
+      const filePath = '/test/clear-content.md';
+      mockReadFileSync.mockReturnValue(`---
+title: Test
+---
+
+Some existing content`);
+
+      const result = await atomicFrontmatterAndContentUpdate(filePath, ({ frontmatter }) => ({
+        frontmatter: { ...frontmatter, cleared: true } as Record<string, unknown>,
+        content: '',
+      }));
+
+      expect(result).not.toBeNull();
+      expect(result!.content).toBe('');
+      expect(result!.frontmatter.cleared).toBe(true);
+    });
+
+    it('serializes concurrent content updates on the same file', async () => {
+      const filePath = '/test/concurrent-content.md';
+      const executionOrder: number[] = [];
+
+      mockReadFileSync.mockReturnValue(`---
+title: Test
+---
+Content`);
+
+      const op1 = atomicFrontmatterAndContentUpdate(filePath, ({ frontmatter, content }) => {
+        executionOrder.push(1);
+        return { frontmatter, content: content + ' op1' };
+      });
+
+      const op2 = atomicFrontmatterAndContentUpdate(filePath, ({ frontmatter, content }) => {
+        executionOrder.push(2);
+        return { frontmatter, content: content + ' op2' };
+      });
+
+      await Promise.all([op1, op2]);
+
+      expect(executionOrder).toEqual([1, 2]);
+    });
   });
 
   describe('lock serialization', () => {
@@ -512,6 +644,223 @@ Content`);
       expect(result!.title).toBe('Test Book');
       expect(result!.progress).toBe(60);
       expect(result!.rating).toBe(5);
+    });
+
+    it('returns typed result from atomicFrontmatterAndContentUpdate', async () => {
+      interface NoteMeta {
+        title: string;
+        wordCount: number;
+      }
+
+      const filePath = '/test/typed-content.md';
+      mockReadFileSync.mockReturnValue(`---
+title: My Note
+wordCount: 0
+---
+Hello world`);
+
+      const result = await atomicFrontmatterAndContentUpdate<NoteMeta>(filePath, ({ content }) => {
+        const words = content.trim().split(/\s+/).length;
+        return {
+          frontmatter: { title: 'My Note', wordCount: words },
+          content,
+        };
+      });
+
+      expect(result).not.toBeNull();
+      expect(result!.frontmatter.title).toBe('My Note');
+      expect(result!.frontmatter.wordCount).toBe(2);
+    });
+  });
+
+  describe('error recovery', () => {
+    it('allows subsequent operations after a modifier error', async () => {
+      const filePath = '/test/recovery.md';
+      mockReadFileSync.mockReturnValue(`---
+title: Test
+---
+Content`);
+
+      // First operation fails
+      await expect(
+        atomicFrontmatterUpdate(filePath, () => {
+          throw new Error('First op failed');
+        })
+      ).rejects.toThrow('First op failed');
+
+      // Second operation should succeed
+      const result = await atomicFrontmatterUpdate(filePath, ({ frontmatter }) => {
+        return { ...frontmatter, recovered: true };
+      });
+
+      expect(result).toEqual({ title: 'Test', recovered: true });
+      expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
+    });
+
+    it('allows subsequent operations after a read error', async () => {
+      const filePath = '/test/read-recovery.md';
+
+      // First call throws, second call succeeds
+      mockReadFileSync
+        .mockImplementationOnce(() => {
+          throw new Error('Disk error');
+        })
+        .mockReturnValueOnce(`---
+title: Recovered
+---
+Content`);
+
+      await expect(
+        atomicFrontmatterUpdate(filePath, ({ frontmatter }) => frontmatter)
+      ).rejects.toThrow('Disk error');
+
+      const result = await atomicFrontmatterUpdate(filePath, ({ frontmatter }) => {
+        return { ...frontmatter, ok: true };
+      });
+
+      expect(result).toEqual({ title: 'Recovered', ok: true });
+    });
+
+    it('allows subsequent operations after a write error', async () => {
+      const filePath = '/test/write-recovery.md';
+      mockReadFileSync.mockReturnValue(`---
+title: Test
+---
+Content`);
+
+      // First write fails, second succeeds
+      mockWriteFileSync
+        .mockImplementationOnce(() => {
+          throw new Error('Disk full');
+        })
+        .mockImplementationOnce(() => {});
+
+      await expect(
+        atomicFrontmatterUpdate(filePath, ({ frontmatter }) => frontmatter)
+      ).rejects.toThrow('Disk full');
+
+      const result = await atomicFrontmatterUpdate(filePath, ({ frontmatter }) => {
+        return { ...frontmatter, retried: true };
+      });
+
+      expect(result).toEqual({ title: 'Test', retried: true });
+    });
+
+    it('processes remaining queued operations after a mid-chain failure', async () => {
+      const filePath = '/test/chain-recovery.md';
+      const completedOps: number[] = [];
+
+      mockReadFileSync.mockReturnValue(`---
+title: Test
+---
+Content`);
+
+      const op1 = atomicFrontmatterUpdate(filePath, async ({ frontmatter }) => {
+        completedOps.push(1);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return frontmatter;
+      });
+
+      const op2 = atomicFrontmatterUpdate(filePath, async () => {
+        throw new Error('Op2 failed');
+      });
+
+      const op3 = atomicFrontmatterUpdate(filePath, async ({ frontmatter }) => {
+        completedOps.push(3);
+        return { ...frontmatter, fromOp3: true };
+      });
+
+      const results = await Promise.allSettled([op1, op2, op3]);
+
+      expect(results[0].status).toBe('fulfilled');
+      expect(results[1].status).toBe('rejected');
+      expect(results[2].status).toBe('fulfilled');
+      expect(completedOps).toContain(1);
+      expect(completedOps).toContain(3);
+    });
+
+    it('allows contentUpdate after frontmatterUpdate error on same file', async () => {
+      const filePath = '/test/cross-recovery.md';
+      mockReadFileSync.mockReturnValue(`---
+title: Test
+---
+Content`);
+
+      await expect(
+        atomicFrontmatterUpdate(filePath, () => {
+          throw new Error('Frontmatter update failed');
+        })
+      ).rejects.toThrow('Frontmatter update failed');
+
+      const result = await atomicFrontmatterAndContentUpdate(filePath, ({ frontmatter, content }) => ({
+        frontmatter: { ...frontmatter, recovered: true } as Record<string, unknown>,
+        content: content + '\nRecovered',
+      }));
+
+      expect(result).not.toBeNull();
+      expect(result!.frontmatter.recovered).toBe(true);
+      expect(result!.content).toContain('Recovered');
+    });
+  });
+
+  describe('mixed operation serialization', () => {
+    it('serializes atomicFrontmatterUpdate and atomicFrontmatterAndContentUpdate on the same file', async () => {
+      const filePath = '/test/mixed.md';
+      const executionOrder: string[] = [];
+
+      mockReadFileSync.mockReturnValue(`---
+title: Test
+---
+Content`);
+
+      const fmUpdate = atomicFrontmatterUpdate(filePath, async ({ frontmatter }) => {
+        executionOrder.push('frontmatter');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return { ...frontmatter, step: 1 };
+      });
+
+      const contentUpdate = atomicFrontmatterAndContentUpdate(filePath, ({ frontmatter, content }) => {
+        executionOrder.push('content');
+        return {
+          frontmatter: { ...frontmatter, step: 2 } as Record<string, unknown>,
+          content: content + ' updated',
+        };
+      });
+
+      await Promise.all([fmUpdate, contentUpdate]);
+
+      expect(executionOrder).toEqual(['frontmatter', 'content']);
+    });
+
+    it('does not block different files across operation types', async () => {
+      const file1 = '/test/mixed-a.md';
+      const file2 = '/test/mixed-b.md';
+      const executionOrder: string[] = [];
+
+      mockReadFileSync.mockReturnValue(`---
+title: Test
+---
+Content`);
+
+      const op1 = atomicFrontmatterUpdate(file1, async ({ frontmatter }) => {
+        executionOrder.push('fm-start');
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        executionOrder.push('fm-end');
+        return frontmatter;
+      });
+
+      const op2 = atomicFrontmatterAndContentUpdate(file2, ({ frontmatter, content }) => {
+        executionOrder.push('content');
+        return { frontmatter, content };
+      });
+
+      await Promise.all([op1, op2]);
+
+      // Content op on file2 should not wait for fm op on file1 to finish
+      // so 'content' should appear before 'fm-end'
+      const contentIdx = executionOrder.indexOf('content');
+      const fmEndIdx = executionOrder.indexOf('fm-end');
+      expect(contentIdx).toBeLessThan(fmEndIdx);
     });
   });
 });
