@@ -787,6 +787,506 @@ Some content
     });
   });
 
+  describe('category handling', () => {
+    describe('write with categories', () => {
+      it('defaults category to highlight when not specified', async () => {
+        const note = createTestNote();
+        mockReadFileSync.mockReturnValue('# Note\n');
+
+        const request: CreateHighlightRequest = {
+          type: 'pdf',
+          page: 5,
+          selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 10 },
+          text: 'Default category text',
+        };
+
+        const result = await writer.write(note, request);
+
+        expect(result.category).toBe('highlight');
+      });
+
+      it('uses specified category for PDF highlights', async () => {
+        const note = createTestNote();
+        mockReadFileSync.mockReturnValue('# Note\n');
+
+        const request: CreateHighlightRequest = {
+          type: 'pdf',
+          page: 5,
+          selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 10 },
+          text: 'Important text',
+          category: 'important',
+        };
+
+        const result = await writer.write(note, request);
+
+        expect(result.category).toBe('important');
+      });
+
+      it('uses specified category for EPUB highlights', async () => {
+        const note = createTestNote({ sourceType: 'epub' });
+        mockReadFileSync.mockReturnValue('# Note\n');
+
+        const request: CreateHighlightRequest = {
+          type: 'epub',
+          cfi: 'epubcfi(/6/4)',
+          text: 'Question text',
+          category: 'question',
+        };
+
+        const result = await writer.write(note, request);
+
+        expect(result.category).toBe('question');
+      });
+
+      it('does not pass category to template when it is the default highlight', async () => {
+        // Use a template that includes category to verify the {{#if category}} behavior
+        const categoryConfig: Config = {
+          ...testConfig,
+          highlight_template: '> {{text}}\n- [[{{source}}#page={{page}}&selection={{selection}}{{#if category}}&category={{category}}{{/if}}|p. {{pageLabel}}]]{{#if note}}\n{{note}}{{/if}}\n',
+        };
+        const categoryWriter = new HighlightWriter(categoryConfig);
+
+        const note = createTestNote();
+        mockReadFileSync.mockReturnValue('# Note\n');
+
+        const request: CreateHighlightRequest = {
+          type: 'pdf',
+          page: 5,
+          selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 10 },
+          text: 'Default text',
+          // category is undefined, defaults to 'highlight'
+        };
+
+        await categoryWriter.write(note, request);
+
+        const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
+        // 'highlight' category should NOT produce &category= in the link
+        expect(writtenContent).not.toContain('&category=');
+      });
+
+      it('passes non-default category to template', async () => {
+        const categoryConfig: Config = {
+          ...testConfig,
+          highlight_template: '> {{text}}\n- [[{{source}}#page={{page}}&selection={{selection}}{{#if category}}&category={{category}}{{/if}}|p. {{pageLabel}}]]{{#if note}}\n{{note}}{{/if}}\n',
+        };
+        const categoryWriter = new HighlightWriter(categoryConfig);
+
+        const note = createTestNote();
+        mockReadFileSync.mockReturnValue('# Note\n');
+
+        const request: CreateHighlightRequest = {
+          type: 'pdf',
+          page: 5,
+          selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 10 },
+          text: 'Important text',
+          category: 'important',
+        };
+
+        await categoryWriter.write(note, request);
+
+        const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
+        expect(writtenContent).toContain('&category=important');
+      });
+
+      it('passes non-default category to EPUB template', async () => {
+        const categoryConfig: Config = {
+          ...testConfig,
+          highlight_template_epub: '> {{text}}\n- [[{{source}}#cfi={{cfi}}{{#if category}}&category={{category}}{{/if}}|loc]]{{#if note}}\n{{note}}{{/if}}\n',
+        };
+        const categoryWriter = new HighlightWriter(categoryConfig);
+
+        const note = createTestNote({
+          sourceType: 'epub',
+          sourceRelative: 'books/test.epub',
+        });
+        mockReadFileSync.mockReturnValue('# Note\n');
+
+        const request: CreateHighlightRequest = {
+          type: 'epub',
+          cfi: 'epubcfi(/6/4)',
+          text: 'Definition text',
+          category: 'definition',
+        };
+
+        await categoryWriter.write(note, request);
+
+        const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
+        expect(writtenContent).toContain('&category=definition');
+      });
+
+      it('supports all valid category values', async () => {
+        const categories = ['important', 'question', 'todo', 'definition'] as const;
+        const note = createTestNote();
+
+        for (const category of categories) {
+          vi.clearAllMocks();
+          mockReadFileSync.mockReturnValue('# Note\n');
+
+          const request: CreateHighlightRequest = {
+            type: 'pdf',
+            page: 1,
+            selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+            text: `${category} text`,
+            category,
+          };
+
+          const result = await writer.write(note, request);
+
+          expect(result.category).toBe(category);
+        }
+      });
+    });
+
+    describe('update with category changes', () => {
+      it('updates PDF highlight category in the link fragment', async () => {
+        const existingHighlight: PDFHighlight = {
+          id: 'abc1234567',
+          type: 'pdf',
+          page: 10,
+          selection: { beginIndex: 5, beginOffset: 10, endIndex: 5, endOffset: 30 },
+          text: 'Quoted text',
+          category: 'highlight',
+          createdAt: '2024-01-15T10:00:00Z',
+        };
+
+        const note = createTestNote({ highlights: [existingHighlight] });
+
+        const fileContent = `# Note
+
+> Quoted text
+[[books/test.pdf#page=10&selection=5,10,5,30|p. 10]]
+
+> Another quote
+`;
+        mockReadFileSync.mockReturnValue(fileContent);
+
+        const result = await writer.update(note, 'abc1234567', { category: 'important' });
+
+        expect(result).not.toBeNull();
+        expect(result!.category).toBe('important');
+
+        const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
+        expect(writtenContent).toContain('&category=important');
+      });
+
+      it('updates EPUB highlight category in the link fragment', async () => {
+        const existingHighlight: EPUBHighlight = {
+          id: 'epub123456',
+          type: 'epub',
+          cfi: 'epubcfi(/6/4)',
+          text: 'EPUB quote',
+          category: 'highlight',
+          createdAt: '2024-01-15T10:00:00Z',
+        };
+
+        const note = createTestNote({
+          sourceType: 'epub',
+          sourceRelative: 'books/test.epub',
+          highlights: [existingHighlight],
+        });
+
+        const fileContent = `# EPUB Note
+
+> EPUB quote
+[[books/test.epub#cfi=epubcfi(/6/4)|loc]]
+`;
+        mockReadFileSync.mockReturnValue(fileContent);
+
+        const result = await writer.update(note, 'epub123456', { category: 'question' });
+
+        expect(result).not.toBeNull();
+        expect(result!.category).toBe('question');
+
+        const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
+        expect(writtenContent).toContain('&category=question');
+      });
+
+      it('removes category fragment when changing to default highlight', async () => {
+        const existingHighlight: PDFHighlight = {
+          id: 'abc1234567',
+          type: 'pdf',
+          page: 10,
+          selection: { beginIndex: 5, beginOffset: 10, endIndex: 5, endOffset: 30 },
+          text: 'Quoted text',
+          category: 'important',
+          createdAt: '2024-01-15T10:00:00Z',
+        };
+
+        const note = createTestNote({ highlights: [existingHighlight] });
+
+        const fileContent = `# Note
+
+> Quoted text
+[[books/test.pdf#page=10&selection=5,10,5,30&category=important|p. 10]]
+`;
+        mockReadFileSync.mockReturnValue(fileContent);
+
+        const result = await writer.update(note, 'abc1234567', { category: 'highlight' });
+
+        expect(result).not.toBeNull();
+        expect(result!.category).toBe('highlight');
+
+        const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
+        // When category is 'highlight' (default), it should NOT include &category=
+        expect(writtenContent).not.toContain('&category=');
+      });
+
+      it('changes from one non-default category to another', async () => {
+        const existingHighlight: PDFHighlight = {
+          id: 'abc1234567',
+          type: 'pdf',
+          page: 10,
+          selection: { beginIndex: 5, beginOffset: 10, endIndex: 5, endOffset: 30 },
+          text: 'Quoted text',
+          category: 'important',
+          createdAt: '2024-01-15T10:00:00Z',
+        };
+
+        const note = createTestNote({ highlights: [existingHighlight] });
+
+        const fileContent = `# Note
+
+> Quoted text
+[[books/test.pdf#page=10&selection=5,10,5,30&category=important|p. 10]]
+`;
+        mockReadFileSync.mockReturnValue(fileContent);
+
+        const result = await writer.update(note, 'abc1234567', { category: 'todo' });
+
+        expect(result).not.toBeNull();
+        expect(result!.category).toBe('todo');
+
+        const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
+        expect(writtenContent).toContain('&category=todo');
+        expect(writtenContent).not.toContain('&category=important');
+      });
+
+      it('updates both category and note simultaneously', async () => {
+        const existingHighlight: PDFHighlight = {
+          id: 'abc1234567',
+          type: 'pdf',
+          page: 10,
+          selection: { beginIndex: 5, beginOffset: 10, endIndex: 5, endOffset: 30 },
+          text: 'Quoted text',
+          category: 'highlight',
+          createdAt: '2024-01-15T10:00:00Z',
+        };
+
+        const note = createTestNote({ highlights: [existingHighlight] });
+
+        const fileContent = `# Note
+
+> Quoted text
+[[books/test.pdf#page=10&selection=5,10,5,30|p. 10]]
+Old note
+`;
+        mockReadFileSync.mockReturnValue(fileContent);
+
+        const result = await writer.update(note, 'abc1234567', {
+          category: 'question',
+          note: 'New note with new category',
+        });
+
+        expect(result).not.toBeNull();
+        expect(result!.category).toBe('question');
+        expect(result!.note).toBe('New note with new category');
+
+        const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
+        expect(writtenContent).toContain('&category=question');
+        expect(writtenContent).toContain('New note with new category');
+        expect(writtenContent).not.toContain('Old note');
+      });
+
+      it('preserves category when only updating note', async () => {
+        const existingHighlight: PDFHighlight = {
+          id: 'abc1234567',
+          type: 'pdf',
+          page: 10,
+          selection: { beginIndex: 5, beginOffset: 10, endIndex: 5, endOffset: 30 },
+          text: 'Quoted text',
+          category: 'important',
+          createdAt: '2024-01-15T10:00:00Z',
+        };
+
+        const note = createTestNote({ highlights: [existingHighlight] });
+
+        const fileContent = `# Note
+
+> Quoted text
+[[books/test.pdf#page=10&selection=5,10,5,30&category=important|p. 10]]
+`;
+        mockReadFileSync.mockReturnValue(fileContent);
+
+        const result = await writer.update(note, 'abc1234567', { note: 'Just updating note' });
+
+        expect(result).not.toBeNull();
+        expect(result!.category).toBe('important');
+        expect(result!.note).toBe('Just updating note');
+
+        const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
+        // Category should remain in the link
+        expect(writtenContent).toContain('&category=important');
+      });
+
+      it('preserves display text when changing category', async () => {
+        const existingHighlight: PDFHighlight = {
+          id: 'abc1234567',
+          type: 'pdf',
+          page: 10,
+          pageLabel: 'x',
+          selection: { beginIndex: 5, beginOffset: 10, endIndex: 5, endOffset: 30 },
+          text: 'Quoted text',
+          category: 'highlight',
+          createdAt: '2024-01-15T10:00:00Z',
+        };
+
+        const note = createTestNote({ highlights: [existingHighlight] });
+
+        const fileContent = `# Note
+
+> Quoted text
+[[books/test.pdf#page=10&selection=5,10,5,30|"Quoted text"|p. x|2024-01-15]]
+`;
+        mockReadFileSync.mockReturnValue(fileContent);
+
+        const result = await writer.update(note, 'abc1234567', { category: 'definition' });
+
+        expect(result).not.toBeNull();
+
+        const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
+        // The display text portion after | should be preserved
+        expect(writtenContent).toContain('|"Quoted text"|p. x|2024-01-15]]');
+        expect(writtenContent).toContain('&category=definition');
+      });
+
+      it('includes updatedAt timestamp in returned highlight', async () => {
+        const existingHighlight: PDFHighlight = {
+          id: 'abc1234567',
+          type: 'pdf',
+          page: 10,
+          selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 10 },
+          text: 'Quote',
+          createdAt: '2024-01-15T10:00:00Z',
+        };
+
+        const note = createTestNote({ highlights: [existingHighlight] });
+
+        mockReadFileSync.mockReturnValue(`[[books/test.pdf#page=10&selection=0,0,0,10|p. 10]]\n`);
+
+        const result = await writer.update(note, 'abc1234567', { note: 'Updated' });
+
+        expect(result).not.toBeNull();
+        expect(result!.updatedAt).toBeDefined();
+        expect(result!.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+      });
+    });
+
+    describe('delete with categories', () => {
+      it('deletes PDF highlight that has a category in the link', async () => {
+        const existingHighlight: PDFHighlight = {
+          id: 'abc1234567',
+          type: 'pdf',
+          page: 10,
+          selection: { beginIndex: 5, beginOffset: 10, endIndex: 5, endOffset: 30 },
+          text: 'Important quote',
+          category: 'important',
+          createdAt: '2024-01-15T10:00:00Z',
+        };
+
+        const note = createTestNote({ highlights: [existingHighlight] });
+
+        const fileContent = `# Note
+
+> Important quote
+- [[books/test.pdf#page=10&selection=5,10,5,30&category=important|p. 10]]
+
+> Keep this
+- [[books/test.pdf#page=20&selection=0,0,0,10|p. 20]]
+`;
+        mockReadFileSync.mockReturnValue(fileContent);
+
+        const result = await writer.delete(note, 'abc1234567');
+
+        expect(result).toBe(true);
+
+        const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
+        expect(writtenContent).not.toContain('Important quote');
+        expect(writtenContent).not.toContain('&category=important');
+        expect(writtenContent).toContain('Keep this');
+      });
+
+      it('deletes EPUB highlight that has a category in the link', async () => {
+        const existingHighlight: EPUBHighlight = {
+          id: 'epub123456',
+          type: 'epub',
+          cfi: 'epubcfi(/6/4)',
+          text: 'Question text',
+          category: 'question',
+          createdAt: '2024-01-15T10:00:00Z',
+        };
+
+        const note = createTestNote({
+          sourceType: 'epub',
+          sourceRelative: 'books/test.epub',
+          highlights: [existingHighlight],
+        });
+
+        const fileContent = `# EPUB Note
+
+> Question text
+- [[books/test.epub#cfi=epubcfi(/6/4)&category=question|loc]]
+
+> Keep this
+- [[books/test.epub#cfi=epubcfi(/6/6)|loc]]
+`;
+        mockReadFileSync.mockReturnValue(fileContent);
+
+        const result = await writer.delete(note, 'epub123456');
+
+        expect(result).toBe(true);
+
+        const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
+        expect(writtenContent).not.toContain('Question text');
+        expect(writtenContent).not.toContain('&category=question');
+        expect(writtenContent).toContain('Keep this');
+      });
+
+      it('deletes highlight with category and associated note', async () => {
+        const existingHighlight: PDFHighlight = {
+          id: 'abc1234567',
+          type: 'pdf',
+          page: 10,
+          selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 10 },
+          text: 'Todo quote',
+          note: 'Todo note to delete',
+          category: 'todo',
+          createdAt: '2024-01-15T10:00:00Z',
+        };
+
+        const note = createTestNote({ highlights: [existingHighlight] });
+
+        const fileContent = `# Note
+
+> Todo quote
+- [[books/test.pdf#page=10&selection=0,0,0,10&category=todo|p. 10]]
+Todo note to delete
+
+> Another quote
+`;
+        mockReadFileSync.mockReturnValue(fileContent);
+
+        const result = await writer.delete(note, 'abc1234567');
+
+        expect(result).toBe(true);
+
+        const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
+        expect(writtenContent).not.toContain('Todo quote');
+        expect(writtenContent).not.toContain('Todo note to delete');
+        expect(writtenContent).toContain('Another quote');
+      });
+    });
+  });
+
   describe('edge cases', () => {
     it('handles empty file content', async () => {
       const note = createTestNote();
