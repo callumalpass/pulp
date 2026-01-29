@@ -2,93 +2,21 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import Fastify, { FastifyInstance } from 'fastify';
 import { collectionsRoutes } from '../collections.js';
 import type { LibraryScanner } from '../../services/library-scanner.js';
-import type { Config } from '../../config/schema.js';
 import type { LiteratureNote } from '@pulp/shared';
+import { createTestConfig, createTestNote } from '../../test/test-helpers.js';
 
-// Mock fs module
-vi.mock('node:fs', () => ({
-  readFileSync: vi.fn(),
-  writeFileSync: vi.fn(),
+// Mock file-lock module (consistent with other route tests)
+vi.mock('../../services/file-lock.js', () => ({
+  atomicFrontmatterUpdate: vi.fn(async (_filePath: string, modifier: Function) => {
+    const parsed = { frontmatter: {} as Record<string, unknown>, content: '' };
+    return modifier(parsed);
+  }),
 }));
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { atomicFrontmatterUpdate } from '../../services/file-lock.js';
 
-const mockReadFileSync = vi.mocked(readFileSync);
-const mockWriteFileSync = vi.mocked(writeFileSync);
-
-// Test configuration
-const testConfig: Config = {
-  library_path: '/test/library',
-  literature_note_tag: 'literature-note',
-  source_key: 'source',
-  progress_key: 'reading_progress',
-  last_read_key: 'last_read',
-  last_opened_cfi_key: 'last_opened_cfi',
-  date_created_key: 'dateCreated',
-  author_key: 'author',
-  rating_key: 'rating',
-  total_pages_key: 'total_pages',
-  bookmarks_key: 'bookmarks',
-  pinned_key: 'pinned',
-  reading_stats_key: 'reading_stats',
-  reading_history_key: 'reading_history',
-  reading_sessions_key: 'reading_sessions',
-  date_finished_key: 'date_finished',
-  collections_key: 'collections',
-  reader_preferences_key: 'reader_preferences',
-  current_chapter_key: 'current_chapter',
-  highlight_template: '> {{text}}\n- [[{{source}}#page={{page}}&selection={{selection}}|p. {{pageLabel}}]]',
-  highlight_template_epub: '> {{text}}\n- [[{{source}}#cfi={{cfi}}|loc]]',
-  progress_debounce_ms: 5000,
-  exclude_folders: ['.obsidian', '.trash'],
-  search_context_chars: 80,
-  search_max_matches_per_doc: 50,
-  search_results_per_doc: 10,
-  reading_history_max_days: 90,
-  cover_width: 300,
-  cover_height: 450,
-  cover_quality: 80,
-  default_daily_goal_minutes: 30,
-  default_grace_period_days: 1,
-  paused_key: 'paused',
-  paused_at_key: 'paused_at',
-  book_notes_key: 'book_notes',
-};
-
-// Helper to create a test literature note
-function createTestNote(overrides: Partial<LiteratureNote> = {}): LiteratureNote {
-  return {
-    id: 'test-note',
-    title: 'Test Book',
-    author: 'Test Author',
-    source: '/test/library/books/test.pdf',
-    sourceRelative: 'books/test.pdf',
-    sourceType: 'pdf',
-    filePath: '/test/library/books/test.pdf',
-    notePath: '/test/library/notes/test.md',
-    progress: 50,
-    lastRead: '2024-01-15T10:00:00Z',
-    lastOpenedCfi: null,
-    dateCreated: '2024-01-01T00:00:00Z',
-    dateFinished: null,
-    collections: [],
-    tags: ['literature-note'],
-    cover: null,
-    highlights: [],
-    bookmarks: [],
-    pinned: false,
-    rating: null,
-    readingStats: null,
-    totalPages: 100,
-    readerPreferences: null,
-    currentChapter: null,
-    paused: false,
-    pausedAt: null,
-    bookNotes: null,
-    frontmatter: {},
-    ...overrides,
-  };
-}
+const mockAtomicFrontmatterUpdate = vi.mocked(atomicFrontmatterUpdate);
+const testConfig = createTestConfig();
 
 // Create mock scanner
 function createMockScanner(notes: Map<string, LiteratureNote> = new Map()): LibraryScanner {
@@ -114,6 +42,12 @@ describe('collections routes', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+
+    // Restore default mock implementation after clearAllMocks resets it
+    mockAtomicFrontmatterUpdate.mockImplementation(async (_filePath, modifier) => {
+      const parsed = { frontmatter: {} as Record<string, unknown>, content: '' };
+      return modifier(parsed);
+    });
 
     testNotes = new Map();
     testNotes.set('note1', createTestNote({
@@ -144,7 +78,6 @@ describe('collections routes', () => {
   });
 
   afterEach(async () => {
-    vi.restoreAllMocks();
     await fastify.close();
   });
 
@@ -188,20 +121,72 @@ describe('collections routes', () => {
       expect(body.collections[0]).toBe('Apple');
       expect(body.collections[body.collections.length - 1]).toBe('Zebra');
     });
+
+    it('returns empty array when library has no notes', async () => {
+      testNotes.clear();
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/collections',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.collections).toEqual([]);
+    });
+
+    it('deduplicates collections from multiple notes', async () => {
+      testNotes.get('note1')!.collections = ['Shared', 'Unique1'];
+      testNotes.get('note2')!.collections = ['Shared', 'Unique2'];
+      testNotes.get('note3')!.collections = ['Shared'];
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/collections',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.collections).toEqual(['Shared', 'Unique1', 'Unique2']);
+    });
+
+    it('handles a single note with one collection', async () => {
+      testNotes.clear();
+      testNotes.set('only', createTestNote({
+        id: 'only',
+        collections: ['Solo'],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/collections',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.collections).toEqual(['Solo']);
+    });
+
+    it('sorts case-sensitively via localeCompare', async () => {
+      testNotes.get('note1')!.collections = ['alpha', 'Beta'];
+      testNotes.get('note2')!.collections = [];
+      testNotes.get('note3')!.collections = [];
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/collections',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      // localeCompare sorts case-insensitively by default in most locales
+      expect(body.collections).toHaveLength(2);
+      expect(body.collections).toContain('alpha');
+      expect(body.collections).toContain('Beta');
+    });
   });
 
   describe('PATCH /api/library/:id/collections', () => {
-    beforeEach(() => {
-      mockReadFileSync.mockReturnValue(`---
-title: Test Book
-collections:
-  - OldCollection
----
-
-# Notes
-`);
-    });
-
     it('updates collections for a note', async () => {
       const response = await fastify.inject({
         method: 'PATCH',
@@ -215,12 +200,60 @@ collections:
       const body = JSON.parse(response.body);
       expect(body.success).toBe(true);
       expect(body.collections).toEqual(['New Collection', 'Another One']);
+    });
 
-      // Verify file was written
-      expect(mockWriteFileSync).toHaveBeenCalled();
-      const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
-      expect(writtenContent).toContain('New Collection');
-      expect(writtenContent).toContain('Another One');
+    it('calls atomicFrontmatterUpdate with the note file path', async () => {
+      await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/note1/collections',
+        payload: {
+          collections: ['Test'],
+        },
+      });
+
+      expect(mockAtomicFrontmatterUpdate).toHaveBeenCalledWith(
+        testNotes.get('note1')!.notePath,
+        expect.any(Function)
+      );
+    });
+
+    it('sets the configured collections_key in frontmatter', async () => {
+      const capturedFrontmatter: Record<string, unknown> = { title: 'Test' };
+      mockAtomicFrontmatterUpdate.mockImplementation(async (_filePath, modifier) => {
+        return modifier({ frontmatter: capturedFrontmatter, content: '' });
+      });
+
+      await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/note1/collections',
+        payload: {
+          collections: ['Science', 'History'],
+        },
+      });
+
+      expect(capturedFrontmatter[testConfig.collections_key]).toEqual(['Science', 'History']);
+    });
+
+    it('uses custom collections_key from config', async () => {
+      const customFastify = Fastify({ logger: false });
+      const customConfig = createTestConfig({ collections_key: 'my_tags' });
+      await customFastify.register(collectionsRoutes, { scanner: mockScanner, config: customConfig });
+      await customFastify.ready();
+
+      const capturedFrontmatter: Record<string, unknown> = {};
+      mockAtomicFrontmatterUpdate.mockImplementation(async (_filePath, modifier) => {
+        return modifier({ frontmatter: capturedFrontmatter, content: '' });
+      });
+
+      await customFastify.inject({
+        method: 'PATCH',
+        url: '/api/library/note1/collections',
+        payload: { collections: ['TagA'] },
+      });
+
+      expect(capturedFrontmatter.my_tags).toEqual(['TagA']);
+      expect(capturedFrontmatter).not.toHaveProperty('collections');
+      await customFastify.close();
     });
 
     it('trims whitespace from collection names', async () => {
@@ -252,6 +285,14 @@ collections:
     });
 
     it('removes collections key when setting to empty array', async () => {
+      const capturedFrontmatter: Record<string, unknown> = {
+        title: 'Test',
+        [testConfig.collections_key]: ['OldCollection'],
+      };
+      mockAtomicFrontmatterUpdate.mockImplementation(async (_filePath, modifier) => {
+        return modifier({ frontmatter: capturedFrontmatter, content: '' });
+      });
+
       const response = await fastify.inject({
         method: 'PATCH',
         url: '/api/library/note1/collections',
@@ -263,11 +304,29 @@ collections:
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(body.collections).toEqual([]);
+      expect(capturedFrontmatter).not.toHaveProperty(testConfig.collections_key);
+    });
 
-      // Verify the collections key was removed from frontmatter
-      expect(mockWriteFileSync).toHaveBeenCalled();
-      const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
-      expect(writtenContent).not.toContain('collections:');
+    it('removes collections key when all entries are whitespace-only', async () => {
+      const capturedFrontmatter: Record<string, unknown> = {
+        [testConfig.collections_key]: ['OldCollection'],
+      };
+      mockAtomicFrontmatterUpdate.mockImplementation(async (_filePath, modifier) => {
+        return modifier({ frontmatter: capturedFrontmatter, content: '' });
+      });
+
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/note1/collections',
+        payload: {
+          collections: ['  ', '\t', ''],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.collections).toEqual([]);
+      expect(capturedFrontmatter).not.toHaveProperty(testConfig.collections_key);
     });
 
     it('returns 404 for non-existent note', async () => {
@@ -284,6 +343,18 @@ collections:
       expect(body.error).toBe('Note not found');
     });
 
+    it('does not call atomicFrontmatterUpdate for non-existent note', async () => {
+      await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/nonexistent/collections',
+        payload: {
+          collections: ['Test'],
+        },
+      });
+
+      expect(mockAtomicFrontmatterUpdate).not.toHaveBeenCalled();
+    });
+
     it('requires collections array in body', async () => {
       const response = await fastify.inject({
         method: 'PATCH',
@@ -292,6 +363,21 @@ collections:
       });
 
       expect(response.statusCode).toBe(400);
+    });
+
+    it('coerces a string collections value into a single-element array', async () => {
+      // Fastify uses AJV with coerceTypes, so a string becomes ['string']
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/note1/collections',
+        payload: {
+          collections: 'single-value',
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.collections).toEqual(['single-value']);
     });
 
     it('updates in-memory cache after successful update', async () => {
@@ -308,33 +394,139 @@ collections:
       });
     });
 
-    it('preserves other frontmatter when updating collections', async () => {
-      mockReadFileSync.mockReturnValue(`---
-title: My Book
-author: Author Name
-rating: 5
-collections:
-  - OldCollection
----
-
-# Notes
-Some content here.
-`);
+    it('does not update cache when atomicFrontmatterUpdate throws', async () => {
+      mockAtomicFrontmatterUpdate.mockRejectedValue(new Error('Disk full'));
 
       await fastify.inject({
         method: 'PATCH',
         url: '/api/library/note1/collections',
         payload: {
-          collections: ['NewCollection'],
+          collections: ['Test'],
         },
       });
 
-      const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
-      expect(writtenContent).toContain('title: My Book');
-      expect(writtenContent).toContain('author: Author Name');
-      expect(writtenContent).toContain('rating: 5');
-      expect(writtenContent).toContain('NewCollection');
-      expect(writtenContent).toContain('Some content here.');
+      expect(mockScanner.updateNote).not.toHaveBeenCalled();
+    });
+
+    it('returns 500 when atomicFrontmatterUpdate throws', async () => {
+      mockAtomicFrontmatterUpdate.mockRejectedValue(new Error('Permission denied'));
+
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/note1/collections',
+        payload: {
+          collections: ['Test'],
+        },
+      });
+
+      expect(response.statusCode).toBe(500);
+      const body = JSON.parse(response.body);
+      expect(body.error).toBe('Failed to update collections');
+    });
+
+    describe('edge cases', () => {
+      it('handles unicode collection names', async () => {
+        const response = await fastify.inject({
+          method: 'PATCH',
+          url: '/api/library/note1/collections',
+          payload: {
+            collections: ['文学', 'Poésie', 'Наука'],
+          },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body.collections).toEqual(['文学', 'Poésie', 'Наука']);
+      });
+
+      it('handles collection names with special characters', async () => {
+        const response = await fastify.inject({
+          method: 'PATCH',
+          url: '/api/library/note1/collections',
+          payload: {
+            collections: ['Science & Technology', 'Self-Help', 'How-To / DIY'],
+          },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body.collections).toEqual(['Science & Technology', 'Self-Help', 'How-To / DIY']);
+      });
+
+      it('preserves duplicate collection names (no dedup on write)', async () => {
+        const response = await fastify.inject({
+          method: 'PATCH',
+          url: '/api/library/note1/collections',
+          payload: {
+            collections: ['Fiction', 'Fiction', 'Fiction'],
+          },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        // The route does not deduplicate — it preserves the input as-is
+        expect(body.collections).toEqual(['Fiction', 'Fiction', 'Fiction']);
+      });
+
+      it('handles a single collection', async () => {
+        const response = await fastify.inject({
+          method: 'PATCH',
+          url: '/api/library/note1/collections',
+          payload: {
+            collections: ['Solo'],
+          },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body.collections).toEqual(['Solo']);
+      });
+
+      it('handles a large number of collections', async () => {
+        const manyCollections = Array.from({ length: 50 }, (_, i) => `Collection ${i + 1}`);
+        const response = await fastify.inject({
+          method: 'PATCH',
+          url: '/api/library/note1/collections',
+          payload: {
+            collections: manyCollections,
+          },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body.collections).toHaveLength(50);
+        expect(body.collections[0]).toBe('Collection 1');
+        expect(body.collections[49]).toBe('Collection 50');
+      });
+
+      it('handles collection names with leading/trailing newlines', async () => {
+        const response = await fastify.inject({
+          method: 'PATCH',
+          url: '/api/library/note1/collections',
+          payload: {
+            collections: ['\nNewline\n', '\tTab\t'],
+          },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body.collections).toEqual(['Newline', 'Tab']);
+      });
+
+      it('caches trimmed and filtered collections in memory', async () => {
+        await fastify.inject({
+          method: 'PATCH',
+          url: '/api/library/note1/collections',
+          payload: {
+            collections: ['  Trimmed  ', '', '  Valid  '],
+          },
+        });
+
+        // The in-memory cache should receive the sanitized collections
+        expect(mockScanner.updateNote).toHaveBeenCalledWith('note1', {
+          collections: ['Trimmed', 'Valid'],
+        });
+      });
     });
   });
 });
