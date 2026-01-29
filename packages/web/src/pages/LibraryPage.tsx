@@ -16,6 +16,7 @@ import { LibraryShortcutsPanel } from '../components/library/LibraryShortcutsPan
 import { LibraryStats } from '../components/library/LibraryStats';
 import { Button } from '../components/ui/Button';
 import { useLibraryFiltersStore, type SortOption, type ProgressFilter, type TypeFilter, type SearchMode, type ViewMode } from '../stores/libraryFilters';
+import { filterNotes, hasActiveFilters as computeHasActiveFilters, countActiveFilters, findContinueReadingBook, excludeContinueReadingBook } from '../lib/library-filters';
 import type { LiteratureNoteSummary } from '@pulp/shared';
 
 const SORT_LABELS: Record<SortOption, string> = {
@@ -163,53 +164,26 @@ function LibraryPageContent() {
 
   const filteredNotes = useMemo(() => {
     if (!notes) return [];
-
-    const normalizedQuery = deferredQuery.trim().toLowerCase();
-
-    return notes.filter((note: LiteratureNoteSummary) => {
-      // Search filter (only for title mode)
-      if (searchMode === 'title' && normalizedQuery) {
-        const matchesTitle = note.title.toLowerCase().includes(normalizedQuery);
-        const matchesCitekey = note.citekey?.toLowerCase().includes(normalizedQuery);
-        if (!matchesTitle && !matchesCitekey) {
-          return false;
-        }
-      }
-
-      // Type filter
-      if (typeFilter !== 'all' && note.sourceType !== typeFilter) {
-        return false;
-      }
-
-      // Progress filter
-      if (progressFilter !== 'all') {
-        const progress = note.progress;
-        if (progressFilter === 'unread' && progress !== 0) return false;
-        if (progressFilter === 'reading' && (progress === 0 || progress === 100)) return false;
-        if (progressFilter === 'completed' && progress !== 100) return false;
-      }
-
-      // Collection filter
-      if (collectionFilter !== null) {
-        if (!note.collections.includes(collectionFilter)) return false;
-      }
-
-      return true;
+    return filterNotes(notes, {
+      searchQuery: deferredQuery,
+      searchMode,
+      typeFilter,
+      progressFilter,
+      collectionFilter,
     });
   }, [notes, deferredQuery, typeFilter, progressFilter, collectionFilter, searchMode]);
 
   // Memoize filter calculations to prevent recalculation on unrelated state changes
   const hasActiveFilters = useMemo(() =>
-    Boolean(searchQuery) || typeFilter !== 'all' || progressFilter !== 'all' || collectionFilter !== null,
+    computeHasActiveFilters(searchQuery, typeFilter, progressFilter, collectionFilter),
     [searchQuery, typeFilter, progressFilter, collectionFilter]
   );
 
   // Count active filters for badge display
-  const activeFilterCount = useMemo(() => [
-    typeFilter !== 'all',
-    progressFilter !== 'all',
-    collectionFilter !== null,
-  ].filter(Boolean).length, [typeFilter, progressFilter, collectionFilter]);
+  const activeFilterCount = useMemo(() =>
+    countActiveFilters(typeFilter, progressFilter, collectionFilter),
+    [typeFilter, progressFilter, collectionFilter]
+  );
 
   // Get available collections
   const availableCollections = collectionsData?.collections || [];
@@ -224,48 +198,61 @@ function LibraryPageContent() {
   // Find the most recently read book that's still in progress for "Continue Reading"
   const continueReadingBook = useMemo(() => {
     if (!notes) return null;
-
-    // Find books that are in progress (between 1% and 99%) and have been read
-    const inProgress = notes.filter(
-      (note: LiteratureNoteSummary) => note.progress > 0 && note.progress < 100 && note.lastRead
-    );
-
-    if (inProgress.length === 0) return null;
-
-    // Sort by last read date (most recent first)
-    const sorted = [...inProgress].sort((a, b) => {
-      const dateA = a.lastRead ? new Date(a.lastRead).getTime() : 0;
-      const dateB = b.lastRead ? new Date(b.lastRead).getTime() : 0;
-      return dateB - dateA;
-    });
-
-    return sorted[0];
+    return findContinueReadingBook(notes);
   }, [notes]);
 
   // Keep ref in sync for keyboard shortcut handler
   continueReadingRef.current = continueReadingBook;
+
+  // When the continue-reading card is visible, suppress that book from the
+  // grid/list to avoid showing it twice on screen.
+  const showContinueReading = !hasActiveFilters && !isShowingSearchResults && !!continueReadingBook;
+  const gridNotes = useMemo(() => {
+    if (!showContinueReading) return filteredNotes;
+    return excludeContinueReadingBook(filteredNotes, continueReadingBook);
+  }, [filteredNotes, showContinueReading, continueReadingBook]);
 
   // Show connection error when disconnected and fetching or no data
   const showConnectionError = connectionStatus === 'disconnected' && (isFetching || !notes);
 
   if (isLoading && !showConnectionError) {
     return (
-      <div className="p-6 page-transition">
+      <div className="p-6 page-transition" role="status" aria-label="Loading library">
+        <span className="sr-only">Loading your library...</span>
         {/* Search bar skeleton */}
         <div className="flex flex-col gap-4 mb-6">
           <div className="flex gap-2">
             <div className="flex-1 h-11 skeleton rounded-xl" />
             <div className="w-28 h-11 skeleton rounded-xl" />
           </div>
-          {/* Filter row skeleton */}
+          {/* Filter row skeleton — matches the two-row Type/Status + Sort layout */}
           {!isMobile && (
             <div className="flex flex-wrap items-center gap-3">
+              {/* Type label + buttons */}
+              <div className="w-8 h-4 skeleton rounded" />
               <div className="w-32 h-9 skeleton rounded-xl" />
+              {/* Status label + buttons */}
+              <div className="w-10 h-4 skeleton rounded" />
               <div className="w-48 h-9 skeleton rounded-xl" />
               <div className="flex-1" />
+              {/* View toggle */}
+              <div className="w-8 h-4 skeleton rounded" />
+              <div className="w-20 h-9 skeleton rounded-xl" />
+              {/* Sort buttons */}
+              <div className="w-8 h-4 skeleton rounded" />
               <div className="w-64 h-9 skeleton rounded-xl" />
             </div>
           )}
+        </div>
+
+        {/* Stats bar skeleton */}
+        <div className="mb-6">
+          <div className="flex items-center gap-6">
+            <div className="w-28 h-4 skeleton rounded" />
+            <div className="w-20 h-4 skeleton rounded" />
+            <div className="w-20 h-4 skeleton rounded" />
+            <div className="w-24 h-4 skeleton rounded" />
+          </div>
         </div>
 
         {/* Continue Reading skeleton */}
@@ -277,7 +264,7 @@ function LibraryPageContent() {
         {/* Library grid skeleton */}
         <div className="w-20 h-4 skeleton rounded mb-4" />
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-          {Array.from({ length: 12 }).map((_, i) => (
+          {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="flex flex-col gap-2">
               <div className="aspect-[2/3] skeleton rounded-xl" />
               <div className="h-4 skeleton rounded w-3/4" />
@@ -342,15 +329,21 @@ function LibraryPageContent() {
         <div className="flex flex-col gap-4 mb-6">
           {/* Search bar with mode toggle */}
           <div className="flex gap-2">
-          <div className="relative flex-1 group/search">
+          <div className="relative flex-1 group/search" role="search" aria-label="Search library">
             <SearchIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary transition-colors group-focus-within/search:text-accent-primary" />
             <input
               ref={searchInputRef}
               type="search"
               placeholder={searchMode === 'title' ? 'Search by title...' : 'Search document contents...'}
+              aria-label={searchMode === 'title' ? 'Search by title' : 'Search document contents'}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-10 py-2.5 bg-bg-surface border border-subtle rounded-xl text-text-primary placeholder:text-text-secondary/60 focus:outline-none focus:ring-2 focus:ring-accent-primary/30 focus:border-accent-primary/50 transition-all duration-200 hover:border-text-secondary/30"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  searchInputRef.current?.blur();
+                }
+              }}
+              className="w-full pl-10 pr-10 py-2.5 bg-bg-surface border border-subtle rounded-xl text-text-primary placeholder:text-text-secondary/60 focus:outline-none focus:ring-2 focus:ring-accent-primary/30 focus:border-accent-primary/50 transition-[border-color,box-shadow] duration-200 hover:border-text-secondary/30"
             />
             {/* Keyboard shortcut hint */}
             {!searchQuery && (
@@ -360,7 +353,7 @@ function LibraryPageContent() {
               onClick={() => setSearchQuery('')}
               type="button"
               aria-label="Clear search"
-              className={`absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary transition-all duration-150 ${
+              className={`absolute right-1 top-1/2 -translate-y-1/2 min-w-[44px] min-h-[44px] w-11 h-11 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-deep/50 transition-[color,background-color,opacity,transform] duration-150 ${
                 searchQuery
                   ? 'opacity-100 scale-100'
                   : 'opacity-0 scale-75 pointer-events-none'
@@ -432,7 +425,7 @@ function LibraryPageContent() {
               <button
                 onClick={toggleSortOrder}
                 type="button"
-                className="w-11 h-11 flex items-center justify-center rounded-xl bg-bg-surface border border-text-secondary/20 text-text-secondary hover:text-text-primary hover:bg-bg-deep hover:border-text-secondary/40 transition-colors active:scale-[0.97]"
+                className="w-11 h-11 flex items-center justify-center rounded-xl bg-bg-surface border border-text-secondary/20 text-text-secondary hover:text-text-primary hover:bg-bg-deep hover:border-text-secondary/40 transition-colors active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
                 title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
                 aria-label={`Sort order: ${sortOrder === 'asc' ? 'ascending' : 'descending'}`}
                 aria-pressed={sortOrder === 'asc'}
@@ -446,7 +439,7 @@ function LibraryPageContent() {
             </div>
           ) : (
             /* Desktop: Inline filters */
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3 gap-y-2">
               {/* Type filter */}
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-text-secondary/70 uppercase tracking-wider font-medium">Type</span>
@@ -474,7 +467,7 @@ function LibraryPageContent() {
                   <select
                     value={collectionFilter || ''}
                     onChange={(e) => setCollectionFilter(e.target.value || null)}
-                    className="collection-select px-3 py-2 text-sm bg-bg-surface border border-subtle rounded-xl text-text-primary focus:outline-none min-h-[38px]"
+                    className="collection-select px-3 py-2 text-sm bg-bg-surface border border-subtle rounded-xl text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50 focus-visible:border-accent-primary/50 min-h-[38px]"
                   >
                     <option value="">All</option>
                     {availableCollections.map((collection) => (
@@ -510,7 +503,7 @@ function LibraryPageContent() {
                 <button
                   onClick={toggleSortOrder}
                   type="button"
-                  className="w-10 h-10 flex items-center justify-center rounded-xl filter-btn-group text-text-secondary hover:text-accent-primary hover:bg-bg-deep transition-all duration-150 active:scale-95"
+                  className="w-10 h-10 flex items-center justify-center rounded-xl filter-btn-group text-text-secondary hover:text-accent-primary hover:bg-bg-deep transition-[color,background-color,transform] duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
                   title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
                   aria-label={`Sort order: ${sortOrder === 'asc' ? 'ascending' : 'descending'}`}
                   aria-pressed={sortOrder === 'asc'}
@@ -527,7 +520,7 @@ function LibraryPageContent() {
               <button
                 onClick={() => setShowShortcuts(true)}
                 type="button"
-                className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary/50 hover:text-text-secondary hover:bg-bg-deep transition-all duration-150"
+                className="w-10 h-10 flex items-center justify-center rounded-lg text-text-secondary/50 hover:text-text-secondary hover:bg-bg-deep transition-[color,background-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
                 title="Keyboard shortcuts (?)"
                 aria-label="Show keyboard shortcuts"
               >
@@ -556,7 +549,7 @@ function LibraryPageContent() {
 
       {/* Reading stats bar */}
       {!isShowingSearchResults && !hasActiveFilters && (
-        <div className="mb-6">
+        <div className="mb-4 min-w-0">
           <LibraryStats />
         </div>
       )}
@@ -564,14 +557,14 @@ function LibraryPageContent() {
       {/* Continue Reading Section */}
       {!isShowingSearchResults && !hasActiveFilters && (
         isLoading ? (
-          <div className="mb-8">
+          <div className="mb-6">
             <SectionHeader icon={<PlayCircleIcon className="w-4 h-4" />}>
               Continue Reading
             </SectionHeader>
             <ContinueReadingCardSkeleton />
           </div>
         ) : continueReadingBook ? (
-          <div className="mb-8">
+          <div className="mb-6">
             <SectionHeader icon={<PlayCircleIcon className="w-4 h-4" />}>
               Continue Reading
             </SectionHeader>
@@ -589,7 +582,7 @@ function LibraryPageContent() {
         />
       ) : (
         <>
-          {!hasActiveFilters && continueReadingBook && (
+          {!hasActiveFilters && continueReadingBook && !filteredNotes.some(n => n.pinned) && (
             <SectionHeader icon={<LibraryIcon className="w-4 h-4" />}>
               All Books
             </SectionHeader>
@@ -602,9 +595,9 @@ function LibraryPageContent() {
           ) : (
             <div key={viewMode} className="view-switch-enter">
               {viewMode === 'list' ? (
-                <LibraryListView notes={filteredNotes} />
+                <LibraryListView notes={gridNotes} />
               ) : (
-                <LibraryGrid notes={filteredNotes} />
+                <LibraryGrid notes={gridNotes} />
               )}
             </div>
           )}
@@ -671,32 +664,39 @@ const FilterButtonGroup = memo(function FilterButtonGroup<T extends string>({
     }
   }, []);
 
-  // Update indicator position when value changes
-  useEffect(() => {
-    const updateIndicator = () => {
-      const activeButton = buttonRefs.current.get(value);
-      const container = containerRef.current;
-      if (activeButton && container) {
-        const containerRect = container.getBoundingClientRect();
-        const buttonRect = activeButton.getBoundingClientRect();
-        setIndicatorStyle({
-          left: buttonRect.left - containerRect.left,
-          width: buttonRect.width,
-        });
-      }
-    };
-
-    updateIndicator();
-
-    window.addEventListener('resize', updateIndicator);
-    return () => window.removeEventListener('resize', updateIndicator);
+  // Update indicator position when value changes or container resizes
+  const updateIndicator = useCallback(() => {
+    const activeButton = buttonRefs.current.get(value);
+    const container = containerRef.current;
+    if (activeButton && container) {
+      const containerRect = container.getBoundingClientRect();
+      const buttonRect = activeButton.getBoundingClientRect();
+      setIndicatorStyle({
+        left: buttonRect.left - containerRect.left,
+        width: buttonRect.width,
+      });
+    }
   }, [value]);
+
+  useEffect(() => {
+    updateIndicator();
+  }, [updateIndicator]);
+
+  // Use ResizeObserver instead of window resize listener to avoid
+  // forced reflows across all FilterButtonGroup instances
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver(updateIndicator);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [updateIndicator]);
 
   return (
     <div ref={containerRef} className="flex rounded-xl filter-btn-group overflow-hidden relative">
       {/* Sliding indicator */}
       <div
-        className="absolute top-0 h-full filter-btn-active rounded-xl transition-all duration-200 ease-stoody pointer-events-none"
+        className="absolute top-0 h-full filter-btn-active rounded-xl transition-[left,width,opacity] duration-200 ease-out pointer-events-none"
         style={{
           left: indicatorStyle.left,
           width: indicatorStyle.width,
@@ -712,10 +712,10 @@ const FilterButtonGroup = memo(function FilterButtonGroup<T extends string>({
           aria-pressed={value === opt.value}
           aria-label={opt.ariaLabel}
           title={opt.ariaLabel}
-          className={`filter-btn ${opt.iconOnly ? 'p-2.5 min-h-[38px] min-w-[38px] flex items-center justify-center' : 'px-3.5 py-2 min-h-[38px] flex items-center gap-1.5'} text-sm font-medium transition-colors duration-150 select-none relative z-[1] ${
+          className={`filter-btn ${opt.iconOnly ? 'p-2.5 min-h-[44px] min-w-[44px] sm:min-h-[38px] sm:min-w-[38px] flex items-center justify-center' : 'px-3.5 py-2 min-h-[44px] sm:min-h-[38px] flex items-center gap-1.5'} text-sm transition-colors duration-150 select-none relative z-[1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-inset rounded-xl ${
             value === opt.value
-              ? 'text-accent-primary'
-              : 'text-text-secondary hover:text-text-primary'
+              ? 'text-accent-primary font-semibold'
+              : 'text-text-secondary font-medium hover:text-text-primary'
           }`}
         >
           {opt.label}
@@ -740,7 +740,7 @@ const FilteredEmptyState = memo(function FilteredEmptyState({
     <div className="flex flex-col items-center justify-center py-20 text-text-secondary page-transition">
       <div className="relative mb-5">
         <div className="absolute -inset-4 bg-accent-primary/5 rounded-full blur-xl" />
-        <div className="relative p-4 bg-bg-surface rounded-2xl border border-white/[0.05] animate-search-peek">
+        <div className="relative p-4 bg-bg-surface rounded-2xl border border-subtle animate-search-peek">
           <SearchIcon className="w-10 h-10 text-text-secondary/50" />
         </div>
       </div>
