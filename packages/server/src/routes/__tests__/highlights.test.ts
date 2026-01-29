@@ -1125,4 +1125,522 @@ describe('highlights routes', () => {
       expect(body.content).not.toContain('## Definition');
     });
   });
+
+  describe('GET /api/library/:id/highlights/export - mixed type sorting', () => {
+    it('sorts mixed PDF and EPUB highlights by date when types differ', async () => {
+      const pdfEarly: PDFHighlight = {
+        id: 'p-early',
+        type: 'pdf',
+        page: 50,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: 'PDF highlight on page 50',
+        createdAt: '2024-01-10T10:00:00Z',
+      };
+      const epubMiddle: EPUBHighlight = {
+        id: 'e-middle',
+        type: 'epub',
+        cfi: 'epubcfi(/6/4!/4/2:0)',
+        text: 'EPUB highlight in middle',
+        createdAt: '2024-01-15T10:00:00Z',
+      };
+      const pdfLate: PDFHighlight = {
+        id: 'p-late',
+        type: 'pdf',
+        page: 10,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: 'PDF highlight on page 10',
+        createdAt: '2024-01-20T10:00:00Z',
+      };
+      testNotes.set('mixed-note', createTestNote({
+        id: 'mixed-note',
+        title: 'Mixed Type Book',
+        highlights: [pdfLate, epubMiddle, pdfEarly],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/mixed-note/highlights/export?format=plaintext',
+      });
+
+      const body = JSON.parse(response.body);
+      const idxEarly = body.content.indexOf('PDF highlight on page 50');
+      const idxMiddle = body.content.indexOf('EPUB highlight in middle');
+      const idxLate = body.content.indexOf('PDF highlight on page 10');
+      // When mixed types, PDF-PDF comparisons use page, but cross-type uses createdAt
+      // pdfEarly (Jan 10) should come before epubMiddle (Jan 15) which comes before pdfLate (Jan 20)
+      expect(idxEarly).toBeLessThan(idxMiddle);
+      expect(idxMiddle).toBeLessThan(idxLate);
+    });
+  });
+
+  describe('GET /api/library/:id/highlights/export - CSV column exclusion', () => {
+    it('CSV export omits Category column when includeCategories=false', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/highlights/export?format=csv&includeCategories=false',
+      });
+
+      const body = JSON.parse(response.body);
+      const headerLine = body.content.split('\n')[0];
+      expect(headerLine).not.toContain('Category');
+      expect(headerLine).toContain('Text');
+      expect(headerLine).toContain('Type');
+      expect(headerLine).toContain('Location');
+    });
+
+    it('CSV export omits Note column when includeNotes=false', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/highlights/export?format=csv&includeNotes=false',
+      });
+
+      const body = JSON.parse(response.body);
+      const headerLine = body.content.split('\n')[0];
+      expect(headerLine).not.toContain('Note');
+    });
+
+    it('CSV export omits Created column when includeTimestamps=false', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/highlights/export?format=csv&includeTimestamps=false',
+      });
+
+      const body = JSON.parse(response.body);
+      const headerLine = body.content.split('\n')[0];
+      expect(headerLine).not.toContain('Created');
+    });
+
+    it('CSV export with all options disabled has minimal columns', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/highlights/export?format=csv&includeCategories=false&includeNotes=false&includeTimestamps=false',
+      });
+
+      const body = JSON.parse(response.body);
+      const headerLine = body.content.split('\n')[0];
+      expect(headerLine).toBe('Text,Type,Location');
+    });
+  });
+
+  describe('GET /api/library/:id/highlights/export - CSV combined escaping', () => {
+    it('CSV export handles text with commas, quotes, and newlines combined', async () => {
+      const complexHighlight: PDFHighlight = {
+        id: 'h-complex',
+        type: 'pdf',
+        page: 1,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: 'He said, "hello"\nand then left',
+        createdAt: '2024-01-15T10:00:00Z',
+      };
+      testNotes.set('csv-complex', createTestNote({
+        id: 'csv-complex',
+        title: 'Complex CSV',
+        highlights: [complexHighlight],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/csv-complex/highlights/export?format=csv',
+      });
+
+      const body = JSON.parse(response.body);
+      // Should be wrapped in quotes with internal quotes doubled
+      expect(body.content).toContain('"He said, ""hello""\nand then left"');
+    });
+
+    it('CSV export does not escape text without special characters', async () => {
+      const plainHighlight: PDFHighlight = {
+        id: 'h-plain',
+        type: 'pdf',
+        page: 1,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: 'Simple text without special chars',
+        createdAt: '2024-01-15T10:00:00Z',
+      };
+      testNotes.set('csv-plain', createTestNote({
+        id: 'csv-plain',
+        title: 'Plain CSV',
+        highlights: [plainHighlight],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/csv-plain/highlights/export?format=csv&includeCategories=false&includeNotes=false&includeTimestamps=false',
+      });
+
+      const body = JSON.parse(response.body);
+      const dataLine = body.content.split('\n')[1];
+      // Should not be wrapped in extra quotes
+      expect(dataLine).toBe('Simple text without special chars,pdf,Page 1');
+    });
+  });
+
+  describe('GET /api/library/:id/highlights/export - groupByCategory edge cases', () => {
+    it('groupByCategory places uncategorized highlights under Highlight heading', async () => {
+      const uncategorized: PDFHighlight = {
+        id: 'h-uncat',
+        type: 'pdf',
+        page: 1,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: 'Uncategorized text',
+        createdAt: '2024-01-15T10:00:00Z',
+      };
+      const categorized: PDFHighlight = {
+        id: 'h-cat',
+        type: 'pdf',
+        page: 2,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: 'Important text',
+        category: 'important',
+        createdAt: '2024-01-16T10:00:00Z',
+      };
+      testNotes.set('group-mixed', createTestNote({
+        id: 'group-mixed',
+        title: 'Group Mixed',
+        highlights: [uncategorized, categorized],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/group-mixed/highlights/export?format=markdown&groupByCategory=true',
+      });
+
+      const body = JSON.parse(response.body);
+      // Uncategorized defaults to 'highlight' category
+      expect(body.content).toContain('## Highlight');
+      expect(body.content).toContain('## Important');
+      expect(body.content).toContain('Uncategorized text');
+      expect(body.content).toContain('Important text');
+    });
+
+    it('groupByCategory follows defined category order', async () => {
+      const todo: PDFHighlight = {
+        id: 'h-todo',
+        type: 'pdf',
+        page: 1,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: 'Todo item',
+        category: 'todo',
+        createdAt: '2024-01-15T10:00:00Z',
+      };
+      const highlight: PDFHighlight = {
+        id: 'h-hl',
+        type: 'pdf',
+        page: 2,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: 'General highlight',
+        category: 'highlight',
+        createdAt: '2024-01-16T10:00:00Z',
+      };
+      const definition: PDFHighlight = {
+        id: 'h-def',
+        type: 'pdf',
+        page: 3,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: 'A definition',
+        category: 'definition',
+        createdAt: '2024-01-17T10:00:00Z',
+      };
+      testNotes.set('order-note', createTestNote({
+        id: 'order-note',
+        title: 'Order Test',
+        highlights: [todo, highlight, definition],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/order-note/highlights/export?format=markdown&groupByCategory=true',
+      });
+
+      const body = JSON.parse(response.body);
+      // Category order: highlight, important, question, todo, definition
+      const hlIdx = body.content.indexOf('## Highlight');
+      const todoIdx = body.content.indexOf('## To-do');
+      const defIdx = body.content.indexOf('## Definition');
+      expect(hlIdx).toBeLessThan(todoIdx);
+      expect(todoIdx).toBeLessThan(defIdx);
+    });
+
+    it('groupByCategory with all five categories present', async () => {
+      const makeHighlight = (id: string, category: string, page: number): PDFHighlight => ({
+        id,
+        type: 'pdf',
+        page,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: `Text for ${category}`,
+        category: category as PDFHighlight['category'],
+        createdAt: '2024-01-15T10:00:00Z',
+      });
+
+      testNotes.set('all-cats', createTestNote({
+        id: 'all-cats',
+        title: 'All Categories',
+        highlights: [
+          makeHighlight('h1', 'highlight', 1),
+          makeHighlight('h2', 'important', 2),
+          makeHighlight('h3', 'question', 3),
+          makeHighlight('h4', 'todo', 4),
+          makeHighlight('h5', 'definition', 5),
+        ],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/all-cats/highlights/export?format=markdown&groupByCategory=true',
+      });
+
+      const body = JSON.parse(response.body);
+      expect(body.content).toContain('## Highlight');
+      expect(body.content).toContain('## Important');
+      expect(body.content).toContain('## Question');
+      expect(body.content).toContain('## To-do');
+      expect(body.content).toContain('## Definition');
+    });
+  });
+
+  describe('GET /api/library/:id/highlights/export - JSON combined options', () => {
+    it('JSON export with all options disabled returns minimal highlight objects', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/highlights/export?format=json&includeNotes=false&includeCategories=false&includeTimestamps=false',
+      });
+
+      const body = JSON.parse(response.body);
+      const exported = JSON.parse(body.content);
+
+      for (const h of exported.highlights) {
+        expect(h.text).toBeDefined();
+        expect(h.type).toBeDefined();
+        // Optional fields should all be absent
+        expect(h.note).toBeUndefined();
+        expect(h.category).toBeUndefined();
+        expect(h.createdAt).toBeUndefined();
+        expect(h.updatedAt).toBeUndefined();
+      }
+      // Structural fields should still be present
+      expect(exported.title).toBe('Test Book');
+      expect(exported.highlightCount).toBe(2);
+      expect(exported.exportedAt).toBeDefined();
+    });
+
+    it('JSON export includes page for PDF and cfi for EPUB even with options disabled', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/highlights/export?format=json&includeNotes=false&includeCategories=false&includeTimestamps=false',
+      });
+
+      const body = JSON.parse(response.body);
+      const exported = JSON.parse(body.content);
+      const pdf = exported.highlights.find((h: Record<string, unknown>) => h.type === 'pdf');
+      const epub = exported.highlights.find((h: Record<string, unknown>) => h.type === 'epub');
+
+      expect(pdf.page).toBeDefined();
+      expect(epub.cfi).toBeDefined();
+    });
+  });
+
+  describe('GET /api/library/:id/highlights/export - filename edge cases', () => {
+    it('generates filename from title with only special characters', async () => {
+      testNotes.set('special-only', createTestNote({
+        id: 'special-only',
+        title: '!!!@@@###',
+        highlights: [samplePDFHighlight],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/special-only/highlights/export?format=markdown',
+      });
+
+      const body = JSON.parse(response.body);
+      // After sanitization all chars are stripped, leaving '-highlights.md'
+      expect(body.filename).toBe('-highlights.md');
+    });
+
+    it('generates filename with spaces collapsed into single hyphens', async () => {
+      testNotes.set('spaces-note', createTestNote({
+        id: 'spaces-note',
+        title: 'My   Book   Title',
+        highlights: [samplePDFHighlight],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/spaces-note/highlights/export?format=json',
+      });
+
+      const body = JSON.parse(response.body);
+      expect(body.filename).toBe('My-Book-Title-highlights.json');
+    });
+
+    it('generates different extensions for each format', async () => {
+      testNotes.set('ext-note', createTestNote({
+        id: 'ext-note',
+        title: 'Extension Test',
+        highlights: [samplePDFHighlight],
+      }));
+
+      const csvResponse = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/ext-note/highlights/export?format=csv',
+      });
+      expect(JSON.parse(csvResponse.body).filename).toBe('Extension-Test-highlights.csv');
+
+      const txtResponse = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/ext-note/highlights/export?format=plaintext',
+      });
+      expect(JSON.parse(txtResponse.body).filename).toBe('Extension-Test-highlights.txt');
+    });
+  });
+
+  describe('GET /api/library/:id/highlights/export - single highlight', () => {
+    it('exports a single highlight correctly in all formats', async () => {
+      const singleHighlight: PDFHighlight = {
+        id: 'single',
+        type: 'pdf',
+        page: 1,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: 'Only highlight',
+        note: 'Only note',
+        category: 'definition',
+        createdAt: '2024-01-15T10:00:00Z',
+      };
+      testNotes.set('single-note', createTestNote({
+        id: 'single-note',
+        title: 'Single Highlight Book',
+        highlights: [singleHighlight],
+      }));
+
+      // Markdown
+      const mdResponse = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/single-note/highlights/export?format=markdown',
+      });
+      const mdBody = JSON.parse(mdResponse.body);
+      expect(mdBody.content).toContain('> Only highlight');
+      expect(mdBody.content).toContain('**Note:** Only note');
+      expect(mdBody.content).toContain('[Definition]');
+
+      // JSON
+      const jsonResponse = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/single-note/highlights/export?format=json',
+      });
+      const jsonExported = JSON.parse(JSON.parse(jsonResponse.body).content);
+      expect(jsonExported.highlightCount).toBe(1);
+      expect(jsonExported.highlights[0].text).toBe('Only highlight');
+      expect(jsonExported.highlights[0].category).toBe('definition');
+
+      // CSV
+      const csvResponse = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/single-note/highlights/export?format=csv',
+      });
+      const csvContent = JSON.parse(csvResponse.body).content;
+      const csvLines = csvContent.split('\n');
+      expect(csvLines).toHaveLength(2); // header + 1 row
+
+      // Plaintext
+      const txtResponse = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/single-note/highlights/export?format=plaintext',
+      });
+      const txtContent = JSON.parse(txtResponse.body).content;
+      expect(txtContent).toContain('[1] Page 1');
+      expect(txtContent).toContain('"Only highlight"');
+      expect(txtContent).toContain('Note: Only note');
+    });
+  });
+
+  describe('GET /api/library/:id/highlights/export - plaintext structure', () => {
+    it('plaintext export contains proper header and separators', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/highlights/export?format=plaintext',
+      });
+
+      const body = JSON.parse(response.body);
+      expect(body.content).toContain('HIGHLIGHTS FROM: Test Book');
+      expect(body.content).toContain('='.repeat(50));
+      expect(body.content).toContain('-'.repeat(50));
+    });
+
+    it('plaintext export wraps highlight text in quotes', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/highlights/export?format=plaintext',
+      });
+
+      const body = JSON.parse(response.body);
+      expect(body.content).toContain(`"${samplePDFHighlight.text}"`);
+      expect(body.content).toContain(`"${sampleEPUBHighlight.text}"`);
+    });
+
+    it('plaintext export shows EPUB location as "EPUB"', async () => {
+      testNotes.set('epub-txt', createTestNote({
+        id: 'epub-txt',
+        title: 'EPUB Plaintext',
+        sourceType: 'epub',
+        highlights: [sampleEPUBHighlight],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/epub-txt/highlights/export?format=plaintext',
+      });
+
+      const body = JSON.parse(response.body);
+      expect(body.content).toContain('[1] EPUB');
+    });
+  });
+
+  describe('GET /api/library/:id/highlights/export - CSV EPUB location', () => {
+    it('CSV export uses CFI string as location for EPUB highlights', async () => {
+      testNotes.set('epub-csv', createTestNote({
+        id: 'epub-csv',
+        title: 'EPUB CSV Test',
+        sourceType: 'epub',
+        highlights: [sampleEPUBHighlight],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/epub-csv/highlights/export?format=csv&includeCategories=false&includeNotes=false&includeTimestamps=false',
+      });
+
+      const body = JSON.parse(response.body);
+      const dataLine = body.content.split('\n')[1];
+      // EPUB location uses the cfi string directly
+      expect(dataLine).toContain(sampleEPUBHighlight.cfi);
+    });
+  });
+
+  describe('GET /api/library/:id/highlights/export - markdown combined options', () => {
+    it('markdown export with all options disabled shows only text and location', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/highlights/export?format=markdown&includeNotes=false&includeCategories=false&includeTimestamps=false',
+      });
+
+      const body = JSON.parse(response.body);
+      // Should have blockquoted text and location line, but no notes, categories, or timestamps
+      expect(body.content).toContain(`> ${samplePDFHighlight.text}`);
+      expect(body.content).not.toContain('**Note:**');
+      expect(body.content).not.toContain('[Important]');
+      // Location should still be shown
+      expect(body.content).toContain('Page xlii');
+    });
+
+    it('markdown groupByCategory combined with includeNotes shows notes within groups', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/highlights/export?format=markdown&groupByCategory=true&includeNotes=true',
+      });
+
+      const body = JSON.parse(response.body);
+      expect(body.content).toContain('## Important');
+      expect(body.content).toContain(`**Note:** ${samplePDFHighlight.note}`);
+    });
+  });
 });
