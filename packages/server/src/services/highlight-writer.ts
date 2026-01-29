@@ -281,9 +281,9 @@ export class HighlightWriter {
 
     if (highlight.type === 'pdf') {
       const sel = highlight.selection;
-      linkPattern = `${this.escapeRegex(note.sourceRelative)}#page=${highlight.page}&selection=${sel.beginIndex},${sel.beginOffset},${sel.endIndex},${sel.endOffset}`;
+      linkPattern = `${this.escapeRegex(note.sourceRelative)}#page=${highlight.page}&selection=${sel.beginIndex},${sel.beginOffset},${sel.endIndex},${sel.endOffset}(?:&category=\\w+)?`;
     } else {
-      linkPattern = `${this.escapeRegex(note.sourceRelative)}#cfi=${this.escapeRegex((highlight as EPUBHighlight).cfi)}`;
+      linkPattern = `${this.escapeRegex(note.sourceRelative)}#cfi=${this.escapeRegex((highlight as EPUBHighlight).cfi)}(?:&category=\\w+)?`;
     }
 
     let notFound = false;
