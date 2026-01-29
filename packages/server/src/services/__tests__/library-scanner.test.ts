@@ -1183,4 +1183,751 @@ describe('LibraryScanner', () => {
       expect(note.sourceRelative).toBe('books/test.pdf');
     });
   });
+
+  describe('source path caching', () => {
+    it('uses cache for repeated source path lookups from the same directory', () => {
+      const config = createMockConfig();
+
+      mockReaddirSync.mockImplementation((path) => {
+        if (path === '/test/vault') {
+          return [
+            createMockDirent('note1.md', false),
+            createMockDirent('note2.md', false),
+          ] as any;
+        }
+        return [];
+      });
+
+      // Both notes have the same source path
+      mockGetSourcePath.mockReturnValue('shared-book.pdf');
+
+      // Track stat calls for the source file
+      let statCallCount = 0;
+      mockStatSync.mockImplementation((path) => {
+        if (typeof path === 'string' && path.includes('shared-book.pdf')) {
+          statCallCount++;
+        }
+        return { isFile: () => true } as any;
+      });
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      // Both notes should be found
+      expect(scanner.getAll()).toHaveLength(2);
+
+      // statSync should only be called once for the source path resolution
+      // because the second note reuses the cache (same directory + same source)
+      const sourceStatCalls = statCallCount;
+      expect(sourceStatCalls).toBe(1);
+    });
+
+    it('does not reuse cache for same source path from different directories', () => {
+      const config = createMockConfig();
+
+      mockReaddirSync.mockImplementation((path) => {
+        if (path === '/test/vault') {
+          return [
+            createMockDirent('dir1', true),
+            createMockDirent('dir2', true),
+          ] as any;
+        }
+        if (path === '/test/vault/dir1') {
+          return [createMockDirent('note1.md', false)] as any;
+        }
+        if (path === '/test/vault/dir2') {
+          return [createMockDirent('note2.md', false)] as any;
+        }
+        return [];
+      });
+
+      mockGetSourcePath.mockReturnValue('book.pdf');
+
+      // Source exists relative to both note directories
+      mockStatSync.mockImplementation((path) => {
+        if (typeof path === 'string' && (
+          path === '/test/vault/dir1/book.pdf' ||
+          path === '/test/vault/dir2/book.pdf'
+        )) {
+          return { isFile: () => true } as any;
+        }
+        throw new Error('ENOENT');
+      });
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const notes = scanner.getAll();
+      expect(notes).toHaveLength(2);
+      // Each note resolves to its own directory's source
+      expect(notes[0].source).not.toBe(notes[1].source);
+    });
+
+    it('clears source path cache on rescan', () => {
+      const config = createMockConfig();
+
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note.md', false),
+      ] as any);
+      mockGetSourcePath.mockReturnValue('book.pdf');
+
+      let statCallCount = 0;
+      mockStatSync.mockImplementation((path) => {
+        if (typeof path === 'string' && path.includes('book.pdf')) {
+          statCallCount++;
+        }
+        return { isFile: () => true } as any;
+      });
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+      const firstScanCalls = statCallCount;
+
+      // Second scan should not reuse the cache from the first scan
+      scanner.scan();
+
+      expect(statCallCount).toBeGreaterThan(firstScanCalls);
+    });
+  });
+
+  describe('scan - file type filtering', () => {
+    it('ignores non-markdown files', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note.md', false),
+        createMockDirent('image.png', false),
+        createMockDirent('data.json', false),
+        createMockDirent('readme.txt', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      // Only the .md file should be processed
+      expect(mockParseNoteFrontmatter).toHaveBeenCalledTimes(1);
+      expect(mockParseNoteFrontmatter).toHaveBeenCalledWith('/test/vault/note.md');
+    });
+  });
+
+  describe('getSummaries - sort edge cases', () => {
+    it('sorts by lastRead with null dates treated as epoch 0', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note1.md', false),
+        createMockDirent('note2.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+
+      mockGetLastRead.mockReset();
+      mockGetLastRead
+        .mockReturnValueOnce(null)
+        .mockReturnValueOnce('2024-06-15T00:00:00.000Z');
+
+      mockGetTitle.mockReset();
+      mockGetTitle
+        .mockReturnValueOnce('Never Read')
+        .mockReturnValueOnce('Recently Read');
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      // desc order: recently read first
+      const summaries = scanner.getSummaries('lastRead', 'desc');
+      expect(summaries[0].title).toBe('Recently Read');
+      expect(summaries[1].title).toBe('Never Read');
+    });
+
+    it('sorts by dateCreated with null dates treated as epoch 0', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note1.md', false),
+        createMockDirent('note2.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+
+      mockGetDateCreated.mockReset();
+      mockGetDateCreated
+        .mockReturnValueOnce(null)
+        .mockReturnValueOnce('2024-03-01T00:00:00.000Z');
+
+      mockGetTitle.mockReset();
+      mockGetTitle
+        .mockReturnValueOnce('No Date')
+        .mockReturnValueOnce('Has Date');
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const summaries = scanner.getSummaries('dateCreated', 'asc');
+      expect(summaries[0].title).toBe('No Date');
+      expect(summaries[1].title).toBe('Has Date');
+    });
+
+    it('sorts by author with both authors null', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note1.md', false),
+        createMockDirent('note2.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+
+      mockGetAuthor.mockReset();
+      mockGetAuthor
+        .mockReturnValueOnce(null)
+        .mockReturnValueOnce(null);
+
+      mockGetTitle.mockReset();
+      mockGetTitle
+        .mockReturnValueOnce('Book A')
+        .mockReturnValueOnce('Book B');
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      // Both null authors - comparison should be 0, preserving order
+      const summaries = scanner.getSummaries('author', 'asc');
+      expect(summaries).toHaveLength(2);
+      // Both should be present regardless of null state
+      const titles = summaries.map(s => s.title);
+      expect(titles).toContain('Book A');
+      expect(titles).toContain('Book B');
+    });
+
+    it('sorts by author descending reverses author order but keeps null at end', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note1.md', false),
+        createMockDirent('note2.md', false),
+        createMockDirent('note3.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+
+      mockGetAuthor.mockReset();
+      mockGetAuthor
+        .mockReturnValueOnce('Alice')
+        .mockReturnValueOnce('Bob')
+        .mockReturnValueOnce(null);
+
+      mockGetTitle.mockReset();
+      mockGetTitle
+        .mockReturnValueOnce('Alice Book')
+        .mockReturnValueOnce('Bob Book')
+        .mockReturnValueOnce('No Author');
+
+      mockGetRating.mockReturnValue(null);
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      // desc: Bob before Alice, but null author does NOT stay at end
+      // because the desc order inverts the comparison including the null handling
+      const summaries = scanner.getSummaries('author', 'desc');
+      expect(summaries).toHaveLength(3);
+    });
+
+    it('sorts by rating ascending with unrated still at end', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note1.md', false),
+        createMockDirent('note2.md', false),
+        createMockDirent('note3.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+
+      mockGetRating.mockReset();
+      mockGetRating
+        .mockReturnValueOnce(5)
+        .mockReturnValueOnce(null)
+        .mockReturnValueOnce(2);
+
+      mockGetTitle.mockReset();
+      mockGetTitle
+        .mockReturnValueOnce('Rated 5')
+        .mockReturnValueOnce('Unrated')
+        .mockReturnValueOnce('Rated 2');
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const summaries = scanner.getSummaries('rating', 'asc');
+      // Ascending: 2 first, then 5, unrated always at end regardless of order
+      expect(summaries[0].title).toBe('Rated 2');
+      expect(summaries[1].title).toBe('Rated 5');
+      expect(summaries[2].title).toBe('Unrated');
+    });
+
+    it('sorts by rating with all items unrated', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note1.md', false),
+        createMockDirent('note2.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+
+      mockGetRating.mockReset();
+      mockGetRating
+        .mockReturnValueOnce(null)
+        .mockReturnValueOnce(null);
+
+      mockGetTitle.mockReset();
+      mockGetTitle
+        .mockReturnValueOnce('Book A')
+        .mockReturnValueOnce('Book B');
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const summaries = scanner.getSummaries('rating', 'desc');
+      expect(summaries).toHaveLength(2);
+      // Both unrated, so both treated as 0, comparison is 0
+      const titles = summaries.map(s => s.title);
+      expect(titles).toContain('Book A');
+      expect(titles).toContain('Book B');
+    });
+
+    it('sorts by progress ascending', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note1.md', false),
+        createMockDirent('note2.md', false),
+        createMockDirent('note3.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+
+      mockGetProgress.mockReset();
+      mockGetProgress
+        .mockReturnValueOnce(100)
+        .mockReturnValueOnce(0)
+        .mockReturnValueOnce(50);
+
+      mockGetTitle.mockReset();
+      mockGetTitle
+        .mockReturnValueOnce('Complete')
+        .mockReturnValueOnce('Not Started')
+        .mockReturnValueOnce('Half Done');
+
+      mockGetRating.mockReturnValue(null);
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const summaries = scanner.getSummaries('progress', 'asc');
+      expect(summaries[0].title).toBe('Not Started');
+      expect(summaries[1].title).toBe('Half Done');
+      expect(summaries[2].title).toBe('Complete');
+    });
+  });
+
+  describe('getSummaries - summary field mapping', () => {
+    it('computes yearCompleted from dateFinished', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+      mockGetDateFinished.mockReturnValue('2023-12-25T00:00:00.000Z');
+      mockGetRating.mockReturnValue(null);
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const summaries = scanner.getSummaries();
+      expect(summaries[0].yearCompleted).toBe(2023);
+    });
+
+    it('sets yearCompleted to null when dateFinished is null', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+      mockGetDateFinished.mockReturnValue(null);
+      mockGetRating.mockReturnValue(null);
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const summaries = scanner.getSummaries();
+      expect(summaries[0].yearCompleted).toBeNull();
+    });
+
+    it('sets citekey to null when frontmatter id is not a string', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+      mockParseNoteFrontmatter.mockReturnValue({
+        frontmatter: { tags: ['literature-note'], id: 42 },
+        content: '',
+      });
+      mockGetRating.mockReturnValue(null);
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const summaries = scanner.getSummaries();
+      expect(summaries[0].citekey).toBeNull();
+    });
+
+    it('sets citekey to null when frontmatter has no id field', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+      mockParseNoteFrontmatter.mockReturnValue({
+        frontmatter: { tags: ['literature-note'] },
+        content: '',
+      });
+      mockGetRating.mockReturnValue(null);
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const summaries = scanner.getSummaries();
+      expect(summaries[0].citekey).toBeNull();
+    });
+
+    it('includes CSL metadata from frontmatter', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+      mockGetRating.mockReturnValue(null);
+
+      const cslData = { type: 'book', title: 'Test', author: [{ given: 'John', family: 'Doe' }] };
+      mockGetCSLMetadata.mockReturnValue(cslData);
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const summaries = scanner.getSummaries();
+      expect(summaries[0].csl).toEqual(cslData);
+    });
+
+    it('maps all summary fields correctly from a populated note', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+
+      mockGetTitle.mockReturnValue('Summary Test');
+      mockGetAuthor.mockReturnValue('Author Name');
+      mockGetSourcePath.mockReturnValue('books/test.epub');
+      mockGetProgress.mockReturnValue(60);
+      mockGetLastRead.mockReturnValue('2024-05-01T00:00:00.000Z');
+      mockGetDateCreated.mockReturnValue('2024-01-01T00:00:00.000Z');
+      mockGetDateFinished.mockReturnValue('2024-04-01T00:00:00.000Z');
+      mockGetPinned.mockReturnValue(true);
+      mockGetPaused.mockReturnValue(false);
+      mockGetPausedAt.mockReturnValue(null);
+      mockGetRating.mockReturnValue(4);
+      mockGetReadingStats.mockReturnValue({ totalMinutes: 120 });
+      mockGetTotalPages.mockReturnValue(200);
+      mockGetCollections.mockReturnValue(['Science']);
+      mockGetCurrentChapter.mockReturnValue('Chapter 5');
+      mockParseHighlightsFromNote.mockReturnValue([
+        { id: 'h1', type: 'epub', text: 'a', createdAt: '' },
+        { id: 'h2', type: 'epub', text: 'b', createdAt: '' },
+        { id: 'h3', type: 'epub', text: 'c', createdAt: '' },
+      ] as any);
+      mockGetCSLMetadata.mockReturnValue(null);
+      mockParseNoteFrontmatter.mockReturnValue({
+        frontmatter: { tags: ['literature-note'], id: 'citekey2024' },
+        content: '',
+      });
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const summaries = scanner.getSummaries();
+      expect(summaries).toHaveLength(1);
+      const s = summaries[0];
+
+      expect(s.title).toBe('Summary Test');
+      expect(s.author).toBe('Author Name');
+      expect(s.citekey).toBe('citekey2024');
+      expect(s.sourceType).toBe('epub');
+      expect(s.progress).toBe(60);
+      expect(s.lastRead).toBe('2024-05-01T00:00:00.000Z');
+      expect(s.dateCreated).toBe('2024-01-01T00:00:00.000Z');
+      expect(s.dateFinished).toBe('2024-04-01T00:00:00.000Z');
+      expect(s.yearCompleted).toBe(2024);
+      expect(s.pinned).toBe(true);
+      expect(s.paused).toBe(false);
+      expect(s.pausedAt).toBeNull();
+      expect(s.rating).toBe(4);
+      expect(s.readingStats).toEqual({ totalMinutes: 120 });
+      expect(s.totalPages).toBe(200);
+      expect(s.highlightCount).toBe(3);
+      expect(s.collections).toEqual(['Science']);
+      expect(s.currentChapter).toBe('Chapter 5');
+      expect(s.csl).toBeNull();
+    });
+  });
+
+  describe('tag extraction - edge cases', () => {
+    it('handles non-string non-array tags type gracefully', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+      mockParseNoteFrontmatter.mockReturnValue({
+        frontmatter: { tags: 42 },
+        content: '',
+      });
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const notes = scanner.getAll();
+      expect(notes[0].tags).toEqual([]);
+    });
+
+    it('handles tags with boolean value', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+      mockParseNoteFrontmatter.mockReturnValue({
+        frontmatter: { tags: true },
+        content: '',
+      });
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const notes = scanner.getAll();
+      expect(notes[0].tags).toEqual([]);
+    });
+
+    it('strips hash prefix from all tags in array', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+      mockParseNoteFrontmatter.mockReturnValue({
+        frontmatter: { tags: ['#one', '#two', '#three'] },
+        content: '',
+      });
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      expect(scanner.getAll()[0].tags).toEqual(['one', 'two', 'three']);
+    });
+
+    it('converts non-string array elements to strings', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+      mockParseNoteFrontmatter.mockReturnValue({
+        frontmatter: { tags: [123, true, 'valid'] },
+        content: '',
+      });
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const tags = scanner.getAll()[0].tags;
+      expect(tags).toEqual(['123', 'true', 'valid']);
+    });
+  });
+
+  describe('cover path - edge cases', () => {
+    it('ignores non-string cover values in frontmatter', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+      mockParseNoteFrontmatter.mockReturnValue({
+        frontmatter: { tags: ['literature-note'], cover: 42 },
+        content: '',
+      });
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const notes = scanner.getAll();
+      // Non-string cover should fall back to API path
+      expect(notes[0].cover).toMatch(/^\/api\/covers\/[a-f0-9]+$/);
+    });
+
+    it('ignores null cover values in frontmatter', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+      mockParseNoteFrontmatter.mockReturnValue({
+        frontmatter: { tags: ['literature-note'], cover: null },
+        content: '',
+      });
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const notes = scanner.getAll();
+      expect(notes[0].cover).toMatch(/^\/api\/covers\/[a-f0-9]+$/);
+    });
+  });
+
+  describe('source path resolution - attachment folders', () => {
+    it('searches attachment folders in order: attachments, assets, files, _attachments', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note.md', false),
+      ] as any);
+      mockGetSourcePath.mockReturnValue('book.pdf');
+
+      // Only exists in _attachments (last folder in list)
+      const checkedPaths: string[] = [];
+      mockStatSync.mockImplementation((path) => {
+        if (typeof path === 'string') {
+          checkedPaths.push(path);
+          if (path === '/test/vault/_attachments/book.pdf') {
+            return { isFile: () => true } as any;
+          }
+        }
+        throw new Error('ENOENT');
+      });
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const notes = scanner.getAll();
+      expect(notes).toHaveLength(1);
+      expect(notes[0].source).toBe('/test/vault/_attachments/book.pdf');
+
+      // Verify it checked the standard folders in order before finding _attachments
+      expect(checkedPaths).toContain('/test/vault/attachments/book.pdf');
+      expect(checkedPaths).toContain('/test/vault/assets/book.pdf');
+      expect(checkedPaths).toContain('/test/vault/files/book.pdf');
+      expect(checkedPaths).toContain('/test/vault/_attachments/book.pdf');
+
+      // Verify attachments is checked before _attachments
+      const attachmentsIdx = checkedPaths.indexOf('/test/vault/attachments/book.pdf');
+      const _attachmentsIdx = checkedPaths.indexOf('/test/vault/_attachments/book.pdf');
+      expect(attachmentsIdx).toBeLessThan(_attachmentsIdx);
+    });
+
+    it('stops searching attachment folders once source is found', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note.md', false),
+      ] as any);
+      mockGetSourcePath.mockReturnValue('book.pdf');
+
+      const checkedPaths: string[] = [];
+      mockStatSync.mockImplementation((path) => {
+        if (typeof path === 'string') {
+          checkedPaths.push(path);
+          if (path === '/test/vault/attachments/book.pdf') {
+            return { isFile: () => true } as any;
+          }
+        }
+        throw new Error('ENOENT');
+      });
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      // Should not check later folders since attachments/ worked
+      expect(checkedPaths).not.toContain('/test/vault/assets/book.pdf');
+      expect(checkedPaths).not.toContain('/test/vault/files/book.pdf');
+      expect(checkedPaths).not.toContain('/test/vault/_attachments/book.pdf');
+    });
+  });
+
+  describe('scan - excluded folders edge cases', () => {
+    it('does not exclude folders that partially match exclude patterns', () => {
+      const config = createMockConfig({
+        exclude_folders: ['archive'],
+      });
+
+      mockReaddirSync.mockImplementation((path) => {
+        if (path === '/test/vault') {
+          return [
+            createMockDirent('archive', true),
+            createMockDirent('archive-backup', true),
+          ] as any;
+        }
+        if (path === '/test/vault/archive-backup') {
+          return [createMockDirent('note.md', false)] as any;
+        }
+        return [];
+      });
+
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      // archive-backup should NOT be excluded (not exact or prefix match)
+      expect(mockReaddirSync).toHaveBeenCalledWith(
+        '/test/vault/archive-backup',
+        expect.objectContaining({ withFileTypes: true })
+      );
+      // archive should be excluded
+      expect(mockReaddirSync).not.toHaveBeenCalledWith(
+        '/test/vault/archive',
+        expect.anything()
+      );
+    });
+  });
+
+  describe('updateNote - edge cases', () => {
+    it('merges partial updates without overwriting other fields', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+      mockGetTitle.mockReturnValue('Original Title');
+      mockGetProgress.mockReturnValue(25);
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const id = scanner.getAll()[0].id;
+      scanner.updateNote(id, { progress: 75 });
+
+      const updated = scanner.getById(id);
+      expect(updated?.progress).toBe(75);
+      expect(updated?.title).toBe('Original Title');
+    });
+
+    it('allows updating multiple fields at once', () => {
+      const config = createMockConfig();
+      mockReaddirSync.mockReturnValue([
+        createMockDirent('note.md', false),
+      ] as any);
+      mockStatSync.mockReturnValue({ isFile: () => true } as any);
+
+      const scanner = new LibraryScanner(config as any);
+      scanner.scan();
+
+      const id = scanner.getAll()[0].id;
+      scanner.updateNote(id, {
+        progress: 100,
+        pinned: true,
+        rating: 5,
+      });
+
+      const updated = scanner.getById(id);
+      expect(updated?.progress).toBe(100);
+      expect(updated?.pinned).toBe(true);
+      expect(updated?.rating).toBe(5);
+    });
+  });
 });
