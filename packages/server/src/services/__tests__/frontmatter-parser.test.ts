@@ -2564,3 +2564,787 @@ describe('createReadingStatsForFrontmatter (estimated_completion and avg_daily_r
     expect(result).not.toHaveProperty('avg_daily_reading_ms');
   });
 });
+
+// =============================================================================
+// Edge case and branch coverage tests
+// =============================================================================
+
+describe('hasTag (edge cases)', () => {
+  it('returns false when tags is a non-array, non-string truthy value', () => {
+    expect(hasTag({ tags: 123 }, 'literature_note')).toBe(false);
+    expect(hasTag({ tags: true }, 'literature_note')).toBe(false);
+    expect(hasTag({ tags: {} }, 'literature_note')).toBe(false);
+  });
+});
+
+describe('getSourcePath (edge cases)', () => {
+  it('returns null when array source has a non-string first element', () => {
+    expect(getSourcePath({ attachment: [123] }, 'attachment')).toBeNull();
+    expect(getSourcePath({ attachment: [null] }, 'attachment')).toBeNull();
+    expect(getSourcePath({ attachment: [true] }, 'attachment')).toBeNull();
+  });
+
+  it('returns null for an empty array source', () => {
+    expect(getSourcePath({ source: [] }, 'source')).toBeNull();
+  });
+
+  it('returns null for non-string, non-array source value', () => {
+    expect(getSourcePath({ source: 42 }, 'source')).toBeNull();
+    expect(getSourcePath({ source: true }, 'source')).toBeNull();
+  });
+});
+
+describe('getProgress (edge cases)', () => {
+  it('returns 0 for non-number, non-string truthy progress values', () => {
+    expect(getProgress({ progress: true }, 'progress')).toBe(0);
+    expect(getProgress({ progress: [] }, 'progress')).toBe(0);
+    expect(getProgress({ progress: {} }, 'progress')).toBe(0);
+  });
+
+  it('returns 0 for NaN string progress', () => {
+    expect(getProgress({ progress: 'not-a-number' }, 'progress')).toBe(0);
+  });
+});
+
+describe('getLastRead (edge cases)', () => {
+  it('returns null for non-string, non-Date truthy values', () => {
+    expect(getLastRead({ last_read: 42 }, 'last_read')).toBeNull();
+    expect(getLastRead({ last_read: true }, 'last_read')).toBeNull();
+    expect(getLastRead({ last_read: [] }, 'last_read')).toBeNull();
+  });
+});
+
+describe('getDateCreated (edge cases)', () => {
+  it('returns null for invalid date strings', () => {
+    expect(getDateCreated({ date_created: 'not-a-date' }, 'date_created')).toBeNull();
+    expect(getDateCreated({ date_created: '' }, 'date_created')).toBeNull();
+  });
+
+  it('returns null for non-string, non-Date truthy values', () => {
+    expect(getDateCreated({ date_created: 42 }, 'date_created')).toBeNull();
+    expect(getDateCreated({ date_created: true }, 'date_created')).toBeNull();
+  });
+});
+
+describe('getDateFinished (edge cases)', () => {
+  it('returns null for non-string, non-Date truthy values', () => {
+    expect(getDateFinished({ date_finished: 42 }, 'date_finished')).toBeNull();
+    expect(getDateFinished({ date_finished: true }, 'date_finished')).toBeNull();
+    expect(getDateFinished({ date_finished: {} }, 'date_finished')).toBeNull();
+  });
+});
+
+describe('getCollections (edge cases)', () => {
+  it('returns empty array for comma-only strings', () => {
+    expect(getCollections({ collections: ',' }, 'collections')).toEqual([]);
+    expect(getCollections({ collections: ',,,' }, 'collections')).toEqual([]);
+    expect(getCollections({ collections: ' , , ' }, 'collections')).toEqual([]);
+  });
+
+  it('returns empty array for non-array, non-string truthy values', () => {
+    expect(getCollections({ collections: 42 }, 'collections')).toEqual([]);
+    expect(getCollections({ collections: true }, 'collections')).toEqual([]);
+  });
+
+  it('filters out non-string elements from array', () => {
+    expect(getCollections({ collections: [123, null, 'valid'] }, 'collections')).toEqual(['valid']);
+  });
+
+  it('filters out empty/whitespace-only strings from array', () => {
+    expect(getCollections({ collections: ['', '  ', 'valid'] }, 'collections')).toEqual(['valid']);
+  });
+});
+
+describe('getTitle (edge cases)', () => {
+  it('falls back to filename when title is a non-string value', () => {
+    expect(getTitle({ title: 42 }, 'my-book.md')).toBe('my-book');
+    expect(getTitle({ title: null }, 'my-book.md')).toBe('my-book');
+    expect(getTitle({ title: true }, 'my-book.md')).toBe('my-book');
+  });
+});
+
+describe('getBookmarks (edge cases)', () => {
+  it('skips object bookmarks without a link property', () => {
+    const result = getBookmarks(
+      { bookmarks: [{ notes: 'some notes but no link' }] },
+      'bookmarks',
+    );
+    expect(result).toEqual([]);
+  });
+
+  it('skips bookmarks that are boolean or null', () => {
+    const result = getBookmarks(
+      { bookmarks: [true, false, null, undefined] },
+      'bookmarks',
+    );
+    expect(result).toEqual([]);
+  });
+
+  it('skips bookmarks whose wikilink has no fragment', () => {
+    const result = getBookmarks(
+      { bookmarks: ['[[source.pdf|Chapter 1]]'] },
+      'bookmarks',
+    );
+    // No # fragment, so fragmentMatch is null → continue
+    expect(result).toEqual([]);
+  });
+});
+
+describe('bookmarkToWikilink (edge cases)', () => {
+  it('creates wikilink without fragment when neither page nor cfi is provided', () => {
+    const result = bookmarkToWikilink('source.pdf', {
+      label: 'My Bookmark',
+      createdAt: '2024-01-15T00:00:00.000Z',
+    });
+    expect(result).toBe('[[source.pdf|My Bookmark|2024-01-15T00:00:00.000Z]]');
+  });
+});
+
+describe('bookmarkToFrontmatter (edge cases)', () => {
+  it('returns string when notes is undefined', () => {
+    const result = bookmarkToFrontmatter('source.pdf', {
+      label: 'My Bookmark',
+      page: 10,
+      createdAt: '2024-01-15T00:00:00.000Z',
+    });
+    expect(typeof result).toBe('string');
+  });
+});
+
+describe('getReadingStats (edge cases)', () => {
+  it('returns null for first_read that is an invalid date string', () => {
+    const result = getReadingStats({
+      reading_stats: {
+        total_time_ms: 1000,
+        total_sessions: 1,
+        first_read: 'not-a-date',
+      },
+    }, 'reading_stats');
+
+    expect(result).not.toBeNull();
+    expect(result!.firstReadDate).toBeNull();
+  });
+
+  it('falls back to 0 when total_time_ms is not a number', () => {
+    const result = getReadingStats({
+      reading_stats: {
+        total_time_ms: 'three thousand',
+        total_sessions: 1,
+      },
+    }, 'reading_stats');
+
+    expect(result).not.toBeNull();
+    expect(result!.totalReadingTimeMs).toBe(0);
+  });
+
+  it('falls back to 0 when total_sessions is not a number', () => {
+    const result = getReadingStats({
+      reading_stats: {
+        total_time_ms: 1000,
+        total_sessions: 'five',
+      },
+    }, 'reading_stats');
+
+    expect(result).not.toBeNull();
+    expect(result!.totalSessions).toBe(0);
+    expect(result!.averageSessionMs).toBe(0);
+  });
+
+  it('returns null for stat fields that are non-number', () => {
+    const result = getReadingStats({
+      reading_stats: {
+        total_time_ms: 1000,
+        total_sessions: 1,
+        pages_per_hour: 'fast',
+        total_pages: 'many',
+        longest_session_ms: 'long',
+      },
+    }, 'reading_stats');
+
+    expect(result).not.toBeNull();
+    expect(result!.pagesPerHour).toBeNull();
+    expect(result!.totalPagesRead).toBe(0);
+    expect(result!.longestSessionMs).toBeNull();
+  });
+
+  it('skips milestone entries that are not objects', () => {
+    const result = getReadingStats({
+      reading_stats: {
+        total_time_ms: 1000,
+        total_sessions: 1,
+        milestones: ['not-an-object', 42, null],
+      },
+    }, 'reading_stats');
+
+    expect(result).not.toBeNull();
+    expect(result!.milestones).toBeUndefined();
+  });
+
+  it('skips milestones with invalid milestone numbers', () => {
+    const result = getReadingStats({
+      reading_stats: {
+        total_time_ms: 1000,
+        total_sessions: 1,
+        milestones: [
+          { milestone: 30, reached_at: '2024-01-15T00:00:00Z', days_from_start: 5, total_time_ms: 500 },
+          { milestone: 99, reached_at: '2024-01-15T00:00:00Z', days_from_start: 5, total_time_ms: 500 },
+        ],
+      },
+    }, 'reading_stats');
+
+    expect(result).not.toBeNull();
+    expect(result!.milestones).toBeUndefined();
+  });
+
+  it('uses fallback values for malformed milestone fields', () => {
+    const result = getReadingStats({
+      reading_stats: {
+        total_time_ms: 1000,
+        total_sessions: 1,
+        milestones: [
+          { milestone: 25, reached_at: 12345, days_from_start: 'five', total_time_ms: 'many' },
+        ],
+      },
+    }, 'reading_stats');
+
+    expect(result).not.toBeNull();
+    expect(result!.milestones).toHaveLength(1);
+    const milestone = result!.milestones![0];
+    // reached_at falls back to current ISO date since 12345 is not a string
+    expect(typeof milestone.reachedAt).toBe('string');
+    // days_from_start falls back to null since 'five' is not a number
+    expect(milestone.daysFromStart).toBeNull();
+    // totalReadingTimeMs falls back to 0 since 'many' is not a number
+    expect(milestone.totalReadingTimeMs).toBe(0);
+  });
+
+  it('ignores invalid momentum values', () => {
+    const result = getReadingStats({
+      reading_stats: {
+        total_time_ms: 1000,
+        total_sessions: 1,
+        momentum: 'zooming',
+      },
+    }, 'reading_stats');
+
+    expect(result).not.toBeNull();
+    expect(result!.momentum).toBeUndefined();
+  });
+
+  it('clamps momentum_score to valid range', () => {
+    const result = getReadingStats({
+      reading_stats: {
+        total_time_ms: 1000,
+        total_sessions: 1,
+        momentum_score: 999,
+      },
+    }, 'reading_stats');
+
+    expect(result).not.toBeNull();
+    expect(result!.momentumScore).toBe(100);
+
+    const result2 = getReadingStats({
+      reading_stats: {
+        total_time_ms: 1000,
+        total_sessions: 1,
+        momentum_score: -999,
+      },
+    }, 'reading_stats');
+
+    expect(result2).not.toBeNull();
+    expect(result2!.momentumScore).toBe(-100);
+  });
+});
+
+describe('getReaderPreferences (edge cases)', () => {
+  it('ignores non-string zoom_mode values', () => {
+    const result = getReaderPreferences({
+      reader_preferences: { zoom_mode: 42 },
+    }, 'reader_preferences');
+
+    // zoom_mode skipped → no valid preferences → null
+    expect(result).toBeNull();
+  });
+
+  it('ignores non-string theme values', () => {
+    const result = getReaderPreferences({
+      reader_preferences: { theme: 42 },
+    }, 'reader_preferences');
+
+    expect(result).toBeNull();
+  });
+
+  it('ignores non-number line_height values', () => {
+    const result = getReaderPreferences({
+      reader_preferences: { line_height: 'tall' },
+    }, 'reader_preferences');
+
+    expect(result).toBeNull();
+  });
+
+  it('ignores non-number daily_goal_minutes values', () => {
+    const result = getReaderPreferences({
+      reader_preferences: { daily_goal_minutes: 'sixty' },
+    }, 'reader_preferences');
+
+    expect(result).toBeNull();
+  });
+
+  it('ignores invalid zoom_mode string values', () => {
+    const result = getReaderPreferences({
+      reader_preferences: { zoom_mode: 'zoom-in' },
+    }, 'reader_preferences');
+
+    expect(result).toBeNull();
+  });
+
+  it('ignores invalid theme string values', () => {
+    const result = getReaderPreferences({
+      reader_preferences: { theme: 'neon' },
+    }, 'reader_preferences');
+
+    expect(result).toBeNull();
+  });
+});
+
+describe('getCSLMetadata (edge cases)', () => {
+  it('returns null for issued with empty date-parts array', () => {
+    const result = getCSLMetadata({
+      issued: { 'date-parts': [] },
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it('returns null for issued with empty inner date-parts array', () => {
+    const result = getCSLMetadata({
+      issued: { 'date-parts': [[]] },
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it('returns null for issued with non-array inner date-parts', () => {
+    const result = getCSLMetadata({
+      issued: { 'date-parts': ['not-an-array'] },
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it('returns null for issued with non-number/non-string year', () => {
+    const result = getCSLMetadata({
+      issued: { 'date-parts': [[null]] },
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it('handles string values in date-parts', () => {
+    const result = getCSLMetadata({
+      issued: { 'date-parts': [['2023', '6', '15']] },
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.issued).toBe('2023-06-15');
+  });
+
+  it('returns null for issued as non-date-parts object and no year field', () => {
+    const result = getCSLMetadata({
+      issued: { invalid: 'data' },
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it('returns null for date-parts that is not an array', () => {
+    const result = getCSLMetadata({
+      issued: { 'date-parts': 'invalid' },
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it('returns null for note field that is not a string', () => {
+    // Non-string note → DOI extraction skipped
+    const result = getCSLMetadata({
+      note: 42,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it('returns null for translator as array of unparseable items', () => {
+    const result = getCSLMetadata({
+      translator: [null, undefined, 42],
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it('returns null for translator as object with no recognized fields', () => {
+    const result = getCSLMetadata({
+      translator: { foo: 'bar' },
+    });
+
+    expect(result).toBeNull();
+  });
+});
+
+describe('getAuthor (edge cases)', () => {
+  it('returns null for author object with empty literal field', () => {
+    expect(getAuthor({ author: { literal: '' } }, 'author')).toBeNull();
+    expect(getAuthor({ author: { literal: '   ' } }, 'author')).toBeNull();
+  });
+
+  it('returns null for author as array of all unparseable values', () => {
+    expect(getAuthor({ author: [null, undefined, 42] }, 'author')).toBeNull();
+  });
+
+  it('returns null for author object with unrecognized structure', () => {
+    expect(getAuthor({ author: { foo: 'bar', baz: 'qux' } }, 'author')).toBeNull();
+  });
+
+  it('returns null for author as empty array', () => {
+    expect(getAuthor({ author: [] }, 'author')).toBeNull();
+  });
+
+  it('handles author object with only first name', () => {
+    expect(getAuthor({ author: { first: 'John' } }, 'author')).toBe('John');
+  });
+
+  it('handles author object with only last name', () => {
+    expect(getAuthor({ author: { last: 'Doe' } }, 'author')).toBe('Doe');
+  });
+
+  it('handles author object with only given name (CSL-JSON)', () => {
+    expect(getAuthor({ author: { given: 'Jane' } }, 'author')).toBe('Jane');
+  });
+
+  it('handles author object with only family name (CSL-JSON)', () => {
+    expect(getAuthor({ author: { family: 'Smith' } }, 'author')).toBe('Smith');
+  });
+});
+
+describe('calculateMomentum (edge cases)', () => {
+  it('returns positive momentum when returning from inactivity', () => {
+    // Recent 7 days have reading, previous 7 days have none
+    const today = new Date();
+    const history = [
+      {
+        date: today.toISOString().split('T')[0],
+        durationMs: 1800000,
+        sessions: 1,
+        pagesRead: 10,
+      },
+    ];
+
+    const result = calculateMomentum(history);
+    expect(result.score).toBeGreaterThan(0);
+    // score = 25 (from inactivity return) + 10 (1 active day diff) = 35
+    expect(result.momentum).toBe('accelerating');
+  });
+
+  it('clamps extreme scores to -100 to 100 range', () => {
+    const today = new Date();
+    const history: Array<{ date: string; durationMs: number; sessions: number; pagesRead: number }> = [];
+
+    // 7 active days recently, 0 active days previously → large positive score
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      history.push({
+        date: date.toISOString().split('T')[0],
+        durationMs: 36000000, // 10 hours each
+        sessions: 5,
+        pagesRead: 100,
+      });
+    }
+
+    const result = calculateMomentum(history);
+    expect(result.score).toBeLessThanOrEqual(100);
+    expect(result.score).toBeGreaterThanOrEqual(-100);
+  });
+
+  it('classifies as inactive when recent period has no reading', () => {
+    const today = new Date();
+    // Only reading in previous period (days 7-13 ago)
+    const history = [];
+    for (let i = 7; i < 14; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      history.push({
+        date: date.toISOString().split('T')[0],
+        durationMs: 1800000,
+        sessions: 1,
+        pagesRead: 10,
+      });
+    }
+
+    const result = calculateMomentum(history);
+    expect(result.momentum).toBe('inactive');
+  });
+});
+
+describe('getDailyReadingHistory (edge cases)', () => {
+  it('handles ISO timestamp strings as date values', () => {
+    const result = getDailyReadingHistory({
+      history: [
+        { date: '2024-01-15T10:30:00Z', duration_ms: 1000, sessions: 1, pages: 5 },
+      ],
+    }, 'history');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].date).toBe('2024-01-15');
+  });
+
+  it('skips entries with invalid calendar dates', () => {
+    const result = getDailyReadingHistory({
+      history: [
+        { date: '2024-13-45', duration_ms: 1000, sessions: 1, pages: 5 },
+      ],
+    }, 'history');
+
+    expect(result).toEqual([]);
+  });
+
+  it('skips entries where date is neither string nor Date', () => {
+    const result = getDailyReadingHistory({
+      history: [
+        { date: 42, duration_ms: 1000, sessions: 1, pages: 5 },
+        { date: true, duration_ms: 1000, sessions: 1, pages: 5 },
+      ],
+    }, 'history');
+
+    expect(result).toEqual([]);
+  });
+
+  it('skips entries that are not objects', () => {
+    const result = getDailyReadingHistory({
+      history: ['not-an-object', 42, null, undefined],
+    }, 'history');
+
+    expect(result).toEqual([]);
+  });
+
+  it('defaults numeric fields to 0 when not numbers', () => {
+    const result = getDailyReadingHistory({
+      history: [
+        { date: '2024-01-15', duration_ms: 'fast', sessions: 'many', pages: 'lots' },
+      ],
+    }, 'history');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].durationMs).toBe(0);
+    expect(result[0].sessions).toBe(0);
+    expect(result[0].pagesRead).toBe(0);
+  });
+
+  it('skips invalid Date objects', () => {
+    const result = getDailyReadingHistory({
+      history: [
+        { date: new Date('invalid'), duration_ms: 1000, sessions: 1, pages: 5 },
+      ],
+    }, 'history');
+
+    expect(result).toEqual([]);
+  });
+});
+
+describe('getReadingSessions (edge cases)', () => {
+  it('skips sessions where start is not a valid date', () => {
+    const result = getReadingSessions({
+      sessions: [
+        {
+          start: 'not-a-date',
+          end: '2024-01-15T11:00:00Z',
+          duration_ms: 1800000,
+          pages: 10,
+          start_page: 1,
+          end_page: 10,
+        },
+      ],
+    }, 'sessions');
+
+    expect(result).toEqual([]);
+  });
+
+  it('skips sessions where end is not a valid date', () => {
+    const result = getReadingSessions({
+      sessions: [
+        {
+          start: '2024-01-15T10:30:00Z',
+          end: 'not-a-date',
+          duration_ms: 1800000,
+          pages: 10,
+          start_page: 1,
+          end_page: 10,
+        },
+      ],
+    }, 'sessions');
+
+    expect(result).toEqual([]);
+  });
+
+  it('handles sessions where start and end are Date objects', () => {
+    const result = getReadingSessions({
+      sessions: [
+        {
+          start: new Date('2024-01-15T10:30:00Z'),
+          end: new Date('2024-01-15T11:00:00Z'),
+          duration_ms: 1800000,
+          pages: 10,
+          start_page: 1,
+          end_page: 10,
+        },
+      ],
+    }, 'sessions');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].startTime).toBe('2024-01-15T10:30:00.000Z');
+    expect(result[0].endTime).toBe('2024-01-15T11:00:00.000Z');
+  });
+
+  it('ignores invalid quality values', () => {
+    const result = getReadingSessions({
+      sessions: [
+        {
+          start: '2024-01-15T10:30:00Z',
+          end: '2024-01-15T11:00:00Z',
+          duration_ms: 1800000,
+          pages: 10,
+          start_page: 1,
+          end_page: 10,
+          quality: 'excellent',
+        },
+      ],
+    }, 'sessions');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].quality).toBeUndefined();
+  });
+
+  it('ignores negative idle_pause_count and idle_pause_total_ms', () => {
+    const result = getReadingSessions({
+      sessions: [
+        {
+          start: '2024-01-15T10:30:00Z',
+          end: '2024-01-15T11:00:00Z',
+          duration_ms: 1800000,
+          pages: 10,
+          start_page: 1,
+          end_page: 10,
+          idle_pause_count: -1,
+          idle_pause_total_ms: -500,
+        },
+      ],
+    }, 'sessions');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].idlePauseCount).toBeUndefined();
+    expect(result[0].idlePauseTotalMs).toBeUndefined();
+  });
+
+  it('calculates hourOfDay from startTime when not stored', () => {
+    const result = getReadingSessions({
+      sessions: [
+        {
+          start: '2024-01-15T14:30:00Z',
+          end: '2024-01-15T15:00:00Z',
+          duration_ms: 1800000,
+          pages: 10,
+          start_page: 1,
+          end_page: 10,
+        },
+      ],
+    }, 'sessions');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].hourOfDay).toBe(new Date('2024-01-15T14:30:00Z').getHours());
+  });
+
+  it('defaults numeric fields to 0 when not numbers', () => {
+    const result = getReadingSessions({
+      sessions: [
+        {
+          start: '2024-01-15T10:30:00Z',
+          end: '2024-01-15T11:00:00Z',
+          duration_ms: 'long',
+          pages: 'many',
+          start_page: 'first',
+          end_page: 'last',
+        },
+      ],
+    }, 'sessions');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].durationMs).toBe(0);
+    expect(result[0].pagesRead).toBe(0);
+    expect(result[0].startPage).toBe(0);
+    expect(result[0].endPage).toBe(0);
+  });
+});
+
+describe('getPausedAt (edge cases)', () => {
+  it('returns null for non-string, non-Date values', () => {
+    expect(getPausedAt({ paused_at: 42 }, 'paused_at')).toBeNull();
+    expect(getPausedAt({ paused_at: true }, 'paused_at')).toBeNull();
+    expect(getPausedAt({ paused_at: [] }, 'paused_at')).toBeNull();
+  });
+});
+
+describe('getRating (edge cases)', () => {
+  it('clamps fractional ratings to nearest integer', () => {
+    expect(getRating({ rating: 3.7 }, 'rating')).toBe(4);
+    expect(getRating({ rating: 2.3 }, 'rating')).toBe(2);
+  });
+
+  it('clamps ratings below minimum to 1', () => {
+    expect(getRating({ rating: 0 }, 'rating')).toBe(1);
+    expect(getRating({ rating: -5 }, 'rating')).toBe(1);
+  });
+
+  it('clamps ratings above maximum to 5', () => {
+    expect(getRating({ rating: 10 }, 'rating')).toBe(5);
+    expect(getRating({ rating: 100 }, 'rating')).toBe(5);
+  });
+
+  it('parses string ratings and clamps', () => {
+    expect(getRating({ rating: '0' }, 'rating')).toBe(1);
+    expect(getRating({ rating: '10' }, 'rating')).toBe(5);
+    expect(getRating({ rating: '3.7' }, 'rating')).toBe(4);
+  });
+
+  it('returns null for non-numeric string ratings', () => {
+    expect(getRating({ rating: 'excellent' }, 'rating')).toBeNull();
+  });
+
+  it('returns null for non-number, non-string types', () => {
+    expect(getRating({ rating: true }, 'rating')).toBeNull();
+    expect(getRating({ rating: [] }, 'rating')).toBeNull();
+  });
+});
+
+describe('getTotalPages (edge cases)', () => {
+  it('returns null for zero or negative page count', () => {
+    expect(getTotalPages({ total_pages: 0 }, 'total_pages')).toBeNull();
+    expect(getTotalPages({ total_pages: -10 }, 'total_pages')).toBeNull();
+  });
+
+  it('rounds fractional page counts', () => {
+    expect(getTotalPages({ total_pages: 100.7 }, 'total_pages')).toBe(101);
+  });
+
+  it('returns null for non-numeric string', () => {
+    expect(getTotalPages({ total_pages: 'many' }, 'total_pages')).toBeNull();
+  });
+
+  it('returns null for string zero', () => {
+    expect(getTotalPages({ total_pages: '0' }, 'total_pages')).toBeNull();
+  });
+
+  it('returns null for non-number, non-string types', () => {
+    expect(getTotalPages({ total_pages: true }, 'total_pages')).toBeNull();
+    expect(getTotalPages({ total_pages: [] }, 'total_pages')).toBeNull();
+  });
+});
