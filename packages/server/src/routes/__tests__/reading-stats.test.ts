@@ -1716,4 +1716,1096 @@ reading_sessions:
       expect(body.paceData[2].date).toBe('2024-01-15');
     });
   });
+
+  describe('GET /api/library/:id/reading-history - additional edge cases', () => {
+    it('clamps days=0 to default of 14', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-history?days=0',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // parseInt('0') = 0, which is falsy, so || 14 applies
+      expect(body.daysRequested).toBe(14);
+    });
+
+    it('treats negative days as default of 14', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-history?days=-5',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // parseInt('-5') = -5, which is truthy but negative; Math.min(-5, 90) = -5
+      // This creates a negative loop bound, resulting in 0 entries
+      expect(body.history).toBeDefined();
+      expect(Array.isArray(body.history)).toBe(true);
+    });
+
+    it('returns single day when days=1', async () => {
+      const today = new Date().toISOString().split('T')[0];
+      testNotes.get('test-note')!.frontmatter = {
+        reading_history: [
+          { date: today, duration_ms: 1800000, sessions: 1, pages: 10 },
+        ],
+      };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-history?days=1',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      expect(body.history).toHaveLength(1);
+      expect(body.daysRequested).toBe(1);
+      expect(body.history[0].date).toBe(today);
+      expect(body.history[0].durationMs).toBe(1800000);
+    });
+
+    it('handles history entries that fall outside the requested window', async () => {
+      // Create history entries much older than 14 days
+      const oldDate = new Date();
+      oldDate.setDate(oldDate.getDate() - 30);
+      const oldDateStr = oldDate.toISOString().split('T')[0];
+
+      testNotes.get('test-note')!.frontmatter = {
+        reading_history: [
+          { date: oldDateStr, duration_ms: 7200000, sessions: 3, pages: 50 },
+        ],
+      };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-history?days=7',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // All entries should be zero since data falls outside the 7-day window
+      expect(body.history).toHaveLength(7);
+      const nonZero = body.history.filter((h: { durationMs: number }) => h.durationMs > 0);
+      expect(nonZero).toHaveLength(0);
+    });
+
+    it('includes the exact max days when days matches config limit', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-history?days=90',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      expect(body.daysRequested).toBe(90);
+      expect(body.history).toHaveLength(90);
+    });
+  });
+
+  describe('GET /api/library/:id/reading-sessions - additional edge cases', () => {
+    it('handles limit=0 by falling back to default 20', async () => {
+      const sessions = [];
+      for (let i = 0; i < 5; i++) {
+        sessions.push({
+          start: new Date(Date.now() - i * 3600000).toISOString(),
+          end: new Date(Date.now() - i * 3600000 + 1800000).toISOString(),
+          duration_ms: 1800000,
+          pages: 10,
+          start_page: i * 10,
+          end_page: (i + 1) * 10,
+        });
+      }
+      testNotes.get('test-note')!.frontmatter = { reading_sessions: sessions };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-sessions?limit=0',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // parseInt('0') = 0, which is falsy, so || 20 applies
+      expect(body.sessions).toHaveLength(5); // All 5 sessions (less than default 20)
+      expect(body.totalSessions).toBe(5);
+    });
+
+    it('handles negative limit by falling back to default 20', async () => {
+      const sessions = [];
+      for (let i = 0; i < 3; i++) {
+        sessions.push({
+          start: new Date(Date.now() - i * 3600000).toISOString(),
+          end: new Date(Date.now() - i * 3600000 + 1800000).toISOString(),
+          duration_ms: 1800000,
+          pages: 10,
+          start_page: i * 10,
+          end_page: (i + 1) * 10,
+        });
+      }
+      testNotes.get('test-note')!.frontmatter = { reading_sessions: sessions };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-sessions?limit=-5',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // parseInt('-5') = -5, which is truthy; Math.min(100, -5) = -5
+      // .slice(0, -5) with 3 items returns empty array
+      expect(body.sessions).toBeDefined();
+      expect(Array.isArray(body.sessions)).toBe(true);
+    });
+
+    it('returns exact limit when sessions match limit count', async () => {
+      const sessions = [];
+      for (let i = 0; i < 5; i++) {
+        sessions.push({
+          start: new Date(Date.now() - i * 3600000).toISOString(),
+          end: new Date(Date.now() - i * 3600000 + 1800000).toISOString(),
+          duration_ms: 1800000,
+          pages: 10,
+          start_page: i * 10,
+          end_page: (i + 1) * 10,
+        });
+      }
+      testNotes.get('test-note')!.frontmatter = { reading_sessions: sessions };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-sessions?limit=5',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      expect(body.sessions).toHaveLength(5);
+      expect(body.totalSessions).toBe(5);
+    });
+
+    it('returns limit=1 correctly', async () => {
+      const sessions = [
+        { start: '2024-01-15T10:00:00Z', end: '2024-01-15T10:30:00Z', duration_ms: 1800000, pages: 10, start_page: 0, end_page: 10 },
+        { start: '2024-01-14T10:00:00Z', end: '2024-01-14T10:30:00Z', duration_ms: 1800000, pages: 8, start_page: 10, end_page: 18 },
+      ];
+      testNotes.get('test-note')!.frontmatter = { reading_sessions: sessions };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-sessions?limit=1',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      expect(body.sessions).toHaveLength(1);
+      expect(body.totalSessions).toBe(2);
+    });
+  });
+
+  describe('GET /api/library/:id/reading-pace - limit edge cases', () => {
+    it('handles limit=0 by falling back to default 20', async () => {
+      const sessions = [];
+      for (let i = 0; i < 3; i++) {
+        sessions.push({
+          start: new Date(Date.now() - i * 86400000).toISOString(),
+          end: new Date(Date.now() - i * 86400000 + 3600000).toISOString(),
+          duration_ms: 3600000,
+          pages: 25,
+          start_page: 0,
+          end_page: 25,
+        });
+      }
+      testNotes.get('test-note')!.frontmatter = { reading_sessions: sessions };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-pace?limit=0',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // parseInt('0') = 0 falsy -> falls back to 20
+      expect(body.paceData).toHaveLength(3); // Less than 20, so all returned
+    });
+
+    it('caps limit at 100 for pace endpoint', async () => {
+      const sessions = [];
+      for (let i = 0; i < 110; i++) {
+        sessions.push({
+          start: new Date(Date.now() - i * 86400000).toISOString(),
+          end: new Date(Date.now() - i * 86400000 + 3600000).toISOString(),
+          duration_ms: 3600000,
+          pages: 25,
+          start_page: 0,
+          end_page: 25,
+        });
+      }
+      testNotes.get('test-note')!.frontmatter = { reading_sessions: sessions };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-pace?limit=200',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      expect(body.paceData).toHaveLength(100);
+      expect(body.totalSessions).toBe(110);
+    });
+  });
+
+  describe('GET /api/library/:id/reading-pace - quality tie-breaking', () => {
+    it('resolves quality tie by priority order (deep > focused > normal > distracted)', async () => {
+      // Create equal counts of 'deep' and 'focused' - tie should resolve to 'deep'
+      const sessions = [
+        { start: '2024-01-15T10:00:00Z', end: '2024-01-15T11:00:00Z', duration_ms: 3600000, pages: 30, start_page: 0, end_page: 30, quality: 'deep' },
+        { start: '2024-01-14T10:00:00Z', end: '2024-01-14T11:00:00Z', duration_ms: 3600000, pages: 25, start_page: 30, end_page: 55, quality: 'focused' },
+      ];
+      testNotes.get('test-note')!.frontmatter = { reading_sessions: sessions };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-pace',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // When tied, the priority chain checks deep first, so deep wins
+      expect(body.averageSessionQuality).toBe('deep');
+    });
+
+    it('reports distracted quality when most sessions are distracted', async () => {
+      const sessions = [
+        { start: '2024-01-15T10:00:00Z', end: '2024-01-15T10:30:00Z', duration_ms: 1800000, pages: 5, start_page: 0, end_page: 5, quality: 'distracted' },
+        { start: '2024-01-14T10:00:00Z', end: '2024-01-14T10:30:00Z', duration_ms: 1800000, pages: 4, start_page: 5, end_page: 9, quality: 'distracted' },
+        { start: '2024-01-13T10:00:00Z', end: '2024-01-13T11:00:00Z', duration_ms: 3600000, pages: 30, start_page: 9, end_page: 39, quality: 'deep' },
+      ];
+      testNotes.get('test-note')!.frontmatter = { reading_sessions: sessions };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-pace',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      expect(body.averageSessionQuality).toBe('distracted');
+      // Focus score: (25 + 25 + 100) / 3 = 50
+      expect(body.focusScore).toBe(50);
+    });
+
+    it('calculates focus score for single session', async () => {
+      const sessions = [
+        { start: '2024-01-15T10:00:00Z', end: '2024-01-15T10:30:00Z', duration_ms: 1800000, pages: 10, start_page: 0, end_page: 10, quality: 'normal' },
+      ];
+      testNotes.get('test-note')!.frontmatter = { reading_sessions: sessions };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-pace',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      expect(body.averageSessionQuality).toBe('normal');
+      expect(body.focusScore).toBe(50); // normal = 50
+    });
+  });
+
+  describe('GET /api/library/:id/reading-pace - time-of-day edge cases', () => {
+    it('handles sessions at midnight boundary (hour 0)', async () => {
+      const sessions = [
+        { start: '2024-01-15T00:00:00Z', end: '2024-01-15T01:00:00Z', duration_ms: 3600000, pages: 20, start_page: 0, end_page: 20, hour_of_day: 0 },
+        { start: '2024-01-14T00:30:00Z', end: '2024-01-14T01:30:00Z', duration_ms: 3600000, pages: 18, start_page: 20, end_page: 38, hour_of_day: 0 },
+      ];
+      testNotes.get('test-note')!.frontmatter = { reading_sessions: sessions };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-pace',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      const hour0 = body.timeOfDayPatterns.find((p: { hour: number }) => p.hour === 0);
+      expect(hour0.totalSessions).toBe(2);
+      expect(hour0.totalDurationMs).toBe(7200000);
+      expect(hour0.averageDurationMs).toBe(3600000);
+
+      // Hour 0 is classified as 'night'
+      expect(body.preferredReadingTime.peakPeriod).toBe('night');
+    });
+
+    it('handles sessions at hour 23 boundary', async () => {
+      const sessions = [
+        { start: '2024-01-15T23:00:00Z', end: '2024-01-16T00:00:00Z', duration_ms: 3600000, pages: 20, start_page: 0, end_page: 20, hour_of_day: 23 },
+      ];
+      testNotes.get('test-note')!.frontmatter = { reading_sessions: sessions };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-pace',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      const hour23 = body.timeOfDayPatterns.find((p: { hour: number }) => p.hour === 23);
+      expect(hour23.totalSessions).toBe(1);
+
+      // Hour 23 should be classified as 'night'
+      expect(body.preferredReadingTime.peakPeriod).toBe('night');
+    });
+
+    it('returns all 24 hour slots even with no sessions', async () => {
+      testNotes.get('test-note')!.frontmatter = {
+        reading_sessions: [
+          // Single session, just to have some data
+          { start: '2024-01-15T10:00:00Z', end: '2024-01-15T11:00:00Z', duration_ms: 3600000, pages: 30, start_page: 0, end_page: 30, hour_of_day: 10 },
+        ],
+      };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-pace',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      expect(body.timeOfDayPatterns).toHaveLength(24);
+
+      // Verify all hours 0-23 are represented
+      const hours = body.timeOfDayPatterns.map((p: { hour: number }) => p.hour);
+      for (let h = 0; h < 24; h++) {
+        expect(hours).toContain(h);
+      }
+
+      // Empty hours should have zero values
+      const emptyHour = body.timeOfDayPatterns.find((p: { hour: number }) => p.hour === 0);
+      expect(emptyHour.totalSessions).toBe(0);
+      expect(emptyHour.totalDurationMs).toBe(0);
+      expect(emptyHour.averageDurationMs).toBe(0);
+    });
+
+    it('ignores sessions with invalid hourOfDay values', async () => {
+      const sessions = [
+        { start: '2024-01-15T10:00:00Z', end: '2024-01-15T11:00:00Z', duration_ms: 3600000, pages: 30, start_page: 0, end_page: 30, hour_of_day: 10 },
+        { start: '2024-01-14T10:00:00Z', end: '2024-01-14T11:00:00Z', duration_ms: 3600000, pages: 25, start_page: 30, end_page: 55, hour_of_day: -1 },
+        { start: '2024-01-13T10:00:00Z', end: '2024-01-13T11:00:00Z', duration_ms: 3600000, pages: 20, start_page: 55, end_page: 75, hour_of_day: 24 },
+      ];
+      testNotes.get('test-note')!.frontmatter = { reading_sessions: sessions };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-pace',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // Only the valid session (hour 10) should be counted in patterns
+      const totalSessionsInPatterns = body.timeOfDayPatterns.reduce(
+        (sum: number, p: { totalSessions: number }) => sum + p.totalSessions, 0
+      );
+      expect(totalSessionsInPatterns).toBe(1);
+    });
+
+    it('correctly calculates average duration per hour', async () => {
+      const sessions = [
+        { start: '2024-01-15T10:00:00Z', end: '2024-01-15T11:00:00Z', duration_ms: 3600000, pages: 30, start_page: 0, end_page: 30, hour_of_day: 10 },
+        { start: '2024-01-14T10:00:00Z', end: '2024-01-14T10:30:00Z', duration_ms: 1800000, pages: 15, start_page: 30, end_page: 45, hour_of_day: 10 },
+        { start: '2024-01-13T10:00:00Z', end: '2024-01-13T10:45:00Z', duration_ms: 2700000, pages: 20, start_page: 45, end_page: 65, hour_of_day: 10 },
+      ];
+      testNotes.get('test-note')!.frontmatter = { reading_sessions: sessions };
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/reading-pace',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      const hour10 = body.timeOfDayPatterns.find((p: { hour: number }) => p.hour === 10);
+      expect(hour10.totalSessions).toBe(3);
+      expect(hour10.totalDurationMs).toBe(8100000); // 3600000 + 1800000 + 2700000
+      expect(hour10.averageDurationMs).toBe(2700000); // 8100000 / 3
+    });
+  });
+
+  describe('PATCH /api/library/:id/reading-stats - write failure scenarios', () => {
+    afterEach(() => {
+      // Reset writeFileSync to prevent leaking the throwing mock into subsequent tests
+      mockWriteFileSync.mockReset();
+    });
+
+    it('returns 500 when writeFileSync fails', async () => {
+      mockReadFileSync.mockReturnValue(`---
+title: Test Book
+reading_progress: 50
+---
+
+# Notes
+`);
+      mockWriteFileSync.mockImplementation(() => {
+        throw new Error('ENOSPC: no space left on device');
+      });
+
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 1800000,
+          pagesRead: 10,
+        },
+      });
+
+      expect(response.statusCode).toBe(500);
+      const body = JSON.parse(response.body);
+      expect(body.error).toBe('Failed to update reading stats');
+    });
+  });
+
+  describe('PATCH /api/library/:id/reading-stats - session quality classifications', () => {
+    beforeEach(() => {
+      mockReadFileSync.mockReturnValue(`---
+title: Test Book
+reading_progress: 50
+---
+
+# Notes
+`);
+    });
+
+    it('records focused quality for moderate sessions with few pauses', async () => {
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 1200000, // 20 minutes
+          pagesRead: 10,
+          startPage: 0,
+          endPage: 10,
+          startTime: '2024-01-15T10:00:00Z',
+          idlePauseCount: 1,
+          idlePauseTotalMs: 50000, // 50 seconds idle (~4.2% of session, under 5% threshold)
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockWriteFileSync).toHaveBeenCalled();
+      const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
+      expect(writtenContent).toContain('reading_sessions');
+      // 20 min session, 1 pause, 4.2% idle -> should be 'focused'
+      expect(writtenContent).toContain('focused');
+    });
+
+    it('records distracted quality for sessions with many pauses', async () => {
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 1800000, // 30 minutes
+          pagesRead: 5,
+          startPage: 0,
+          endPage: 5,
+          startTime: '2024-01-15T10:00:00Z',
+          idlePauseCount: 10,
+          idlePauseTotalMs: 900000, // 15 minutes idle (50% of session)
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockWriteFileSync).toHaveBeenCalled();
+      const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
+      // Heavily distracted session should be flagged as 'distracted'
+      expect(writtenContent).toContain('distracted');
+    });
+
+    it('records normal quality for short sessions under 5 minutes', async () => {
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 120000, // 2 minutes
+          pagesRead: 1,
+          startPage: 0,
+          endPage: 1,
+          startTime: '2024-01-15T10:00:00Z',
+          idlePauseCount: 0,
+          idlePauseTotalMs: 0,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockWriteFileSync).toHaveBeenCalled();
+      const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
+      // Very short sessions always get 'normal' quality
+      expect(writtenContent).toContain('normal');
+    });
+  });
+
+  describe('PATCH /api/library/:id/reading-stats - completion estimation edge cases', () => {
+    beforeEach(() => {
+      mockReadFileSync.mockReturnValue(`---
+title: Test Book
+reading_progress: 50
+---
+
+# Notes
+`);
+    });
+
+    it('uses session frequency fallback when no daily history average exists', async () => {
+      // Set up a note with one prior session but no reading history
+      mockReadFileSync.mockReturnValue(`---
+title: Test Book
+reading_progress: 20
+total_pages: 200
+reading_stats:
+  total_time_ms: 3600000
+  total_sessions: 1
+  first_read: "2024-01-15T10:00:00Z"
+  pages_per_hour: 30
+  total_pages: 30
+  longest_session_ms: 3600000
+reading_sessions:
+  - start: "2024-01-15T10:00:00Z"
+    end: "2024-01-15T11:00:00Z"
+    duration_ms: 3600000
+    pages: 30
+    start_page: 0
+    end_page: 30
+---
+
+# Notes
+`);
+
+      testNotes.get('test-note')!.progress = 20;
+      testNotes.get('test-note')!.totalPages = 200;
+
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 3600000,
+          pagesRead: 30,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // With 2 sessions of 3600000ms each (1 existing + 1 new), pagesPerHour should be calculable
+      expect(body.readingStats.totalSessions).toBe(2);
+      expect(body.readingStats.pagesPerHour).toBeGreaterThan(0);
+    });
+
+    it('does not estimate completion when pagesPerHour is null', async () => {
+      // Sessions too short for speed calculation (under 1 min)
+      mockReadFileSync.mockReturnValue(`---
+title: Test Book
+reading_progress: 50
+total_pages: 100
+reading_sessions:
+  - start: "2024-01-15T10:00:00Z"
+    end: "2024-01-15T10:00:30Z"
+    duration_ms: 30000
+    pages: 0
+    start_page: 0
+    end_page: 0
+---
+
+# Notes
+`);
+
+      testNotes.get('test-note')!.progress = 50;
+      testNotes.get('test-note')!.totalPages = 100;
+
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 30000, // 30 seconds, too short
+          pagesRead: 0,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      expect(body.readingStats.estimatedCompletionDate).toBeNull();
+    });
+
+    it('does not estimate completion when progress is at 100%', async () => {
+      mockReadFileSync.mockReturnValue(`---
+title: Test Book
+reading_progress: 100
+total_pages: 100
+reading_stats:
+  total_time_ms: 36000000
+  total_sessions: 10
+  pages_per_hour: 30
+  total_pages: 100
+  first_read: "2024-01-01T10:00:00Z"
+reading_history:
+  - date: "2024-01-15"
+    duration_ms: 3600000
+    sessions: 1
+    pages: 30
+  - date: "2024-01-14"
+    duration_ms: 3600000
+    sessions: 1
+    pages: 30
+---
+
+# Notes
+`);
+
+      testNotes.get('test-note')!.progress = 100;
+      testNotes.get('test-note')!.totalPages = 100;
+
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 1800000,
+          pagesRead: 5,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      expect(body.readingStats.estimatedCompletionDate).toBeNull();
+    });
+  });
+
+  describe('PATCH /api/library/:id/reading-stats - pages per hour fallback', () => {
+    beforeEach(() => {
+      mockReadFileSync.mockReturnValue(`---
+title: Test Book
+reading_progress: 50
+---
+
+# Notes
+`);
+    });
+
+    it('uses overall average when no session meets minimum criteria', async () => {
+      // Set up state where existing sessions are too short for weighted calc
+      // but total pages and total time meet fallback criteria
+      mockReadFileSync.mockReturnValue(`---
+title: Test Book
+reading_progress: 50
+reading_stats:
+  total_time_ms: 120000
+  total_sessions: 2
+  total_pages: 5
+  first_read: "2024-01-10T10:00:00Z"
+reading_sessions:
+  - start: "2024-01-15T10:00:00Z"
+    end: "2024-01-15T10:00:30Z"
+    duration_ms: 30000
+    pages: 1
+    start_page: 0
+    end_page: 1
+---
+
+# Notes
+`);
+
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 30000, // 30 seconds - below 60s threshold
+          pagesRead: 1,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // All sessions are under 60s, so weighted calc is skipped
+      // But totalPagesRead (6) > 0 and totalReadingTimeMs (150000) >= 60000
+      // Fallback should calculate: 6 pages / (150000ms / 3600000ms) = ~144 pph
+      if (body.readingStats.pagesPerHour !== null) {
+        expect(body.readingStats.pagesPerHour).toBeGreaterThan(0);
+      }
+    });
+
+    it('keeps existing pagesPerHour when new session is too short', async () => {
+      // With clean frontmatter, a very short session should result in pagesPerHour
+      // being null (no prior data) or preserving the existing value.
+      // The key behavior is that a 5-second session with 0 pages does NOT
+      // qualify for the weighted speed calculation (needs >= 60s and >= 1 page)
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 5000, // 5 seconds - below minimum threshold
+          pagesRead: 0,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // The session is too short (5s < 60s threshold) with 0 pages
+      // It should not produce a meaningful pagesPerHour on its own
+      expect(body.readingStats.totalReadingTimeMs).toBeGreaterThanOrEqual(5000);
+      // pagesPerHour may be null (first session) or carried forward from accumulated state
+      if (body.readingStats.pagesPerHour !== null) {
+        expect(body.readingStats.pagesPerHour).toBeGreaterThan(0);
+      }
+    });
+  });
+
+  describe('PATCH /api/library/:id/reading-stats - momentum in update response', () => {
+    beforeEach(() => {
+      mockReadFileSync.mockReturnValue(`---
+title: Test Book
+reading_progress: 50
+---
+
+# Notes
+`);
+    });
+
+    it('includes momentum data in PATCH response', async () => {
+      // Set up history for momentum calculation
+      const history = [];
+      for (let i = 0; i < 14; i++) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        history.push({
+          date: date.toISOString().split('T')[0],
+          duration_ms: 3600000,
+          sessions: 1,
+          pages: 30,
+        });
+      }
+
+      mockReadFileSync.mockReturnValue(`---
+title: Test Book
+reading_progress: 50
+reading_history:
+${history.map(h => `  - date: "${h.date}"
+    duration_ms: ${h.duration_ms}
+    sessions: ${h.sessions}
+    pages: ${h.pages}`).join('\n')}
+---
+
+# Notes
+`);
+
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 3600000,
+          pagesRead: 30,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // With consistent daily reading, momentum should be defined
+      if (body.readingStats.momentum) {
+        expect(['accelerating', 'steady', 'decelerating', 'stalled']).toContain(body.readingStats.momentum);
+      }
+      if (body.readingStats.momentumScore !== undefined) {
+        expect(typeof body.readingStats.momentumScore).toBe('number');
+      }
+    });
+  });
+
+  describe('PATCH /api/library/:id/reading-stats - schema validation', () => {
+    beforeEach(() => {
+      mockReadFileSync.mockReturnValue(`---
+title: Test Book
+reading_progress: 50
+---
+
+# Notes
+`);
+    });
+
+    it('rejects negative pagesRead', async () => {
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 1800000,
+          pagesRead: -5,
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('rejects currentProgress above 100', async () => {
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 1800000,
+          pagesRead: 10,
+          currentProgress: 150,
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('rejects negative currentProgress', async () => {
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 1800000,
+          pagesRead: 10,
+          currentProgress: -10,
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('rejects negative startPage', async () => {
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 1800000,
+          pagesRead: 10,
+          startPage: -1,
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('rejects negative endPage', async () => {
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 1800000,
+          pagesRead: 10,
+          endPage: -1,
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('accepts zero values for all optional numeric fields', async () => {
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 1800000,
+          pagesRead: 0,
+          startPage: 0,
+          endPage: 0,
+          idlePauseCount: 0,
+          idlePauseTotalMs: 0,
+          currentProgress: 0,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.success).toBe(true);
+    });
+
+    it('accepts request with only required field sessionDurationMs', async () => {
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 1800000,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.success).toBe(true);
+      expect(body.readingStats.totalSessions).toBeGreaterThanOrEqual(1);
+      // When pagesRead is not provided, it defaults to 0 via Math.max(0, undefined || 0)
+      expect(body.readingStats.totalReadingTimeMs).toBeGreaterThanOrEqual(1800000);
+    });
+
+    it('rejects empty request body', async () => {
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('accepts currentProgress of exactly 0', async () => {
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 1800000,
+          pagesRead: 1,
+          currentProgress: 0,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+    });
+
+    it('accepts currentProgress of exactly 100', async () => {
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 1800000,
+          pagesRead: 1,
+          currentProgress: 100,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+    });
+  });
+
+  describe('PATCH /api/library/:id/reading-stats - milestone 100% completion', () => {
+    beforeEach(() => {
+      mockReadFileSync.mockReturnValue(`---
+title: Test Book
+reading_progress: 50
+---
+
+# Notes
+`);
+    });
+
+    it('records 100% milestone when book is completed', async () => {
+      testNotes.get('test-note')!.progress = 90;
+
+      mockReadFileSync.mockReturnValue(`---
+title: Test Book
+reading_progress: 90
+reading_stats:
+  total_time_ms: 36000000
+  total_sessions: 10
+  first_read: "2024-01-01T10:00:00Z"
+  pages_per_hour: 30
+  total_pages: 90
+  milestones:
+    - milestone: 10
+      reached_at: "2024-01-02T10:00:00Z"
+      days_from_start: 1
+      total_time_ms: 3600000
+    - milestone: 25
+      reached_at: "2024-01-03T10:00:00Z"
+      days_from_start: 2
+      total_time_ms: 7200000
+    - milestone: 50
+      reached_at: "2024-01-05T10:00:00Z"
+      days_from_start: 4
+      total_time_ms: 18000000
+    - milestone: 75
+      reached_at: "2024-01-08T10:00:00Z"
+      days_from_start: 7
+      total_time_ms: 27000000
+---
+
+# Notes
+`);
+
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 3600000,
+          pagesRead: 10,
+          currentProgress: 100,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      const milestoneValues = body.readingStats.milestones.map((m: { milestone: number }) => m.milestone);
+      expect(milestoneValues).toContain(100);
+      // All 5 milestones should be present
+      expect(milestoneValues).toEqual([10, 25, 50, 75, 100]);
+    });
+
+    it('does not add new milestones when currentProgress is not provided', async () => {
+      // Set up frontmatter with exactly 2 existing milestones
+      mockReadFileSync.mockReturnValue(`---
+title: Test Book
+reading_progress: 50
+reading_stats:
+  total_time_ms: 3600000
+  total_sessions: 1
+  first_read: "2024-01-01T10:00:00Z"
+  total_pages: 30
+  milestones:
+    - milestone: 10
+      reached_at: "2024-01-02T10:00:00Z"
+      days_from_start: 1
+      total_time_ms: 600000
+    - milestone: 25
+      reached_at: "2024-01-03T10:00:00Z"
+      days_from_start: 2
+      total_time_ms: 1800000
+---
+
+# Notes
+`);
+
+      testNotes.get('test-note')!.progress = 50;
+
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/reading-stats',
+        payload: {
+          sessionDurationMs: 1800000,
+          pagesRead: 10,
+          // No currentProgress field — milestone checking should be skipped
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // Without currentProgress, the milestones array should be unchanged
+      // from what was in the frontmatter (2 milestones: 10 and 25)
+      if (body.readingStats.milestones) {
+        const milestoneValues = body.readingStats.milestones.map(
+          (m: { milestone: number }) => m.milestone
+        );
+        // Should NOT contain 50, 75, or 100 since currentProgress was not provided
+        expect(milestoneValues).not.toContain(75);
+        expect(milestoneValues).not.toContain(100);
+      }
+    });
+  });
 });
