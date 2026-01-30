@@ -540,4 +540,308 @@ describe('PDF Render Worker', () => {
       expect(postMessageSpy).toHaveBeenCalled();
     });
   });
+
+  describe('text content cache key isolation', () => {
+    it('caches text independently for same page number across different URLs', async () => {
+      const textContentA = {
+        items: [{ str: 'Doc A', dir: 'ltr', transform: [1, 0, 0, 1, 0, 0], width: 40, height: 12, hasEOL: false }],
+        styles: {},
+      };
+      const textContentB = {
+        items: [{ str: 'Doc B', dir: 'ltr', transform: [1, 0, 0, 1, 0, 0], width: 40, height: 12, hasEOL: false }],
+        styles: {},
+      };
+
+      mockPage.getTextContent
+        .mockResolvedValueOnce(textContentA)
+        .mockResolvedValueOnce(textContentB);
+
+      const requestA = makeRenderRequest({ id: 'a', pdfUrl: 'http://localhost/a.pdf', pageNum: 1, includeText: true });
+      const requestB = makeRenderRequest({ id: 'b', pdfUrl: 'http://localhost/b.pdf', pageNum: 1, includeText: true });
+
+      await dispatchMessage(requestA);
+      await dispatchMessage(requestB);
+
+      // Both should call getTextContent because the URLs differ (cache key includes URL)
+      expect(mockPage.getTextContent).toHaveBeenCalledTimes(2);
+
+      // Each response should have its own text content
+      expect(postMessageSpy.mock.calls[0][0].textContent).toEqual(textContentA);
+      expect(postMessageSpy.mock.calls[1][0].textContent).toEqual(textContentB);
+    });
+
+    it('caches text independently for same URL across different page numbers', async () => {
+      const requestP1 = makeRenderRequest({ id: 'p1', pageNum: 1, includeText: true });
+      const requestP2 = makeRenderRequest({ id: 'p2', pageNum: 2, includeText: true });
+      const requestP1Again = makeRenderRequest({ id: 'p1b', pageNum: 1, includeText: true });
+
+      await dispatchMessage(requestP1);
+      await dispatchMessage(requestP2);
+      await dispatchMessage(requestP1Again);
+
+      // Page 1 extracted once, page 2 extracted once, page 1 again served from cache
+      expect(mockPage.getTextContent).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('createImageBitmap failure', () => {
+    it('posts error when createImageBitmap rejects', async () => {
+      vi.stubGlobal('createImageBitmap', vi.fn(() => Promise.reject(new Error('Bitmap allocation failed'))));
+
+      const request = makeRenderRequest({ id: 'bitmap-fail' });
+      await dispatchMessage(request);
+
+      expect(postMessageSpy).toHaveBeenCalledTimes(1);
+      const response = postMessageSpy.mock.calls[0][0];
+      expect(response).toEqual({
+        id: 'bitmap-fail',
+        error: 'Bitmap allocation failed',
+      });
+    });
+  });
+
+  describe('text extraction failure', () => {
+    it('posts error when getTextContent rejects while render succeeds', async () => {
+      mockPage.getTextContent.mockRejectedValueOnce(new Error('Text extraction unsupported'));
+
+      const request = makeRenderRequest({ id: 'text-fail', includeText: true });
+      await dispatchMessage(request);
+
+      // Promise.all rejects if either promise rejects
+      expect(postMessageSpy).toHaveBeenCalledTimes(1);
+      const response = postMessageSpy.mock.calls[0][0];
+      expect(response).toEqual({
+        id: 'text-fail',
+        error: 'Text extraction unsupported',
+      });
+    });
+
+    it('does not cache text content when getTextContent rejects', async () => {
+      mockPage.getTextContent
+        .mockRejectedValueOnce(new Error('Transient failure'))
+        .mockResolvedValueOnce(mockTextContent);
+
+      const request1 = makeRenderRequest({ id: 'tc1', includeText: true });
+      await dispatchMessage(request1);
+
+      // First request fails — error response
+      expect(postMessageSpy.mock.calls[0][0].error).toBe('Transient failure');
+
+      const request2 = makeRenderRequest({ id: 'tc2', includeText: true });
+      await dispatchMessage(request2);
+
+      // Second request should retry getTextContent (not served from cache)
+      expect(mockPage.getTextContent).toHaveBeenCalledTimes(2);
+      expect(postMessageSpy.mock.calls[1][0].textContent).toEqual(mockTextContent);
+    });
+  });
+
+  describe('scale edge cases', () => {
+    it('handles zero scale without crashing', async () => {
+      const request = makeRenderRequest({ scale: 0, devicePixelRatio: 2 });
+      await dispatchMessage(request);
+
+      // effective scale = 0 * 2 = 0
+      expect(mockPage.getViewport).toHaveBeenCalledWith({ scale: 0 });
+      expect(postMessageSpy).toHaveBeenCalledTimes(1);
+      // Should still produce a response (even if canvas is 0x0)
+      expect(postMessageSpy.mock.calls[0][0].bitmap).toBeDefined();
+    });
+
+    it('handles fractional scale producing non-integer viewport dimensions', async () => {
+      mockPage.getViewport.mockReturnValueOnce({
+        width: 459.37500000000006,
+        height: 594.15,
+      });
+
+      const request = makeRenderRequest({ scale: 0.75, devicePixelRatio: 1 });
+      await dispatchMessage(request);
+
+      // Should not throw — canvas dimensions are rounded
+      expect(postMessageSpy).toHaveBeenCalledTimes(1);
+      expect(postMessageSpy.mock.calls[0][0].bitmap).toBeDefined();
+    });
+
+    it('handles very large scale values', async () => {
+      mockPage.getViewport.mockReturnValueOnce({
+        width: 61200,
+        height: 79200,
+      });
+
+      const request = makeRenderRequest({ scale: 10, devicePixelRatio: 10 });
+      await dispatchMessage(request);
+
+      expect(mockPage.getViewport).toHaveBeenCalledWith({ scale: 100 });
+      expect(postMessageSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('response shape', () => {
+    it('sets textContent to undefined when includeText is false', async () => {
+      const request = makeRenderRequest({ includeText: false });
+      await dispatchMessage(request);
+
+      const response = postMessageSpy.mock.calls[0][0];
+      // textContent should be undefined (not a populated object)
+      expect(response.textContent).toBeUndefined();
+    });
+
+    it('includes textContent field when includeText is true and text exists', async () => {
+      const request = makeRenderRequest({ includeText: true });
+      await dispatchMessage(request);
+
+      const response = postMessageSpy.mock.calls[0][0];
+      expect(response.textContent).toBeDefined();
+      expect(response.textContent).toEqual(mockTextContent);
+    });
+
+    it('transfers bitmap in the transferable list on success', async () => {
+      const request = makeRenderRequest({ includeText: true });
+      await dispatchMessage(request);
+
+      const [response, transferables] = postMessageSpy.mock.calls[0];
+      expect(transferables).toHaveLength(1);
+      expect(transferables[0]).toBe(response.bitmap);
+    });
+
+    it('does not include transferable list on error', async () => {
+      mockPage.render.mockReturnValueOnce({
+        promise: Promise.reject(new Error('fail')),
+        cancel: vi.fn(),
+      });
+
+      const request = makeRenderRequest();
+      await dispatchMessage(request);
+
+      // Error responses use postMessage without transferables
+      expect(postMessageSpy.mock.calls[0]).toHaveLength(1);
+    });
+  });
+
+  describe('multiple concurrent renders', () => {
+    it('handles sequential renders to the same page independently', async () => {
+      const request1 = makeRenderRequest({ id: 'seq-1', pageNum: 5 });
+      const request2 = makeRenderRequest({ id: 'seq-2', pageNum: 5 });
+
+      await dispatchMessage(request1);
+      await dispatchMessage(request2);
+
+      expect(postMessageSpy).toHaveBeenCalledTimes(2);
+      expect(postMessageSpy.mock.calls[0][0].id).toBe('seq-1');
+      expect(postMessageSpy.mock.calls[1][0].id).toBe('seq-2');
+      // Both should get their own bitmaps
+      expect(postMessageSpy.mock.calls[0][0].bitmap).not.toBe(postMessageSpy.mock.calls[1][0].bitmap);
+    });
+
+    it('allows cancelling one render while another completes', async () => {
+      let resolveFirst!: () => void;
+      const firstPromise = new Promise<void>((resolve) => { resolveFirst = resolve; });
+      const cancelFirst = vi.fn();
+
+      mockPage.render
+        .mockReturnValueOnce({ promise: firstPromise, cancel: cancelFirst })
+        .mockReturnValueOnce({ promise: Promise.resolve(), cancel: vi.fn() });
+
+      const request1 = makeRenderRequest({ id: 'concurrent-1' });
+      const request2 = makeRenderRequest({ id: 'concurrent-2' });
+
+      // Start first render (will hang)
+      dispatchMessage(request1);
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Start and complete second render
+      await dispatchMessage(request2);
+
+      // Second render should have posted a response
+      expect(postMessageSpy).toHaveBeenCalledTimes(1);
+      expect(postMessageSpy.mock.calls[0][0].id).toBe('concurrent-2');
+
+      // Cancel the first render
+      await dispatchMessage({ type: 'cancel', id: 'concurrent-1' });
+      expect(cancelFirst).toHaveBeenCalled();
+
+      // Resolve first to avoid dangling promise
+      resolveFirst();
+    });
+  });
+
+  describe('PDF document loading edge cases', () => {
+    it('passes the exact URL from the request to getDocument', async () => {
+      const request = makeRenderRequest({ pdfUrl: 'http://example.com/path/to/document.pdf?token=abc123' });
+      await dispatchMessage(request);
+
+      expect(pdfjsLib.getDocument).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: 'http://example.com/path/to/document.pdf?token=abc123',
+        })
+      );
+    });
+
+    it('caches document even when page rendering fails', async () => {
+      mockPdfDocument.getPage.mockRejectedValueOnce(new Error('Bad page'));
+      // Restore normal getPage behavior for next call
+      mockPdfDocument.getPage.mockResolvedValueOnce(mockPage);
+
+      const request1 = makeRenderRequest({ id: 'cache-1', pdfUrl: 'http://localhost/cached.pdf', pageNum: 999 });
+      await dispatchMessage(request1);
+
+      // First request fails at page level
+      expect(postMessageSpy.mock.calls[0][0].error).toBe('Bad page');
+
+      const request2 = makeRenderRequest({ id: 'cache-2', pdfUrl: 'http://localhost/cached.pdf', pageNum: 1 });
+      await dispatchMessage(request2);
+
+      // Document should still be cached — getDocument called only once
+      expect(pdfjsLib.getDocument).toHaveBeenCalledTimes(1);
+      // Second request should succeed
+      expect(postMessageSpy.mock.calls[1][0].bitmap).toBeDefined();
+    });
+  });
+
+  describe('render task lifecycle', () => {
+    it('registers render in pendingRenders before awaiting result', async () => {
+      let resolveRender!: () => void;
+      const renderPromise = new Promise<void>((resolve) => { resolveRender = resolve; });
+      const cancelFn = vi.fn();
+
+      mockPage.render.mockReturnValueOnce({
+        promise: renderPromise,
+        cancel: cancelFn,
+      });
+
+      const request = makeRenderRequest({ id: 'lifecycle-test' });
+      dispatchMessage(request);
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Cancel should work because render was registered before awaiting
+      await dispatchMessage({ type: 'cancel', id: 'lifecycle-test' });
+      expect(cancelFn).toHaveBeenCalled();
+
+      resolveRender();
+    });
+
+    it('passes viewport to render call', async () => {
+      const mockViewport = { width: 800, height: 1000 };
+      mockPage.getViewport.mockReturnValueOnce(mockViewport);
+
+      const request = makeRenderRequest();
+      await dispatchMessage(request);
+
+      expect(mockPage.render).toHaveBeenCalledWith(
+        expect.objectContaining({
+          viewport: mockViewport,
+        })
+      );
+    });
+
+    it('passes canvas 2d context to render call', async () => {
+      const request = makeRenderRequest();
+      await dispatchMessage(request);
+
+      const renderCallArg = mockPage.render.mock.calls[0][0];
+      // The context should be an object (from MockOffscreenCanvas.getContext('2d'))
+      expect(renderCallArg.canvasContext).toBeDefined();
+      expect(renderCallArg.canvasContext).toHaveProperty('fillRect');
+    });
+  });
 });
