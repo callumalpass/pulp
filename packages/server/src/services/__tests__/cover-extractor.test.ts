@@ -1746,4 +1746,724 @@ describe('CoverExtractor', () => {
       expect(mockWriteFileSync).not.toHaveBeenCalled();
     });
   });
+
+  describe('normalizePath edge cases (via extractImageFromHtmlPage)', () => {
+    // normalizePath is private but exercised through HTML page image extraction.
+    // We reach it by setting up a guide → HTML page → img src path pipeline.
+
+    beforeEach(() => {
+      mockExistsSync.mockImplementation((path) => {
+        if (typeof path === 'string' && path.endsWith('.webp')) return false;
+        return true;
+      });
+    });
+
+    function createEpubWithCoverPage(imgSrc: string, pageHref: string, imageManifestHref: string) {
+      const imageBuffer = Buffer.from('jpeg-image');
+      const eventHandlers: Record<string, Array<(...args: unknown[]) => void>> = {};
+
+      class MockEPubNorm {
+        metadata = {};
+        manifest = {
+          'cover-page': { href: pageHref, 'media-type': 'application/xhtml+xml' as const },
+          'cover-img': { href: imageManifestHref, 'media-type': 'image/jpeg' as const },
+        };
+        guide = [{ type: 'cover', href: pageHref }];
+        spine = { contents: [] };
+        on(event: string, callback: (...args: unknown[]) => void) {
+          if (!eventHandlers[event]) eventHandlers[event] = [];
+          eventHandlers[event].push(callback);
+          return this;
+        }
+        parse() {
+          process.nextTick(() => eventHandlers['end']?.forEach(cb => cb()));
+        }
+        getImage(_id: string, callback: (err: Error | null, data: Buffer | null, mimeType: string) => void) {
+          callback(null, imageBuffer, 'image/jpeg');
+        }
+        getChapter(_id: string, callback: (err: Error | null, text: string | null) => void) {
+          callback(null, `<html><body><img src="${imgSrc}" alt="Cover"></body></html>`);
+        }
+      }
+      return MockEPubNorm;
+    }
+
+    it('normalizes multiple consecutive ../ segments', async () => {
+      const webpBuffer = Buffer.from('webp-image');
+      // Page at OEBPS/text/pages/cover.xhtml, image src ../../images/cover.jpg
+      // basePath = "OEBPS/text/pages/"
+      // resolved = "OEBPS/text/pages/../../images/cover.jpg"
+      // normalized = "OEBPS/images/cover.jpg"
+      const MockClass = createEpubWithCoverPage(
+        '../../images/cover.jpg',
+        'OEBPS/text/pages/cover.xhtml',
+        'OEBPS/images/cover.jpg'
+      );
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const sharpChain = createMockSharpChain(webpBuffer);
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      const result = await extractor.getCover('test-note', '/path/to/book.epub', 'epub');
+      expect(result).toEqual(webpBuffer);
+    });
+
+    it('normalizes paths with single dot segments', async () => {
+      const webpBuffer = Buffer.from('webp-image');
+      // Page at text/cover.xhtml, image src ./images/cover.jpg
+      // basePath = "text/"
+      // resolved = "text/./images/cover.jpg"
+      // normalized = "text/images/cover.jpg"
+      const MockClass = createEpubWithCoverPage(
+        './images/cover.jpg',
+        'text/cover.xhtml',
+        'text/images/cover.jpg'
+      );
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const sharpChain = createMockSharpChain(webpBuffer);
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      const result = await extractor.getCover('test-note', '/path/to/book.epub', 'epub');
+      expect(result).toEqual(webpBuffer);
+    });
+
+    it('normalizes paths with double slashes', async () => {
+      const webpBuffer = Buffer.from('webp-image');
+      // Page at text/cover.xhtml, image src images//cover.jpg
+      // basePath = "text/"
+      // resolved = "text/images//cover.jpg"
+      // normalized removes empty parts = "text/images/cover.jpg"
+      const MockClass = createEpubWithCoverPage(
+        'images//cover.jpg',
+        'text/cover.xhtml',
+        'text/images/cover.jpg'
+      );
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const sharpChain = createMockSharpChain(webpBuffer);
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      const result = await extractor.getCover('test-note', '/path/to/book.epub', 'epub');
+      expect(result).toEqual(webpBuffer);
+    });
+
+    it('handles ../ going above root gracefully', async () => {
+      // Page at cover.xhtml (root level), image src ../../images/cover.jpg
+      // basePath = "" (no directory component)
+      // resolved = "../../images/cover.jpg"
+      // normalized: pop on empty array is no-op, then pop again, result = "images/cover.jpg"
+      const webpBuffer = Buffer.from('webp-image');
+      const MockClass = createEpubWithCoverPage(
+        '../../images/cover.jpg',
+        'cover.xhtml',
+        'images/cover.jpg'
+      );
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const sharpChain = createMockSharpChain(webpBuffer);
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      const result = await extractor.getCover('test-note', '/path/to/book.epub', 'epub');
+      expect(result).toEqual(webpBuffer);
+    });
+
+    it('resolves image when manifest href endsWith the normalized src', async () => {
+      const webpBuffer = Buffer.from('webp-image');
+      // The code checks: itemHref === normalizedSrc || itemHref.endsWith(normalizedSrc)
+      // Page at text/cover.xhtml, image src "cover.jpg" (just filename)
+      // basePath = "text/"
+      // resolved = "text/cover.jpg"
+      // Manifest has "OEBPS/text/cover.jpg" which endsWith "text/cover.jpg"
+      const MockClass = createEpubWithCoverPage(
+        'cover.jpg',
+        'text/cover.xhtml',
+        'OEBPS/text/cover.jpg'
+      );
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const sharpChain = createMockSharpChain(webpBuffer);
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      const result = await extractor.getCover('test-note', '/path/to/book.epub', 'epub');
+      expect(result).toEqual(webpBuffer);
+    });
+  });
+
+  describe('findLargestImage aspect ratio boundary conditions', () => {
+    beforeEach(() => {
+      mockExistsSync.mockImplementation((path) => {
+        if (typeof path === 'string' && path.endsWith('.webp')) return false;
+        return true;
+      });
+    });
+
+    function createEpubWithImages(imageCount: number) {
+      const manifest: Record<string, { href: string; 'media-type': string }> = {};
+      for (let i = 0; i < imageCount; i++) {
+        manifest[`img-${i}`] = { href: `images/img-${i}.jpg`, 'media-type': 'image/jpeg' };
+      }
+
+      const eventHandlers: Record<string, Array<(...args: unknown[]) => void>> = {};
+
+      class MockEPubImages {
+        metadata = {};
+        manifest = manifest;
+        spine = { contents: [] };
+        on(event: string, callback: (...args: unknown[]) => void) {
+          if (!eventHandlers[event]) eventHandlers[event] = [];
+          eventHandlers[event].push(callback);
+          return this;
+        }
+        parse() {
+          process.nextTick(() => eventHandlers['end']?.forEach(cb => cb()));
+        }
+        getImage(_id: string, callback: (err: Error | null, data: Buffer | null, mimeType: string) => void) {
+          callback(null, Buffer.from('image-data'), 'image/jpeg');
+        }
+        getChapter(_id: string, callback: (err: Error | null, text: string | null) => void) {
+          callback(null, '');
+        }
+      }
+      return MockEPubImages;
+    }
+
+    it('applies portrait boost at exact lower boundary (aspect ratio = 0.5)', async () => {
+      const webpBuffer = Buffer.from('webp-result');
+      const MockClass = createEpubWithImages(2);
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      let metadataCall = 0;
+      const sharpChain = {
+        resize: vi.fn().mockReturnThis(),
+        webp: vi.fn().mockReturnThis(),
+        toBuffer: vi.fn().mockResolvedValue(webpBuffer),
+        metadata: vi.fn().mockImplementation(() => {
+          metadataCall++;
+          if (metadataCall === 1) {
+            // Landscape: 500x200 = 100000 area, aspect 2.5 (not portrait, no boost)
+            return Promise.resolve({ width: 500, height: 200 });
+          }
+          // Exactly 0.5 ratio: 150x300 = 45000 area, with 1.5x boost = 67500
+          // Without boost: 100000 > 67500, landscape wins
+          // With boost: 100000 > 67500, landscape still wins
+          // So use larger portrait: 200x400 = 80000, boosted = 120000 > 100000
+          return Promise.resolve({ width: 200, height: 400 });
+        }),
+      };
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      const result = await extractor.getCover('test-note', '/path/to/book.epub', 'epub');
+
+      expect(result).toEqual(webpBuffer);
+      // Portrait image (200/400 = 0.5) should get the 1.5x boost
+      // 200*400*1.5 = 120000 > 500*200 = 100000
+      expect(sharpChain.resize).toHaveBeenCalled();
+    });
+
+    it('applies portrait boost at exact upper boundary (aspect ratio = 0.9)', async () => {
+      const webpBuffer = Buffer.from('webp-result');
+      const MockClass = createEpubWithImages(2);
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      let metadataCall = 0;
+      const sharpChain = {
+        resize: vi.fn().mockReturnThis(),
+        webp: vi.fn().mockReturnThis(),
+        toBuffer: vi.fn().mockResolvedValue(webpBuffer),
+        metadata: vi.fn().mockImplementation(() => {
+          metadataCall++;
+          if (metadataCall === 1) {
+            // Square-ish: 300x300 = 90000 area, aspect 1.0 (not portrait, no boost)
+            return Promise.resolve({ width: 300, height: 300 });
+          }
+          // Exactly 0.9 ratio: 270x300 = 81000 area, with 1.5x boost = 121500
+          return Promise.resolve({ width: 270, height: 300 });
+        }),
+      };
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      const result = await extractor.getCover('test-note', '/path/to/book.epub', 'epub');
+
+      expect(result).toEqual(webpBuffer);
+      // Portrait (270/300 = 0.9) boosted area = 81000*1.5 = 121500 > 90000
+      expect(sharpChain.resize).toHaveBeenCalled();
+    });
+
+    it('does not apply portrait boost just outside boundaries', async () => {
+      const webpBuffer = Buffer.from('webp-result');
+      const MockClass = createEpubWithImages(1);
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const sharpChain = {
+        resize: vi.fn().mockReturnThis(),
+        webp: vi.fn().mockReturnThis(),
+        toBuffer: vi.fn().mockResolvedValue(webpBuffer),
+        // Aspect ratio 0.91 (just above 0.9) — should NOT get portrait boost
+        metadata: vi.fn().mockResolvedValue({ width: 273, height: 300 }),
+      };
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      const result = await extractor.getCover('test-note', '/path/to/book.epub', 'epub');
+
+      // Still selected (only image above threshold), just without boost
+      expect(result).toEqual(webpBuffer);
+    });
+
+    it('handles images with zero or undefined dimensions', async () => {
+      const MockClass = createEpubWithImages(1);
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const sharpChain = {
+        resize: vi.fn().mockReturnThis(),
+        webp: vi.fn().mockReturnThis(),
+        toBuffer: vi.fn().mockResolvedValue(Buffer.from('webp')),
+        // Width and height are undefined/zero — falls below MIN_COVER_DIMENSION
+        metadata: vi.fn().mockResolvedValue({ width: undefined, height: undefined }),
+      };
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      const result = await extractor.getCover('test-note', '/path/to/book.epub', 'epub');
+
+      // Strategy 6 skips the image, falls through to strategy 7
+      expect(result).toBeDefined();
+    });
+
+    it('handles getEpubImageRaw returning null for some candidates', async () => {
+      let getImageCall = 0;
+      const eventHandlers: Record<string, Array<(...args: unknown[]) => void>> = {};
+
+      class MockEPubSomeNull {
+        metadata = {};
+        manifest = {
+          'img-0': { href: 'images/broken.jpg', 'media-type': 'image/jpeg' as const },
+          'img-1': { href: 'images/valid.jpg', 'media-type': 'image/jpeg' as const },
+        };
+        spine = { contents: [] };
+        on(event: string, callback: (...args: unknown[]) => void) {
+          if (!eventHandlers[event]) eventHandlers[event] = [];
+          eventHandlers[event].push(callback);
+          return this;
+        }
+        parse() {
+          process.nextTick(() => eventHandlers['end']?.forEach(cb => cb()));
+        }
+        getImage(_id: string, callback: (err: Error | null, data: Buffer | null, mimeType: string) => void) {
+          getImageCall++;
+          if (getImageCall === 1) {
+            // First image (broken) — getEpubImageRaw returns null
+            callback(new Error('Broken'), null, '');
+          } else {
+            callback(null, Buffer.from('valid-image'), 'image/jpeg');
+          }
+        }
+        getChapter(_id: string, callback: (err: Error | null, text: string | null) => void) {
+          callback(null, '');
+        }
+      }
+      mockEPub.mockImplementation(function () { return new MockEPubSomeNull(); } as unknown as typeof EPub);
+
+      const webpBuffer = Buffer.from('webp-image');
+      const sharpChain = {
+        resize: vi.fn().mockReturnThis(),
+        webp: vi.fn().mockReturnThis(),
+        toBuffer: vi.fn().mockResolvedValue(webpBuffer),
+        metadata: vi.fn().mockResolvedValue({ width: 400, height: 600 }),
+      };
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      const result = await extractor.getCover('test-note', '/path/to/book.epub', 'epub');
+
+      // Should skip broken image and pick valid one
+      expect(result).toEqual(webpBuffer);
+    });
+  });
+
+  describe('extractCoverFromFirstSpineItem edge cases', () => {
+    beforeEach(() => {
+      mockExistsSync.mockImplementation((path) => {
+        if (typeof path === 'string' && path.endsWith('.webp')) return false;
+        return true;
+      });
+    });
+
+    it('extracts cover from first spine item when href contains "jacket"', async () => {
+      const webpBuffer = Buffer.from('webp-image');
+      const imageBuffer = Buffer.from('jpeg-image');
+
+      const MockClass = createMockEpubClass({
+        metadata: {},
+        manifest: {
+          'jacket-page': { href: 'jacket.xhtml', 'media-type': 'application/xhtml+xml' },
+          'jacket-img': { href: 'images/jacket.jpg', 'media-type': 'image/jpeg' },
+        },
+        spine: { contents: [{ id: 'jacket-page' }] },
+        imageData: imageBuffer,
+        chapterContent: '<html><body><img src="images/jacket.jpg" alt="Jacket"></body></html>',
+      });
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const sharpChain = createMockSharpChain(webpBuffer);
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      const result = await extractor.getCover('test-note', '/path/to/book.epub', 'epub');
+
+      expect(result).toEqual(webpBuffer);
+    });
+
+    it('handles spine with null spine object', async () => {
+      const eventHandlers: Record<string, Array<(...args: unknown[]) => void>> = {};
+
+      class MockEPubNullSpine {
+        metadata = {};
+        manifest = {
+          'img-1': { href: 'images/fig.jpg', 'media-type': 'image/jpeg' as const },
+        };
+        spine = null;
+        on(event: string, callback: (...args: unknown[]) => void) {
+          if (!eventHandlers[event]) eventHandlers[event] = [];
+          eventHandlers[event].push(callback);
+          return this;
+        }
+        parse() {
+          process.nextTick(() => eventHandlers['end']?.forEach(cb => cb()));
+        }
+        getImage(_id: string, callback: (err: Error | null, data: Buffer | null, mimeType: string) => void) {
+          callback(new Error('fail'), null, '');
+        }
+        getChapter(_id: string, callback: (err: Error | null, text: string | null) => void) {
+          callback(null, '');
+        }
+      }
+      mockEPub.mockImplementation(function () { return new MockEPubNullSpine(); } as unknown as typeof EPub);
+
+      const result = await extractor.getCover('test-note', '/path/to/book.epub', 'epub');
+
+      // Should skip strategy 5 and fall through to later strategies
+      expect(result).toBeNull();
+    });
+
+    it('handles spine item with missing id', async () => {
+      const eventHandlers: Record<string, Array<(...args: unknown[]) => void>> = {};
+
+      class MockEPubNoId {
+        metadata = {};
+        manifest = {};
+        spine = { contents: [{ id: null }] };
+        on(event: string, callback: (...args: unknown[]) => void) {
+          if (!eventHandlers[event]) eventHandlers[event] = [];
+          eventHandlers[event].push(callback);
+          return this;
+        }
+        parse() {
+          process.nextTick(() => eventHandlers['end']?.forEach(cb => cb()));
+        }
+        getImage(_id: string, callback: (err: Error | null, data: Buffer | null, mimeType: string) => void) {
+          callback(new Error('fail'), null, '');
+        }
+        getChapter(_id: string, callback: (err: Error | null, text: string | null) => void) {
+          callback(null, '');
+        }
+      }
+      mockEPub.mockImplementation(function () { return new MockEPubNoId(); } as unknown as typeof EPub);
+
+      const result = await extractor.getCover('test-note', '/path/to/book.epub', 'epub');
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('extractImageFromHtmlPage multiple images', () => {
+    beforeEach(() => {
+      mockExistsSync.mockImplementation((path) => {
+        if (typeof path === 'string' && path.endsWith('.webp')) return false;
+        return true;
+      });
+    });
+
+    it('returns first matching image when page has multiple img tags', async () => {
+      const webpBuffer = Buffer.from('webp-first');
+      const imageBuffer = Buffer.from('jpeg-image');
+
+      const MockClass = createMockEpubClass({
+        metadata: {},
+        manifest: {
+          'cover-page': { href: 'cover.xhtml', 'media-type': 'application/xhtml+xml' },
+          'img-first': { href: 'images/first.jpg', 'media-type': 'image/jpeg' },
+          'img-second': { href: 'images/second.jpg', 'media-type': 'image/jpeg' },
+        },
+        guide: [{ type: 'cover', href: 'cover.xhtml' }],
+        imageData: imageBuffer,
+        chapterContent: '<html><body><img src="images/first.jpg"><img src="images/second.jpg"></body></html>',
+      });
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const sharpChain = createMockSharpChain(webpBuffer);
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      const result = await extractor.getCover('test-note', '/path/to/book.epub', 'epub');
+
+      expect(result).toEqual(webpBuffer);
+    });
+
+    it('tries next image when first img src not found in manifest', async () => {
+      const webpBuffer = Buffer.from('webp-second');
+      const imageBuffer = Buffer.from('jpeg-image');
+      const eventHandlers: Record<string, Array<(...args: unknown[]) => void>> = {};
+
+      class MockEPubMultiImg {
+        metadata = {};
+        manifest = {
+          'cover-page': { href: 'cover.xhtml', 'media-type': 'application/xhtml+xml' as const },
+          // Only second.jpg exists in manifest — first.jpg does not
+          'img-second': { href: 'images/second.jpg', 'media-type': 'image/jpeg' as const },
+        };
+        guide = [{ type: 'cover', href: 'cover.xhtml' }];
+        spine = { contents: [] };
+        on(event: string, callback: (...args: unknown[]) => void) {
+          if (!eventHandlers[event]) eventHandlers[event] = [];
+          eventHandlers[event].push(callback);
+          return this;
+        }
+        parse() {
+          process.nextTick(() => eventHandlers['end']?.forEach(cb => cb()));
+        }
+        getImage(_id: string, callback: (err: Error | null, data: Buffer | null, mimeType: string) => void) {
+          callback(null, imageBuffer, 'image/jpeg');
+        }
+        getChapter(_id: string, callback: (err: Error | null, text: string | null) => void) {
+          callback(null, '<html><body><img src="images/first.jpg"><img src="images/second.jpg"></body></html>');
+        }
+      }
+      mockEPub.mockImplementation(function () { return new MockEPubMultiImg(); } as unknown as typeof EPub);
+
+      const sharpChain = createMockSharpChain(webpBuffer);
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      const result = await extractor.getCover('test-note', '/path/to/book.epub', 'epub');
+
+      expect(result).toEqual(webpBuffer);
+    });
+
+    it('handles mixed img and SVG image tags in same page', async () => {
+      const webpBuffer = Buffer.from('webp-svg');
+      const imageBuffer = Buffer.from('svg-image-data');
+
+      const MockClass = createMockEpubClass({
+        metadata: {},
+        manifest: {
+          'cover-page': { href: 'cover.xhtml', 'media-type': 'application/xhtml+xml' },
+          'cover-img': { href: 'images/cover.jpg', 'media-type': 'image/jpeg' },
+        },
+        guide: [{ type: 'cover', href: 'cover.xhtml' }],
+        imageData: imageBuffer,
+        chapterContent: `<html><body>
+          <p>Some text</p>
+          <svg xmlns="http://www.w3.org/2000/svg"><image href="images/cover.jpg" width="300" height="450"/></svg>
+        </body></html>`,
+      });
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const sharpChain = createMockSharpChain(webpBuffer);
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      const result = await extractor.getCover('test-note', '/path/to/book.epub', 'epub');
+
+      expect(result).toEqual(webpBuffer);
+    });
+  });
+
+  describe('getCover EPUB cache write on success', () => {
+    it('writes extracted EPUB cover to cache', async () => {
+      const webpBuffer = Buffer.from('epub-webp-cover');
+      const imageBuffer = Buffer.from('jpeg-image');
+
+      mockExistsSync.mockImplementation((path) => {
+        if (typeof path === 'string' && path.endsWith('.webp')) return false;
+        return true;
+      });
+
+      const MockClass = createMockEpubClass({
+        metadata: { cover: 'cover-id' },
+        manifest: {
+          'cover-id': { href: 'cover.jpg', 'media-type': 'image/jpeg' },
+        },
+        imageData: imageBuffer,
+      });
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const sharpChain = createMockSharpChain(webpBuffer);
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      const result = await extractor.getCover('epub-note', '/path/to/book.epub', 'epub');
+
+      expect(result).toEqual(webpBuffer);
+      expect(mockWriteFileSync).toHaveBeenCalledWith(
+        '/test/library/.pulp-cache/covers/epub-note.webp',
+        webpBuffer
+      );
+    });
+  });
+
+  describe('PDF viewport scaling edge cases', () => {
+    beforeEach(() => {
+      mockExistsSync.mockImplementation((path) => {
+        if (typeof path === 'string' && path.endsWith('.webp')) return false;
+        return true;
+      });
+    });
+
+    it('calculates correct scale for very wide viewport', async () => {
+      mockReadFileSync.mockReturnValue(new Uint8Array([1, 2, 3]));
+
+      const mockPage = {
+        getViewport: vi.fn()
+          .mockReturnValueOnce({ width: 2000, height: 200 }) // scale 1
+          .mockReturnValue({ width: 600, height: 60 }), // scaled
+        render: vi.fn().mockReturnValue({ promise: Promise.resolve() }),
+      };
+      const mockPdf = {
+        getPage: vi.fn().mockResolvedValue(mockPage),
+        destroy: vi.fn().mockResolvedValue(undefined),
+      };
+      mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
+
+      const { mockCanvas } = createMockCanvas();
+      mockCreateCanvas.mockReturnValue(mockCanvas as unknown as ReturnType<typeof createCanvas>);
+
+      const sharpChain = createMockSharpChain();
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      await extractor.getCover('test-note', '/path/to/wide.pdf', 'pdf');
+
+      // Scale = min(300*2/2000, 450*2/200) = min(0.3, 4.5) = 0.3
+      expect(mockPage.getViewport).toHaveBeenCalledWith({ scale: 1 });
+      // Second call should be with the computed scale
+      expect(mockPage.getViewport).toHaveBeenCalledTimes(2);
+      expect(sharpChain.resize).toHaveBeenCalledWith(300, 450, { fit: 'cover' });
+    });
+
+    it('calculates correct scale for very tall viewport', async () => {
+      mockReadFileSync.mockReturnValue(new Uint8Array([1, 2, 3]));
+
+      const mockPage = {
+        getViewport: vi.fn()
+          .mockReturnValueOnce({ width: 200, height: 3000 }) // scale 1
+          .mockReturnValue({ width: 60, height: 900 }), // scaled
+        render: vi.fn().mockReturnValue({ promise: Promise.resolve() }),
+      };
+      const mockPdf = {
+        getPage: vi.fn().mockResolvedValue(mockPage),
+        destroy: vi.fn().mockResolvedValue(undefined),
+      };
+      mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
+
+      const { mockCanvas } = createMockCanvas();
+      mockCreateCanvas.mockReturnValue(mockCanvas as unknown as ReturnType<typeof createCanvas>);
+
+      const sharpChain = createMockSharpChain();
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      await extractor.getCover('test-note', '/path/to/tall.pdf', 'pdf');
+
+      // Scale = min(300*2/200, 450*2/3000) = min(3.0, 0.3) = 0.3
+      expect(mockPage.getViewport).toHaveBeenCalledWith({ scale: 1 });
+      expect(mockPage.getViewport).toHaveBeenCalledTimes(2);
+    });
+
+    it('uses custom config dimensions for scaling and resize', async () => {
+      const customConfig = {
+        ...testConfig,
+        cover_width: 500,
+        cover_height: 700,
+        cover_quality: 95,
+      };
+      mockExistsSync.mockReturnValue(false);
+      const customExtractor = new CoverExtractor(customConfig);
+
+      mockExistsSync.mockImplementation((path) => {
+        if (typeof path === 'string' && path.endsWith('.webp')) return false;
+        return true;
+      });
+      mockReadFileSync.mockReturnValue(new Uint8Array([1, 2, 3]));
+
+      const { mockPdf } = createMockPdf();
+      mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
+
+      const { mockCanvas } = createMockCanvas();
+      mockCreateCanvas.mockReturnValue(mockCanvas as unknown as ReturnType<typeof createCanvas>);
+
+      const sharpChain = createMockSharpChain();
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      await customExtractor.getCover('test-note', '/path/to/file.pdf', 'pdf');
+
+      expect(sharpChain.resize).toHaveBeenCalledWith(500, 700, { fit: 'cover' });
+      expect(sharpChain.webp).toHaveBeenCalledWith({ quality: 95 });
+    });
+  });
+
+  describe('EPUB guide with case-insensitive type matching', () => {
+    beforeEach(() => {
+      mockExistsSync.mockImplementation((path) => {
+        if (typeof path === 'string' && path.endsWith('.webp')) return false;
+        return true;
+      });
+    });
+
+    it('matches guide type "Cover" (uppercase) correctly', async () => {
+      const webpBuffer = Buffer.from('webp-image');
+      const imageBuffer = Buffer.from('jpeg-image');
+
+      const MockClass = createMockEpubClass({
+        metadata: {},
+        manifest: {
+          'cover-img': { href: 'cover.jpg', 'media-type': 'image/jpeg' },
+        },
+        guide: [{ type: 'Cover', href: 'cover.jpg' }],
+        imageData: imageBuffer,
+      });
+      mockEPub.mockImplementation(function () { return new MockClass(); } as unknown as typeof EPub);
+
+      const sharpChain = createMockSharpChain(webpBuffer);
+      mockSharp.mockReturnValue(sharpChain as unknown as ReturnType<typeof sharp>);
+
+      const result = await extractor.getCover('test-note', '/path/to/book.epub', 'epub');
+
+      expect(result).toEqual(webpBuffer);
+    });
+
+    it('handles guide entry with missing type property', async () => {
+      const eventHandlers: Record<string, Array<(...args: unknown[]) => void>> = {};
+
+      class MockEPubGuideNoType {
+        metadata = {};
+        manifest = {
+          'chapter1': { href: 'ch1.xhtml', 'media-type': 'application/xhtml+xml' as const },
+        };
+        guide = [{ type: undefined as unknown as string, href: 'ch1.xhtml' }];
+        spine = { contents: [] };
+        on(event: string, callback: (...args: unknown[]) => void) {
+          if (!eventHandlers[event]) eventHandlers[event] = [];
+          eventHandlers[event].push(callback);
+          return this;
+        }
+        parse() {
+          process.nextTick(() => eventHandlers['end']?.forEach(cb => cb()));
+        }
+        getImage(_id: string, callback: (err: Error | null, data: Buffer | null, mimeType: string) => void) {
+          callback(new Error('fail'), null, '');
+        }
+        getChapter(_id: string, callback: (err: Error | null, text: string | null) => void) {
+          callback(null, '');
+        }
+      }
+      mockEPub.mockImplementation(function () { return new MockEPubGuideNoType(); } as unknown as typeof EPub);
+
+      const result = await extractor.getCover('test-note', '/path/to/book.epub', 'epub');
+
+      // Guide entry with no type should be skipped, falls through to null
+      expect(result).toBeNull();
+    });
+  });
 });
