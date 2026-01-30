@@ -308,15 +308,17 @@ export class HighlightWriter {
       for (let i = lines.length - 1; i >= 0; i--) {
         const line = lines[i];
         const trimmed = line.trim();
+        // First line has no preceding newline separator
+        const separator = i === 0 ? 0 : 1;
 
         if (trimmed.startsWith('>')) {
           // This is part of the blockquote, include it
-          blockStart -= line.length + 1; // +1 for newline
+          blockStart -= line.length + separator;
         } else if (trimmed === '' || trimmed === '-') {
           // Empty line or list marker line (the part before [[) - check if we should continue
           // If this is a list marker, include it and continue looking for blockquotes
           if (trimmed === '-') {
-            blockStart -= line.length + 1;
+            blockStart -= line.length + separator;
             continue;
           }
           // Empty line - stop here (don't include it in deletion)
