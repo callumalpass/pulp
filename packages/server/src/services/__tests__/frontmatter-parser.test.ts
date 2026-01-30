@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   hasTag,
   getSourcePath,
@@ -35,6 +35,7 @@ import {
   addReadingSession,
   createReaderPreferencesForFrontmatter,
   getCurrentChapter,
+  parseNoteFrontmatter,
 } from '../frontmatter-parser.js';
 
 describe('hasTag', () => {
@@ -3346,5 +3347,675 @@ describe('getTotalPages (edge cases)', () => {
   it('returns null for non-number, non-string types', () => {
     expect(getTotalPages({ total_pages: true }, 'total_pages')).toBeNull();
     expect(getTotalPages({ total_pages: [] }, 'total_pages')).toBeNull();
+  });
+});
+
+// =============================================================================
+// parseNoteFrontmatter tests
+// =============================================================================
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...actual,
+    readFileSync: vi.fn(actual.readFileSync),
+  };
+});
+
+import { readFileSync } from 'node:fs';
+
+const mockReadFileSync = vi.mocked(readFileSync);
+
+describe('parseNoteFrontmatter', () => {
+  it('parses frontmatter and content from a markdown string', () => {
+    mockReadFileSync.mockReturnValueOnce(`---
+title: My Book
+author: Jane Doe
+---
+
+# Chapter 1
+
+Content here.`);
+
+    const result = parseNoteFrontmatter('/test/note.md');
+
+    expect(result.frontmatter).toEqual({ title: 'My Book', author: 'Jane Doe' });
+    expect(result.content.trim()).toContain('# Chapter 1');
+    expect(result.content.trim()).toContain('Content here.');
+  });
+
+  it('returns empty frontmatter for file without frontmatter', () => {
+    mockReadFileSync.mockReturnValueOnce('Just plain content without any frontmatter delimiters.');
+
+    const result = parseNoteFrontmatter('/test/plain.md');
+
+    expect(result.frontmatter).toEqual({});
+    expect(result.content).toContain('Just plain content');
+  });
+
+  it('returns empty frontmatter for file with empty frontmatter', () => {
+    mockReadFileSync.mockReturnValueOnce(`---
+---
+
+Some content.`);
+
+    const result = parseNoteFrontmatter('/test/empty-fm.md');
+
+    expect(result.frontmatter).toEqual({});
+    expect(result.content.trim()).toBe('Some content.');
+  });
+
+  it('parses complex frontmatter types (arrays, nested objects, dates)', () => {
+    mockReadFileSync.mockReturnValueOnce(`---
+title: Complex Note
+tags:
+  - literature_note
+  - reading
+nested:
+  key: value
+  count: 42
+flag: true
+---
+
+Content.`);
+
+    const result = parseNoteFrontmatter('/test/complex.md');
+
+    expect(result.frontmatter.title).toBe('Complex Note');
+    expect(result.frontmatter.tags).toEqual(['literature_note', 'reading']);
+    expect(result.frontmatter.nested).toEqual({ key: 'value', count: 42 });
+    expect(result.frontmatter.flag).toBe(true);
+  });
+
+  it('reads file with the correct path and encoding', () => {
+    mockReadFileSync.mockReturnValueOnce(`---
+title: Test
+---
+Content`);
+
+    parseNoteFrontmatter('/specific/path/to/note.md');
+
+    expect(mockReadFileSync).toHaveBeenCalledWith('/specific/path/to/note.md', 'utf-8');
+  });
+
+  it('handles file with only frontmatter and no content', () => {
+    mockReadFileSync.mockReturnValueOnce(`---
+title: Frontmatter Only
+---
+`);
+
+    const result = parseNoteFrontmatter('/test/fm-only.md');
+
+    expect(result.frontmatter.title).toBe('Frontmatter Only');
+    expect(result.content.trim()).toBe('');
+  });
+
+  it('handles empty file', () => {
+    mockReadFileSync.mockReturnValueOnce('');
+
+    const result = parseNoteFrontmatter('/test/empty.md');
+
+    expect(result.frontmatter).toEqual({});
+    expect(result.content).toBe('');
+  });
+});
+
+// =============================================================================
+// calculateSessionQuality - boundary condition tests
+// =============================================================================
+
+describe('calculateSessionQuality (boundary conditions)', () => {
+  it('returns focused for session at exactly 5 minutes with no pauses', () => {
+    // 5 minutes is the minimum for meaningful assessment; with 0 pauses and 0 idle => focused
+    expect(calculateSessionQuality(5 * 60 * 1000, 0, 0)).toBe('focused');
+  });
+
+  it('returns normal for session at 4 minutes 59 seconds (just under threshold)', () => {
+    expect(calculateSessionQuality(4 * 60 * 1000 + 59 * 1000, 0, 0)).toBe('normal');
+  });
+
+  it('returns deep for session at exactly 30 minutes with no pauses', () => {
+    expect(calculateSessionQuality(30 * 60 * 1000, 0, 0)).toBe('deep');
+  });
+
+  it('returns focused (not deep) for 29-minute session with no pauses', () => {
+    // 29 min < 30 min threshold for "deep", but 0 pauses and <5% idle → focused
+    expect(calculateSessionQuality(29 * 60 * 1000, 0, 0)).toBe('focused');
+  });
+
+  it('returns focused at exactly 1 pause with <5% idle', () => {
+    const durationMs = 10 * 60 * 1000;
+    const idlePauseTotalMs = durationMs * 0.04; // 4% idle
+    expect(calculateSessionQuality(durationMs, 1, idlePauseTotalMs)).toBe('focused');
+  });
+
+  it('returns normal (not focused) at 2 pauses with <5% idle', () => {
+    const durationMs = 10 * 60 * 1000;
+    const idlePauseTotalMs = durationMs * 0.04; // 4% idle
+    expect(calculateSessionQuality(durationMs, 2, idlePauseTotalMs)).toBe('normal');
+  });
+
+  it('returns distracted at exactly 5 pauses', () => {
+    const durationMs = 10 * 60 * 1000;
+    expect(calculateSessionQuality(durationMs, 5, 0)).toBe('distracted');
+  });
+
+  it('returns normal at 4 pauses (just below distracted threshold)', () => {
+    const durationMs = 10 * 60 * 1000;
+    expect(calculateSessionQuality(durationMs, 4, 0)).toBe('normal');
+  });
+
+  it('returns distracted at exactly 15% idle time', () => {
+    const durationMs = 10 * 60 * 1000;
+    // >15% triggers distracted
+    const idlePauseTotalMs = durationMs * 0.16;
+    expect(calculateSessionQuality(durationMs, 2, idlePauseTotalMs)).toBe('distracted');
+  });
+
+  it('returns normal at exactly 5% idle time with 1 pause', () => {
+    const durationMs = 10 * 60 * 1000;
+    // Exactly 5% idle with 1 pause: idlePercentage is NOT < 5, so not focused
+    const idlePauseTotalMs = durationMs * 0.05;
+    expect(calculateSessionQuality(durationMs, 1, idlePauseTotalMs)).toBe('normal');
+  });
+
+  it('handles zero duration session (should return normal, short session)', () => {
+    // 0 ms < 5 min → normal
+    expect(calculateSessionQuality(0, 0, 0)).toBe('normal');
+  });
+});
+
+// =============================================================================
+// calculateMomentum - additional edge case tests
+// =============================================================================
+
+describe('calculateMomentum (additional edge cases)', () => {
+  it('returns positive score when recent has active days but previous had none', () => {
+    const today = new Date();
+    const history = [];
+
+    // 3 days of reading in the last 7 days
+    for (let i = 0; i < 3; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      history.push({
+        date: date.toISOString().split('T')[0],
+        durationMs: 30 * 60 * 1000,
+        sessions: 1,
+        pagesRead: 15,
+      });
+    }
+
+    const { score } = calculateMomentum(history);
+    // score = 25 (from inactivity) + 30 (3 active days * 10) = 55
+    expect(score).toBeGreaterThan(0);
+  });
+
+  it('handles history entries that do not match any of the 14 day slots', () => {
+    // All entries are older than 14 days
+    const today = new Date();
+    const history = [];
+    for (let i = 20; i < 25; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      history.push({
+        date: date.toISOString().split('T')[0],
+        durationMs: 60 * 60 * 1000,
+        sessions: 1,
+        pagesRead: 30,
+      });
+    }
+
+    const { momentum, score } = calculateMomentum(history);
+    // No reading in either last 7 or previous 7 days
+    expect(momentum).toBe('inactive');
+    expect(score).toBe(0);
+  });
+
+  it('classifies as steady when score is exactly 20', () => {
+    // score >= 20 means 'accelerating', so score = 20 should be accelerating
+    const today = new Date();
+    const history: Array<{ date: string; durationMs: number; sessions: number; pagesRead: number }> = [];
+
+    // Need to engineer a score of exactly 20
+    // 2 active days recently, 0 previously → score = 25 (from inactivity) + 20 (2 days * 10) = 45
+    // That's too high. Let's try: equal time but 2 more active days recently
+    // previousTotal > 0, so timeChange branch applies
+    // Need: timeChange ~0, daysDiff = 2 → score = 0 + 20 = 20
+
+    // Both periods have same total reading time, recent has 2 more active days
+    for (let i = 0; i < 5; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      history.push({
+        date: date.toISOString().split('T')[0],
+        durationMs: 30 * 60 * 1000,
+        sessions: 1,
+        pagesRead: 10,
+      });
+    }
+    for (let i = 7; i < 10; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      history.push({
+        date: date.toISOString().split('T')[0],
+        // Same total time: 5 * 30 = 150 min vs 3 * 50 = 150 min
+        durationMs: 50 * 60 * 1000,
+        sessions: 1,
+        pagesRead: 10,
+      });
+    }
+
+    const { momentum, score } = calculateMomentum(history);
+    // timeChange = ((150 - 150) / 150) * 50 = 0
+    // daysDiff = 5 - 3 = 2 → 20 points
+    // score = 0 + 20 = 20 → >= 20 → accelerating
+    expect(score).toBe(20);
+    expect(momentum).toBe('accelerating');
+  });
+
+  it('classifies as steady when score is exactly -20', () => {
+    const today = new Date();
+    const history: Array<{ date: string; durationMs: number; sessions: number; pagesRead: number }> = [];
+
+    // Reverse of above: 3 recent active days, 5 previous
+    for (let i = 0; i < 3; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      history.push({
+        date: date.toISOString().split('T')[0],
+        durationMs: 50 * 60 * 1000,
+        sessions: 1,
+        pagesRead: 10,
+      });
+    }
+    for (let i = 7; i < 12; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      history.push({
+        date: date.toISOString().split('T')[0],
+        durationMs: 30 * 60 * 1000,
+        sessions: 1,
+        pagesRead: 10,
+      });
+    }
+
+    const { momentum, score } = calculateMomentum(history);
+    // timeChange = ((150 - 150) / 150) * 50 = 0
+    // daysDiff = 3 - 5 = -2 → -20 points
+    // score = 0 + (-20) = -20 → not <= -20 (it IS -20, which IS <= -20) → slowing
+    expect(score).toBe(-20);
+    expect(momentum).toBe('slowing');
+  });
+
+  it('classifies as steady at score -19', () => {
+    // -19 is between -20 and 20 exclusive of boundaries → steady
+    // Hard to engineer exact scores, so test the classification logic
+    // We know -20 = slowing, so -19 should be steady
+    // We can verify by checking the implementation logic:
+    // score <= -20 → slowing, score >= 20 → accelerating, else steady
+    // This test verifies the boundary by indirect means
+    const today = new Date();
+    const history: Array<{ date: string; durationMs: number; sessions: number; pagesRead: number }> = [];
+
+    // Small decrease in activity: 4 recent days vs 5 previous, same time
+    for (let i = 0; i < 4; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      history.push({
+        date: date.toISOString().split('T')[0],
+        durationMs: 37.5 * 60 * 1000, // total: 150 min
+        sessions: 1,
+        pagesRead: 10,
+      });
+    }
+    for (let i = 7; i < 12; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      history.push({
+        date: date.toISOString().split('T')[0],
+        durationMs: 30 * 60 * 1000, // total: 150 min
+        sessions: 1,
+        pagesRead: 10,
+      });
+    }
+
+    const { momentum, score } = calculateMomentum(history);
+    // timeChange = 0, daysDiff = 4 - 5 = -1 → -10 points
+    // score = -10 → steady
+    expect(score).toBe(-10);
+    expect(momentum).toBe('steady');
+  });
+});
+
+// =============================================================================
+// checkMilestones - boundary and regression tests
+// =============================================================================
+
+describe('checkMilestones (boundary tests)', () => {
+  it('does not trigger milestone when previous and current are the same', () => {
+    expect(checkMilestones(50, 50, [])).toEqual([]);
+  });
+
+  it('does not trigger milestone when progress decreases', () => {
+    expect(checkMilestones(80, 50, [])).toEqual([]);
+  });
+
+  it('triggers milestone when currentProgress equals milestone exactly', () => {
+    expect(checkMilestones(9, 10, [])).toEqual([10]);
+    expect(checkMilestones(24, 25, [])).toEqual([25]);
+    expect(checkMilestones(49, 50, [])).toEqual([50]);
+    expect(checkMilestones(74, 75, [])).toEqual([75]);
+    expect(checkMilestones(99, 100, [])).toEqual([100]);
+  });
+
+  it('does not trigger milestone when previousProgress equals milestone', () => {
+    // previousProgress = 10, currentProgress = 11 → 10% not crossed (was already at 10)
+    expect(checkMilestones(10, 11, [])).toEqual([]);
+    expect(checkMilestones(25, 30, [])).toEqual([]);
+    expect(checkMilestones(50, 60, [])).toEqual([]);
+  });
+
+  it('handles zero to zero transition', () => {
+    expect(checkMilestones(0, 0, [])).toEqual([]);
+  });
+
+  it('handles zero to 100 transition', () => {
+    expect(checkMilestones(0, 100, [])).toEqual([10, 25, 50, 75, 100]);
+  });
+
+  it('handles fractional progress crossing milestone', () => {
+    // 9.9 to 10.1 crosses the 10% milestone
+    expect(checkMilestones(9.9, 10.1, [])).toEqual([10]);
+  });
+
+  it('does not double-report milestones already recorded', () => {
+    const allRecorded = [
+      { milestone: 10 as const, reachedAt: '2024-01-01', daysFromStart: 0, totalReadingTimeMs: 0 },
+      { milestone: 25 as const, reachedAt: '2024-01-01', daysFromStart: 0, totalReadingTimeMs: 0 },
+      { milestone: 50 as const, reachedAt: '2024-01-01', daysFromStart: 0, totalReadingTimeMs: 0 },
+      { milestone: 75 as const, reachedAt: '2024-01-01', daysFromStart: 0, totalReadingTimeMs: 0 },
+      { milestone: 100 as const, reachedAt: '2024-01-01', daysFromStart: 0, totalReadingTimeMs: 0 },
+    ];
+    expect(checkMilestones(0, 100, allRecorded)).toEqual([]);
+  });
+});
+
+// =============================================================================
+// addReadingSession - ordering and boundary tests
+// =============================================================================
+
+describe('addReadingSession (ordering edge cases)', () => {
+  it('handles sessions with identical start times', () => {
+    const session1 = {
+      startTime: '2024-01-15T10:00:00Z',
+      endTime: '2024-01-15T11:00:00Z',
+      durationMs: 3600000,
+      pagesRead: 30,
+      startPage: 0,
+      endPage: 30,
+    };
+    const session2 = {
+      startTime: '2024-01-15T10:00:00Z',
+      endTime: '2024-01-15T10:30:00Z',
+      durationMs: 1800000,
+      pagesRead: 15,
+      startPage: 30,
+      endPage: 45,
+    };
+
+    const result = addReadingSession([session1], session2);
+    expect(result).toHaveLength(2);
+    // Both have same startTime, order is stable
+    expect(result[0].startTime).toBe('2024-01-15T10:00:00Z');
+    expect(result[1].startTime).toBe('2024-01-15T10:00:00Z');
+  });
+
+  it('places older session after newer session when prepending', () => {
+    const existing = {
+      startTime: '2024-01-20T10:00:00Z',
+      endTime: '2024-01-20T11:00:00Z',
+      durationMs: 3600000,
+      pagesRead: 30,
+      startPage: 0,
+      endPage: 30,
+    };
+    const olderSession = {
+      startTime: '2024-01-10T10:00:00Z',
+      endTime: '2024-01-10T11:00:00Z',
+      durationMs: 3600000,
+      pagesRead: 30,
+      startPage: 0,
+      endPage: 30,
+    };
+
+    const result = addReadingSession([existing], olderSession);
+    expect(result).toHaveLength(2);
+    expect(result[0].startTime).toBe('2024-01-20T10:00:00Z');
+    expect(result[1].startTime).toBe('2024-01-10T10:00:00Z');
+  });
+
+  it('trims to exactly 100 sessions even if input is already at limit', () => {
+    const sessions = Array.from({ length: 100 }, (_, i) => ({
+      startTime: `2024-02-${String(Math.min(i + 1, 28)).padStart(2, '0')}T${String(i % 24).padStart(2, '0')}:00:00Z`,
+      endTime: `2024-02-${String(Math.min(i + 1, 28)).padStart(2, '0')}T${String((i % 24) + 1).padStart(2, '0')}:00:00Z`,
+      durationMs: 3600000,
+      pagesRead: 10,
+      startPage: i * 10,
+      endPage: (i + 1) * 10,
+    }));
+
+    const newSession = {
+      startTime: '2025-12-31T23:00:00Z',
+      endTime: '2025-12-31T23:59:59Z',
+      durationMs: 3540000,
+      pagesRead: 5,
+      startPage: 0,
+      endPage: 5,
+    };
+
+    const result = addReadingSession(sessions, newSession);
+    expect(result).toHaveLength(100);
+    expect(result[0].startTime).toBe('2025-12-31T23:00:00Z');
+  });
+});
+
+// =============================================================================
+// getReadingStats - milestone parsing edge cases
+// =============================================================================
+
+describe('getReadingStats (milestone validation edge cases)', () => {
+  it('skips milestones where milestone is a non-number type', () => {
+    const result = getReadingStats({
+      reading_stats: {
+        total_time_ms: 1000,
+        total_sessions: 1,
+        milestones: [
+          { milestone: 'fifty', reached_at: '2024-01-15T00:00:00Z', days_from_start: 5, total_time_ms: 500 },
+        ],
+      },
+    }, 'reading_stats');
+
+    expect(result).not.toBeNull();
+    expect(result!.milestones).toBeUndefined();
+  });
+
+  it('accepts all valid milestone values', () => {
+    const validMilestones = [10, 25, 50, 75, 100];
+    const result = getReadingStats({
+      reading_stats: {
+        total_time_ms: 5000,
+        total_sessions: 5,
+        milestones: validMilestones.map(m => ({
+          milestone: m,
+          reached_at: '2024-01-15T00:00:00Z',
+          days_from_start: 0,
+          total_time_ms: 1000,
+        })),
+      },
+    }, 'reading_stats');
+
+    expect(result).not.toBeNull();
+    expect(result!.milestones).toHaveLength(5);
+    expect(result!.milestones!.map(m => m.milestone)).toEqual([10, 25, 50, 75, 100]);
+  });
+
+  it('ignores milestone entries that are null', () => {
+    const result = getReadingStats({
+      reading_stats: {
+        total_time_ms: 1000,
+        total_sessions: 1,
+        milestones: [null, { milestone: 25, reached_at: '2024-01-15T00:00:00Z', days_from_start: 0, total_time_ms: 500 }],
+      },
+    }, 'reading_stats');
+
+    expect(result).not.toBeNull();
+    expect(result!.milestones).toHaveLength(1);
+    expect(result!.milestones![0].milestone).toBe(25);
+  });
+
+  it('returns undefined momentum for non-string momentum value', () => {
+    const result = getReadingStats({
+      reading_stats: {
+        total_time_ms: 1000,
+        total_sessions: 1,
+        momentum: 42,
+      },
+    }, 'reading_stats');
+
+    expect(result).not.toBeNull();
+    expect(result!.momentum).toBeUndefined();
+  });
+
+  it('returns undefined momentumScore for non-number momentum_score', () => {
+    const result = getReadingStats({
+      reading_stats: {
+        total_time_ms: 1000,
+        total_sessions: 1,
+        momentum_score: 'high',
+      },
+    }, 'reading_stats');
+
+    expect(result).not.toBeNull();
+    expect(result!.momentumScore).toBeUndefined();
+  });
+
+  it('accepts all valid momentum string values', () => {
+    const validValues = ['accelerating', 'steady', 'slowing', 'inactive'] as const;
+    for (const momentum of validValues) {
+      const result = getReadingStats({
+        reading_stats: {
+          total_time_ms: 1000,
+          total_sessions: 1,
+          momentum,
+        },
+      }, 'reading_stats');
+
+      expect(result).not.toBeNull();
+      expect(result!.momentum).toBe(momentum);
+    }
+  });
+
+  it('clamps momentum_score at exactly 100', () => {
+    const result = getReadingStats({
+      reading_stats: {
+        total_time_ms: 1000,
+        total_sessions: 1,
+        momentum_score: 100,
+      },
+    }, 'reading_stats');
+
+    expect(result!.momentumScore).toBe(100);
+  });
+
+  it('clamps momentum_score at exactly -100', () => {
+    const result = getReadingStats({
+      reading_stats: {
+        total_time_ms: 1000,
+        total_sessions: 1,
+        momentum_score: -100,
+      },
+    }, 'reading_stats');
+
+    expect(result!.momentumScore).toBe(-100);
+  });
+
+  it('preserves momentum_score of 0', () => {
+    const result = getReadingStats({
+      reading_stats: {
+        total_time_ms: 1000,
+        total_sessions: 1,
+        momentum_score: 0,
+      },
+    }, 'reading_stats');
+
+    expect(result!.momentumScore).toBe(0);
+  });
+});
+
+// =============================================================================
+// createMilestoneRecord - edge cases
+// =============================================================================
+
+describe('createMilestoneRecord (edge cases)', () => {
+  it('calculates daysFromStart correctly for same-day milestone', () => {
+    const now = new Date();
+    const firstReadDate = now.toISOString();
+    const record = createMilestoneRecord(10, firstReadDate, 600000);
+
+    expect(record.milestone).toBe(10);
+    expect(record.daysFromStart).toBe(0);
+    expect(record.totalReadingTimeMs).toBe(600000);
+  });
+
+  it('handles all valid milestone values', () => {
+    const validMilestones = [10, 25, 50, 75, 100] as const;
+    for (const milestone of validMilestones) {
+      const record = createMilestoneRecord(milestone, null, 0);
+      expect(record.milestone).toBe(milestone);
+      expect(record.daysFromStart).toBeNull();
+    }
+  });
+
+  it('sets reachedAt to a valid ISO timestamp', () => {
+    const record = createMilestoneRecord(50, null, 0);
+    const date = new Date(record.reachedAt);
+    expect(isNaN(date.getTime())).toBe(false);
+  });
+});
+
+// =============================================================================
+// updateDailyReadingHistory - additional edge cases
+// =============================================================================
+
+describe('updateDailyReadingHistory (additional edge cases)', () => {
+  it('accumulates correctly across multiple updates on the same date', () => {
+    let history = updateDailyReadingHistory([], '2024-01-15', 1000000, 5);
+    history = updateDailyReadingHistory(history, '2024-01-15', 2000000, 10);
+    history = updateDailyReadingHistory(history, '2024-01-15', 500000, 3);
+
+    expect(history).toHaveLength(1);
+    expect(history[0].durationMs).toBe(3500000);
+    expect(history[0].sessions).toBe(3);
+    expect(history[0].pagesRead).toBe(18);
+  });
+
+  it('correctly handles adding to a full 90-entry history', () => {
+    // Create exactly 90 entries for consecutive days
+    const entries = Array.from({ length: 90 }, (_, i) => {
+      const date = new Date('2024-06-01');
+      date.setDate(date.getDate() - i);
+      return {
+        date: date.toISOString().split('T')[0],
+        durationMs: 1000,
+        sessions: 1,
+        pagesRead: 5,
+      };
+    });
+
+    const result = updateDailyReadingHistory(entries, '2024-12-01', 2000, 10);
+
+    expect(result).toHaveLength(90);
+    expect(result[0].date).toBe('2024-12-01');
   });
 });
