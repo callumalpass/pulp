@@ -1220,6 +1220,571 @@ describe('useReadingStatsStore', () => {
       }
     });
   });
+
+  // ── Edge cases: idle pause accounting in endSession ───────────────
+
+  describe('endSession idle pause accounting', () => {
+    it('accounts for active idle pause duration at session end', async () => {
+      mockedApiUpdate.mockResolvedValue({
+        success: true,
+        readingStats: makeStats(),
+        lastRead: new Date().toISOString(),
+      });
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100); // t=1000
+
+      // Trigger idle pause at t=301000
+      currentTime = 301000;
+      store.checkIdleStatus();
+      expect(useReadingStatsStore.getState().activeSession!.isIdlePaused).toBe(true);
+
+      // End session while still idle-paused at t=401000
+      currentTime = 401000;
+      const result = await store.endSession();
+
+      // Wall time: 401000 - 1000 = 400000ms
+      // Idle pause: 401000 - 301000 = 100000ms
+      // Active time: 400000 - 100000 = 300000ms
+      expect(result).not.toBeNull();
+      expect(result!.durationMs).toBe(300000);
+
+      // Verify idle metadata was sent to API
+      expect(mockedApiUpdate).toHaveBeenCalledWith(
+        'note-1',
+        expect.objectContaining({
+          idlePauseCount: 1,
+          idlePauseTotalMs: 100000,
+        })
+      );
+    });
+
+    it('accumulates idle pause total across multiple idle pauses at end', async () => {
+      mockedApiUpdate.mockResolvedValue({
+        success: true,
+        readingStats: makeStats(),
+        lastRead: new Date().toISOString(),
+      });
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100); // t=1000
+
+      // First idle pause: t=301000 to t=320000
+      // Use recordActivity to resume so calculateIdleResumeState tracks idlePauseTotalMs
+      currentTime = 301000;
+      store.checkIdleStatus();
+      currentTime = 320000;
+      store.recordActivity(); // 19000ms idle pause, tracked via calculateIdleResumeState
+
+      // Second idle pause: triggered after another idle period
+      currentTime = 320000 + 5 * 60 * 1000; // t=620000
+      store.checkIdleStatus();
+
+      // End while still idle-paused at t=700000
+      currentTime = 700000;
+      const result = await store.endSession();
+
+      // First idle pause: 320000 - 301000 = 19000ms (via calculateIdleResumeState)
+      // Second idle pause: 700000 - 620000 = 80000ms (via endSession idle accounting)
+      // Total idle: 19000 + 80000 = 99000ms
+      // Total paused: 19000 + 80000 = 99000ms
+      // Wall time: 700000 - 1000 = 699000ms
+      // Active: 699000 - 99000 = 600000ms
+      expect(result).not.toBeNull();
+      expect(result!.durationMs).toBe(600000);
+      expect(mockedApiUpdate).toHaveBeenCalledWith(
+        'note-1',
+        expect.objectContaining({
+          idlePauseCount: 2,
+          idlePauseTotalMs: 99000,
+        })
+      );
+    });
+
+    it('only adds manual pause to totalPausedMs not idlePauseTotalMs at end', async () => {
+      mockedApiUpdate.mockResolvedValue({
+        success: true,
+        readingStats: makeStats(),
+        lastRead: new Date().toISOString(),
+      });
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100); // t=1000
+
+      // Read for a while first to ensure enough active time
+      currentTime = 30000;
+      store.recordActivity();
+
+      // Manual pause at t=30000, still paused at end
+      store.pauseSession();
+
+      // End at t=50000 while manually paused
+      currentTime = 50000;
+      await store.endSession();
+
+      // Wall time: 50000 - 1000 = 49000ms
+      // Manual pause: 50000 - 30000 = 20000ms
+      // Active: 49000 - 20000 = 29000ms (>10s minimum)
+      // isIdlePaused is false for manual pause, so idlePauseTotalMs stays 0
+      expect(mockedApiUpdate).toHaveBeenCalledWith(
+        'note-1',
+        expect.objectContaining({
+          idlePauseCount: 0,
+          idlePauseTotalMs: 0,
+        })
+      );
+    });
+
+    it('floors duration at 0 when paused time exceeds wall time', async () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100); // t=1000
+
+      // Artificially set totalPausedMs very high
+      useReadingStatsStore.setState((state) => ({
+        activeSession: state.activeSession ? {
+          ...state.activeSession,
+          totalPausedMs: 999999999,
+        } : null,
+      }));
+
+      currentTime = 2000;
+      const result = await store.endSession();
+
+      // durationMs = Math.max(0, ...) should produce 0 (below min threshold)
+      expect(result).toBeNull();
+    });
+  });
+
+  // ── Edge cases: calculateIdleResumeState (via recordActivity) ─────
+
+  describe('calculateIdleResumeState edge cases', () => {
+    it('returns unchanged state when session is not idle-paused', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      const before = useReadingStatsStore.getState().activeSession!;
+      currentTime = 5000;
+      store.recordActivity();
+      const after = useReadingStatsStore.getState().activeSession!;
+
+      // Should only update lastActivityTime, no pause changes
+      expect(after.isPaused).toBe(false);
+      expect(after.totalPausedMs).toBe(0);
+      expect(after.idlePauseTotalMs).toBe(0);
+      expect(after.lastActivityTime).toBe(5000);
+    });
+
+    it('does not resume manually paused session via recordActivity', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 5000;
+      store.pauseSession(); // Manual pause (isIdlePaused = false)
+
+      currentTime = 10000;
+      store.recordActivity();
+
+      const session = useReadingStatsStore.getState().activeSession!;
+      // calculateIdleResumeState returns null because isIdlePaused is false
+      expect(session.isPaused).toBe(true);
+      expect(session.pausedAt).toBe(5000); // Unchanged
+    });
+
+    it('does not resume idle-paused session without pausedAt', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      // Set isIdlePaused but no pausedAt (edge case / invalid state)
+      useReadingStatsStore.setState((state) => ({
+        activeSession: state.activeSession ? {
+          ...state.activeSession,
+          isPaused: true,
+          isIdlePaused: true,
+          pausedAt: null,
+        } : null,
+      }));
+
+      currentTime = 10000;
+      store.recordActivity();
+
+      const session = useReadingStatsStore.getState().activeSession!;
+      // calculateIdleResumeState returns null because pausedAt is null
+      expect(session.isPaused).toBe(true);
+      expect(session.isIdlePaused).toBe(true);
+    });
+
+    it('accumulates idlePauseTotalMs across multiple idle resume cycles', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100); // t=1000
+
+      // First idle pause
+      useReadingStatsStore.setState((state) => ({
+        activeSession: state.activeSession ? {
+          ...state.activeSession,
+          isPaused: true,
+          isIdlePaused: true,
+          pausedAt: 100000,
+          idlePauseCount: 1,
+          totalPausedMs: 0,
+          idlePauseTotalMs: 0,
+        } : null,
+      }));
+
+      // Resume via activity at t=150000 (50s idle pause)
+      currentTime = 150000;
+      store.recordActivity();
+
+      let session = useReadingStatsStore.getState().activeSession!;
+      expect(session.totalPausedMs).toBe(50000);
+      expect(session.idlePauseTotalMs).toBe(50000);
+
+      // Second idle pause
+      useReadingStatsStore.setState((state) => ({
+        activeSession: state.activeSession ? {
+          ...state.activeSession,
+          isPaused: true,
+          isIdlePaused: true,
+          pausedAt: 200000,
+          idlePauseCount: 2,
+        } : null,
+      }));
+
+      // Resume via activity at t=230000 (30s idle pause)
+      currentTime = 230000;
+      store.recordActivity();
+
+      session = useReadingStatsStore.getState().activeSession!;
+      expect(session.totalPausedMs).toBe(80000); // 50000 + 30000
+      expect(session.idlePauseTotalMs).toBe(80000); // 50000 + 30000
+    });
+
+    it('auto-resumes idle-paused session via updateCurrentPage', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      // Set idle-paused state
+      useReadingStatsStore.setState((state) => ({
+        activeSession: state.activeSession ? {
+          ...state.activeSession,
+          isPaused: true,
+          isIdlePaused: true,
+          pausedAt: 100000,
+          idlePauseCount: 1,
+          totalPausedMs: 5000,
+          idlePauseTotalMs: 5000,
+        } : null,
+      }));
+
+      currentTime = 120000;
+      store.updateCurrentPage(15);
+
+      const session = useReadingStatsStore.getState().activeSession!;
+      expect(session.isPaused).toBe(false);
+      expect(session.isIdlePaused).toBe(false);
+      expect(session.pausedAt).toBeNull();
+      expect(session.currentPage).toBe(15);
+      // Previous 5000ms + new idle pause: 120000 - 100000 = 20000ms
+      expect(session.totalPausedMs).toBe(25000);
+      expect(session.idlePauseTotalMs).toBe(25000);
+    });
+  });
+
+  // ── Edge cases: syncPendingSessions ───────────────────────────────
+
+  describe('syncPendingSessions edge cases', () => {
+    const makePending = (noteId: string, retryCount = 0) => ({
+      noteId,
+      sessionDurationMs: 30000,
+      pagesRead: 5,
+      startPage: 1,
+      endPage: 6,
+      startTime: '2025-01-01T00:00:00.000Z',
+      timestamp: '2025-01-01T00:30:00.000Z',
+      retryCount,
+    });
+
+    it('handles partial success in batch (some succeed, some fail)', async () => {
+      const stats = makeStats();
+      // First call succeeds, second fails, third succeeds
+      mockedApiUpdate
+        .mockResolvedValueOnce({ success: true, readingStats: stats, lastRead: new Date().toISOString() })
+        .mockRejectedValueOnce(new Error('HTTP 400 Bad Request'))
+        .mockResolvedValueOnce({ success: true, readingStats: stats, lastRead: new Date().toISOString() });
+
+      useReadingStatsStore.setState({
+        pendingSessions: [
+          makePending('note-1'),
+          makePending('note-2'),
+          makePending('note-3'),
+        ],
+      });
+
+      const store = useReadingStatsStore.getState();
+      await store.syncPendingSessions();
+
+      // note-1 and note-3 synced, note-2 failed with 4xx (no retry, but still kept with incremented count)
+      const pending = useReadingStatsStore.getState().pendingSessions;
+      expect(pending).toHaveLength(1);
+      expect(pending[0].noteId).toBe('note-2');
+      expect(pending[0].retryCount).toBe(1);
+
+      // Stats cache should include note-1 and note-3
+      const cache = useReadingStatsStore.getState().bookStatsCache;
+      expect(cache['note-1']).toEqual(stats);
+      expect(cache['note-3']).toEqual(stats);
+    });
+
+    it('drops all sessions that hit max retries in a batch', async () => {
+      mockedApiUpdate.mockRejectedValue(new Error('Server error'));
+
+      useReadingStatsStore.setState({
+        pendingSessions: [
+          makePending('note-1', 4), // Will become 5 (= MAX), dropped
+          makePending('note-2', 4), // Will become 5 (= MAX), dropped
+        ],
+      });
+
+      const store = useReadingStatsStore.getState();
+      const syncPromise = store.syncPendingSessions();
+      // Advance through retry delays for both sessions
+      for (let i = 0; i < 10; i++) {
+        await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS * Math.pow(2, i));
+      }
+      await syncPromise;
+
+      expect(useReadingStatsStore.getState().pendingSessions).toHaveLength(0);
+      expect(useReadingStatsStore.getState().isSyncing).toBe(false);
+    });
+
+    it('clears lastSyncError when all remaining sessions are dropped', async () => {
+      mockedApiUpdate.mockRejectedValue(new Error('Server error'));
+
+      useReadingStatsStore.setState({
+        pendingSessions: [makePending('note-1', 4)],
+        lastSyncError: 'old error',
+      });
+
+      const store = useReadingStatsStore.getState();
+      const syncPromise = store.syncPendingSessions();
+      for (let i = 0; i < 5; i++) {
+        await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS * Math.pow(2, i));
+      }
+      await syncPromise;
+
+      // All dropped, stillPending is empty, so lastSyncError should be null
+      expect(useReadingStatsStore.getState().pendingSessions).toHaveLength(0);
+      expect(useReadingStatsStore.getState().lastSyncError).toBeNull();
+    });
+
+    it('passes idle pause metadata during sync', async () => {
+      const stats = makeStats();
+      mockedApiUpdate.mockResolvedValue({
+        success: true,
+        readingStats: stats,
+        lastRead: new Date().toISOString(),
+      });
+
+      useReadingStatsStore.setState({
+        pendingSessions: [{
+          ...makePending('note-1'),
+          idlePauseCount: 3,
+          idlePauseTotalMs: 45000,
+          currentProgress: 75,
+        }],
+      });
+
+      const store = useReadingStatsStore.getState();
+      await store.syncPendingSessions();
+
+      expect(mockedApiUpdate).toHaveBeenCalledWith(
+        'note-1',
+        expect.objectContaining({
+          idlePauseCount: 3,
+          idlePauseTotalMs: 45000,
+          currentProgress: 75,
+        })
+      );
+    });
+  });
+
+  // ── Edge cases: startSession ──────────────────────────────────────
+
+  describe('startSession edge cases', () => {
+    it('calculates progress correctly at boundaries', () => {
+      const store = useReadingStatsStore.getState();
+
+      // Page 0 of 100 = 0%
+      store.startSession('note-1', 0, 100);
+      expect(useReadingStatsStore.getState().activeSession!.currentProgress).toBe(0);
+
+      // Page 100 of 100 = 100%
+      store.startSession('note-2', 100, 100);
+      expect(useReadingStatsStore.getState().activeSession!.currentProgress).toBe(100);
+
+      // Page 1 of 1 = 100%
+      store.startSession('note-3', 1, 1);
+      expect(useReadingStatsStore.getState().activeSession!.currentProgress).toBe(100);
+    });
+
+    it('initializes all idle tracking fields to zero', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      const session = useReadingStatsStore.getState().activeSession!;
+      expect(session.isIdlePaused).toBe(false);
+      expect(session.idlePauseCount).toBe(0);
+      expect(session.idlePauseTotalMs).toBe(0);
+      expect(session.totalPausedMs).toBe(0);
+      expect(session.pausedAt).toBeNull();
+    });
+  });
+
+  // ── Edge cases: getEstimatedTimeRemaining ─────────────────────────
+
+  describe('getEstimatedTimeRemaining edge cases', () => {
+    it('handles negative pagesPerHour defensively', () => {
+      const store = useReadingStatsStore.getState();
+      store.setBookStats('note-1', makeStats({ pagesPerHour: -10 }));
+
+      // Negative pagesPerHour passes the > 0 check as false, triggers fallback
+      const result = store.getEstimatedTimeRemaining('note-1', 50, 100);
+      // Falls through to progress-based fallback
+      expect(result).toBeGreaterThanOrEqual(0);
+    });
+
+    it('returns 0 for last page remaining with pagesPerHour', () => {
+      const store = useReadingStatsStore.getState();
+      store.setBookStats('note-1', makeStats({ pagesPerHour: 60 }));
+
+      // 1 page remaining at 60 pages/hour = 1 minute = 60000ms
+      const result = store.getEstimatedTimeRemaining('note-1', 99, 100);
+      expect(result).toBe(Math.round(1 / 60 * 60 * 60 * 1000)); // 60000ms
+    });
+
+    it('handles very small progress in fallback calculation', () => {
+      const store = useReadingStatsStore.getState();
+      store.setBookStats('note-1', makeStats({
+        pagesPerHour: null,
+        totalReadingTimeMs: 1000,
+        totalSessions: 1,
+      }));
+
+      // At page 1 of 10000 (0.01% progress)
+      // Estimated total = 1000 / 0.0001 = 10000000ms
+      // Remaining = 10000000 - 1000 = 9999000ms
+      const result = store.getEstimatedTimeRemaining('note-1', 1, 10000);
+      expect(result).toBe(9999000);
+    });
+  });
+
+  // ── Edge cases: getActiveSessionDuration ──────────────────────────
+
+  describe('getActiveSessionDuration edge cases', () => {
+    it('returns 0 for a session that just started', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100); // t=1000
+
+      // Query at exact same time
+      expect(store.getActiveSessionDuration()).toBe(0);
+    });
+
+    it('correctly handles session with accumulated pause and active idle pause', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100); // t=1000
+
+      // First pause: 5000ms
+      currentTime = 5000;
+      store.pauseSession();
+      currentTime = 10000;
+      store.resumeSession();
+
+      // Idle pause starts at t=310000
+      currentTime = 310000;
+      store.checkIdleStatus();
+
+      // Check duration while idle-paused at t=400000
+      currentTime = 400000;
+      const duration = store.getActiveSessionDuration();
+
+      // Wall time: 400000 - 1000 = 399000ms
+      // First pause: 5000ms (accumulated)
+      // Current idle pause: 400000 - 310000 = 90000ms
+      // Active: 399000 - 5000 - 90000 = 304000ms
+      expect(duration).toBe(304000);
+    });
+  });
+
+  // ── Full lifecycle integration ────────────────────────────────────
+
+  describe('full session lifecycle with idle pauses', () => {
+    it('tracks a complete session with multiple idle pauses and page changes', async () => {
+      mockedApiUpdate.mockResolvedValue({
+        success: true,
+        readingStats: makeStats(),
+        lastRead: new Date().toISOString(),
+      });
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 200); // t=1000
+
+      // Read for a while, changing pages
+      currentTime = 60000;
+      store.updateCurrentPage(10);
+      store.recordActivity();
+
+      // Go idle — 5 minutes pass
+      currentTime = 60000 + 5 * 60 * 1000; // t=360000
+      store.checkIdleStatus();
+      expect(store.isIdlePaused()).toBe(true);
+      expect(useReadingStatsStore.getState().activeSession!.idlePauseCount).toBe(1);
+
+      // Come back after 2 minutes
+      currentTime = 360000 + 120000; // t=480000
+      store.recordActivity();
+      expect(store.isIdlePaused()).toBe(false);
+
+      // Read more, change page
+      currentTime = 540000;
+      store.updateCurrentPage(25);
+
+      // Go idle again
+      currentTime = 540000 + 5 * 60 * 1000; // t=840000
+      store.checkIdleStatus();
+      expect(store.isIdlePaused()).toBe(true);
+      expect(useReadingStatsStore.getState().activeSession!.idlePauseCount).toBe(2);
+
+      // Page change auto-resumes
+      currentTime = 900000;
+      store.updateCurrentPage(30);
+      expect(store.isIdlePaused()).toBe(false);
+
+      // End the session
+      currentTime = 960000;
+      const result = await store.endSession();
+
+      expect(result).not.toBeNull();
+      expect(result!.noteId).toBe('note-1');
+      expect(result!.startPage).toBe(1);
+      expect(result!.endPage).toBe(30);
+      expect(result!.pagesRead).toBe(29);
+
+      // Verify the API received idle metadata
+      expect(mockedApiUpdate).toHaveBeenCalledWith(
+        'note-1',
+        expect.objectContaining({
+          idlePauseCount: 2,
+          pagesRead: 29,
+          startPage: 1,
+          endPage: 30,
+        })
+      );
+
+      // Duration should exclude all idle pause time
+      const apiCall = mockedApiUpdate.mock.calls[0];
+      expect(apiCall[1].sessionDurationMs).toBeGreaterThan(0);
+      expect(apiCall[1].sessionDurationMs).toBeLessThan(960000 - 1000); // Less than wall time
+    });
+  });
 });
 
 // Retry delay constant used in timer advancement
