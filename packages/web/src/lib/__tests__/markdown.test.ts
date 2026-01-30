@@ -57,6 +57,34 @@ describe('sanitizeUrl', () => {
   it('handles empty string', () => {
     expect(sanitizeUrl('')).toBe('');
   });
+
+  it('blocks javascript: with tab character after whitespace', () => {
+    expect(sanitizeUrl('\tjavascript:alert(1)')).toBe('#blocked');
+  });
+
+  it('blocks javascript: with newline before protocol', () => {
+    expect(sanitizeUrl('\njavascript:alert(1)')).toBe('#blocked');
+  });
+
+  it('allows ftp: protocol', () => {
+    expect(sanitizeUrl('ftp://files.example.com')).toBe('ftp://files.example.com');
+  });
+
+  it('allows tel: protocol', () => {
+    expect(sanitizeUrl('tel:+1234567890')).toBe('tel:+1234567890');
+  });
+
+  it('handles URL with only whitespace', () => {
+    expect(sanitizeUrl('   ')).toBe('   ');
+  });
+
+  it('blocks data: with base64 payload', () => {
+    expect(sanitizeUrl('data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==')).toBe('#blocked');
+  });
+
+  it('blocks JAVASCRIPT: all caps', () => {
+    expect(sanitizeUrl('JAVASCRIPT:alert(1)')).toBe('#blocked');
+  });
 });
 
 describe('processInlineMarkdown', () => {
@@ -207,12 +235,103 @@ describe('processInlineMarkdown', () => {
     });
   });
 
+  describe('unclosed and edge-case markers', () => {
+    it('leaves unclosed bold markers as-is', () => {
+      const result = processInlineMarkdown('**unclosed bold');
+      expect(result).toBe('**unclosed bold');
+      expect(result).not.toContain('<strong>');
+    });
+
+    it('leaves unclosed italic markers as-is', () => {
+      const result = processInlineMarkdown('*unclosed italic');
+      expect(result).toBe('*unclosed italic');
+      expect(result).not.toContain('<em>');
+    });
+
+    it('leaves unclosed strikethrough markers as-is', () => {
+      const result = processInlineMarkdown('~~unclosed strike');
+      expect(result).toBe('~~unclosed strike');
+      expect(result).not.toContain('<del>');
+    });
+
+    it('leaves unclosed inline code as-is', () => {
+      const result = processInlineMarkdown('`unclosed code');
+      expect(result).toBe('`unclosed code');
+      expect(result).not.toContain('<code>');
+    });
+
+    it('handles adjacent bold segments', () => {
+      const result = processInlineMarkdown('**first****second**');
+      expect(result).toContain('<strong>');
+    });
+
+    it('handles bold inside italic context', () => {
+      const result = processInlineMarkdown('*italic **bold** end*');
+      expect(result).toContain('<em>');
+      expect(result).toContain('<strong>bold</strong>');
+    });
+
+    it('handles multiple bold segments in one line', () => {
+      const result = processInlineMarkdown('**a** middle **b**');
+      expect(result).toBe('<strong>a</strong> middle <strong>b</strong>');
+    });
+
+    it('handles multiple italic segments in one line', () => {
+      const result = processInlineMarkdown('*a* and *b* and *c*');
+      expect(result).toBe('<em>a</em> and <em>b</em> and <em>c</em>');
+    });
+
+    it('handles strikethrough with bold inside', () => {
+      const result = processInlineMarkdown('~~strike **bold** text~~');
+      expect(result).toBe('<del>strike <strong>bold</strong> text</del>');
+    });
+
+    it('handles formatting markers with special characters', () => {
+      const result = processInlineMarkdown('**bold & special**');
+      expect(result).toBe('<strong>bold & special</strong>');
+    });
+  });
+
+  describe('multiple links and images', () => {
+    it('handles multiple links in one line', () => {
+      const result = processInlineMarkdown('[a](https://a.com) and [b](https://b.com)');
+      expect(result).toContain('<a href="https://a.com"');
+      expect(result).toContain('>a</a>');
+      expect(result).toContain('<a href="https://b.com"');
+      expect(result).toContain('>b</a>');
+    });
+
+    it('handles link with formatted text', () => {
+      const result = processInlineMarkdown('[**bold link**](https://example.com)');
+      expect(result).toContain('href="https://example.com"');
+      expect(result).toContain('<strong>bold link</strong>');
+    });
+
+    it('handles link with query parameters', () => {
+      const result = processInlineMarkdown('[search](https://example.com?q=test&page=1)');
+      expect(result).toContain('href="https://example.com?q=test&page=1"');
+    });
+
+    it('handles image with data URI blocked', () => {
+      const result = processInlineMarkdown('![img](data:image/png;base64,abc)');
+      expect(result).toBe('<img src="#blocked" alt="img" />');
+    });
+  });
+
   it('returns plain text unchanged', () => {
     expect(processInlineMarkdown('just plain text')).toBe('just plain text');
   });
 
   it('handles empty string', () => {
     expect(processInlineMarkdown('')).toBe('');
+  });
+
+  it('handles text with only spaces', () => {
+    expect(processInlineMarkdown('   ')).toBe('   ');
+  });
+
+  it('handles text with numbers', () => {
+    expect(processInlineMarkdown('count: 42')).toBe('count: 42');
   });
 });
 
@@ -558,6 +677,233 @@ describe('markdownToHtml', () => {
       expect(result).toContain('<strong>bold</strong>');
       expect(result).toContain('<em>italic</em>');
       expect(result).toContain('<code>code</code>');
+    });
+
+    it('handles single newline (not double)', () => {
+      const result = markdownToHtml('line one\nline two');
+      expect(result).toContain('line one<br />line two');
+      // Should be in the same paragraph, not split
+      expect(result).not.toContain('</p><p>');
+    });
+
+    it('handles triple+ newlines same as double', () => {
+      const result = markdownToHtml('first\n\n\nsecond');
+      expect(result).toContain('first</p><p>second');
+    });
+  });
+
+  describe('blockquote merging', () => {
+    it('merges two consecutive blockquote lines into one blockquote', () => {
+      const result = markdownToHtml('> line one\n> line two');
+      // After merging, should not have separate blockquote tags
+      expect(result).not.toContain('</blockquote><br /><blockquote>');
+      // Should contain both lines
+      expect(result).toContain('line one');
+      expect(result).toContain('line two');
+    });
+
+    it('merges three consecutive blockquote lines', () => {
+      const result = markdownToHtml('> first\n> second\n> third');
+      expect(result).not.toContain('</blockquote><br /><blockquote>');
+      expect(result).toContain('first');
+      expect(result).toContain('second');
+      expect(result).toContain('third');
+    });
+
+    it('does not merge blockquotes separated by blank line', () => {
+      const result = markdownToHtml('> quote one\n\n> quote two');
+      // Double newline creates paragraph break, so blockquotes are separate
+      expect(result).toContain('quote one');
+      expect(result).toContain('quote two');
+    });
+
+    it('applies inline formatting inside blockquotes', () => {
+      const result = markdownToHtml('> **bold** quote');
+      expect(result).toContain('<blockquote><strong>bold</strong> quote</blockquote>');
+    });
+  });
+
+  describe('list edge cases', () => {
+    it('closes list when followed by empty line then text', () => {
+      const result = markdownToHtml('- item\n\nText after');
+      expect(result).toContain('</ul>');
+      expect(result).toContain('Text after');
+    });
+
+    it('handles long ordered list numbers', () => {
+      const result = markdownToHtml('10. tenth item\n11. eleventh item');
+      expect(result).toContain('<ol>');
+      expect(result).toContain('<li>tenth item</li>');
+      expect(result).toContain('<li>eleventh item</li>');
+    });
+
+    it('applies inline formatting in ordered list items', () => {
+      const result = markdownToHtml('1. **bold** item\n2. *italic* item');
+      expect(result).toContain('<li><strong>bold</strong> item</li>');
+      expect(result).toContain('<li><em>italic</em> item</li>');
+    });
+
+    it('handles list with link inside item', () => {
+      const result = markdownToHtml('- see [docs](https://docs.com)');
+      expect(result).toContain('<li>see <a href="https://docs.com"');
+    });
+
+    it('handles ul followed directly by ol with correct closing', () => {
+      const result = markdownToHtml('- bullet one\n- bullet two\n1. number one\n2. number two');
+      // Should close ul before opening ol
+      const ulClosePos = result.indexOf('</ul>');
+      const olOpenPos = result.indexOf('<ol>');
+      expect(ulClosePos).toBeGreaterThan(-1);
+      expect(olOpenPos).toBeGreaterThan(-1);
+      expect(ulClosePos).toBeLessThan(olOpenPos);
+      expect(result).toContain('<li>bullet one</li>');
+      expect(result).toContain('<li>number one</li>');
+    });
+
+    it('handles ol followed directly by ul with correct closing', () => {
+      const result = markdownToHtml('1. first\n2. second\n- bullet a\n- bullet b');
+      const olClosePos = result.indexOf('</ol>');
+      const ulOpenPos = result.indexOf('<ul>');
+      expect(olClosePos).toBeGreaterThan(-1);
+      expect(ulOpenPos).toBeGreaterThan(-1);
+      expect(olClosePos).toBeLessThan(ulOpenPos);
+    });
+  });
+
+  describe('code block edge cases', () => {
+    it('preserves multiple lines inside code block', () => {
+      const result = markdownToHtml('```js\nline1\nline2\nline3\n```');
+      expect(result).toContain('<pre><code class="language-js">');
+      expect(result).toContain('line1');
+      expect(result).toContain('line2');
+      expect(result).toContain('line3');
+    });
+
+    it('handles code block with python language', () => {
+      const result = markdownToHtml('```python\ndef hello():\n    pass\n```');
+      expect(result).toContain('class="language-python"');
+    });
+
+    it('handles code block with typescript language', () => {
+      const result = markdownToHtml('```typescript\nconst x: number = 1;\n```');
+      expect(result).toContain('class="language-typescript"');
+    });
+  });
+
+  describe('heading edge cases', () => {
+    it('handles all three heading levels in sequence', () => {
+      const result = markdownToHtml('# H1\n## H2\n### H3');
+      expect(result).toContain('<h1>H1</h1>');
+      expect(result).toContain('<h2>H2</h2>');
+      expect(result).toContain('<h3>H3</h3>');
+    });
+
+    it('handles heading with link inside', () => {
+      const result = markdownToHtml('## See [docs](https://example.com)');
+      expect(result).toContain('<h2>See <a href="https://example.com"');
+    });
+
+    it('handles heading followed by blockquote', () => {
+      const result = markdownToHtml('# Title\n> Quote text');
+      expect(result).toContain('<h1>Title</h1>');
+      expect(result).toContain('<blockquote>Quote text</blockquote>');
+    });
+
+    it('handles heading followed by horizontal rule', () => {
+      const result = markdownToHtml('# Title\n---');
+      expect(result).toContain('<h1>Title</h1>');
+      expect(result).toContain('<hr />');
+    });
+  });
+
+  describe('horizontal rule edge cases', () => {
+    it('handles hr between paragraphs', () => {
+      const result = markdownToHtml('Above\n---\nBelow');
+      expect(result).toContain('<hr />');
+      expect(result).toContain('Above');
+      expect(result).toContain('Below');
+    });
+
+    it('only matches exactly --- for hr', () => {
+      // The source checks line === '---' after HTML escaping
+      const result = markdownToHtml('----');
+      // Four dashes should not produce <hr /> since it checks for exact '---'
+      expect(result).not.toContain('<hr />');
+    });
+  });
+
+  describe('complex document structures', () => {
+    it('handles a full document with multiple block types', () => {
+      const md = [
+        '# Main Title',
+        '',
+        'Intro paragraph with **bold** text.',
+        '',
+        '## Section One',
+        '',
+        '- item a',
+        '- item b',
+        '',
+        '> A quoted passage',
+        '',
+        '1. step one',
+        '2. step two',
+        '',
+        '---',
+        '',
+        '### Subsection',
+        '',
+        'Final text with [link](https://example.com).',
+      ].join('\n');
+
+      const result = markdownToHtml(md);
+      expect(result).toContain('<h1>Main Title</h1>');
+      expect(result).toContain('<strong>bold</strong>');
+      expect(result).toContain('<h2>Section One</h2>');
+      expect(result).toContain('<ul>');
+      expect(result).toContain('<li>item a</li>');
+      expect(result).toContain('<blockquote>A quoted passage</blockquote>');
+      expect(result).toContain('<ol>');
+      expect(result).toContain('<li>step one</li>');
+      expect(result).toContain('<hr />');
+      expect(result).toContain('<h3>Subsection</h3>');
+      expect(result).toContain('href="https://example.com"');
+    });
+
+    it('handles heading, list, and blockquote without blank lines between', () => {
+      const md = '# Title\n- item\n> quote';
+      const result = markdownToHtml(md);
+      expect(result).toContain('<h1>Title</h1>');
+      expect(result).toContain('<li>item</li>');
+      expect(result).toContain('<blockquote>quote</blockquote>');
+    });
+
+    it('handles paragraph between two lists', () => {
+      const md = '- first list\n\nMiddle text\n\n1. second list';
+      const result = markdownToHtml(md);
+      expect(result).toContain('</ul>');
+      expect(result).toContain('Middle text');
+      expect(result).toContain('<ol>');
+    });
+  });
+
+  describe('HTML escaping edge cases', () => {
+    it('escapes HTML inside list items', () => {
+      const result = markdownToHtml('- <b>not bold</b>');
+      expect(result).toContain('&lt;b&gt;not bold&lt;/b&gt;');
+      expect(result).not.toContain('<b>');
+    });
+
+    it('escapes HTML inside blockquotes', () => {
+      const result = markdownToHtml('> text with "quotes" & <tags>');
+      expect(result).toContain('&quot;quotes&quot;');
+      expect(result).toContain('&amp;');
+      expect(result).toContain('&lt;tags&gt;');
+    });
+
+    it('escapes ampersand in code blocks', () => {
+      const result = markdownToHtml('```\na && b\n```');
+      expect(result).toContain('&amp;&amp;');
     });
   });
 });
