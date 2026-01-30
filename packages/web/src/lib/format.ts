@@ -49,8 +49,12 @@ export function formatReadingTime(
   }
 
   // Handle times >= 1 hour
-  const hours = Math.floor(ms / 3600000);
-  const mins = Math.round((ms % 3600000) / 60000);
+  let hours = Math.floor(ms / 3600000);
+  let mins = Math.round((ms % 3600000) / 60000);
+  if (mins === 60) {
+    hours += 1;
+    mins = 0;
+  }
   return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
 }
 
