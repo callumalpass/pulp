@@ -392,7 +392,7 @@ export class ReadingGoalsService {
     }
 
     const lastRead = this.data.streak.lastReadDate;
-    const gracePeriodDays = this.data.goals.gracePeriodDays || 1;
+    const gracePeriodDays = this.data.goals.gracePeriodDays ?? 1;
 
     if (lastRead === today) {
       // Already counted today
@@ -463,7 +463,7 @@ export class ReadingGoalsService {
    */
   recalculateStreak(): ReadingStreak {
     const today = getToday();
-    const gracePeriodDays = this.data.goals.gracePeriodDays || 1;
+    const gracePeriodDays = this.data.goals.gracePeriodDays ?? 1;
     const freezeDays = this.data.goals.streakFreezeDays || [];
 
     let currentStreak = 0;
@@ -687,7 +687,7 @@ export class ReadingGoalsService {
     }
 
     const lastRead = streak.lastReadDate;
-    const gracePeriodDays = this.data.goals.gracePeriodDays || 1;
+    const gracePeriodDays = this.data.goals.gracePeriodDays ?? 1;
 
     // Calculate non-freeze days since last goal was met
     let nonFreezeDaysSinceLastRead = 0;
