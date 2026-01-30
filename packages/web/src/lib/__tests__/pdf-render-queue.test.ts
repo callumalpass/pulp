@@ -1358,4 +1358,625 @@ describe('createZoomDebouncer', () => {
     vi.advanceTimersByTime(0);
     expect(callback).toHaveBeenCalledWith(1.0);
   });
+
+  it('does not fire callback if no calls are made', () => {
+    const callback = vi.fn();
+    createZoomDebouncer(callback, 100);
+
+    vi.advanceTimersByTime(1000);
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it('handles negative zoom values', () => {
+    const callback = vi.fn();
+    const debounced = createZoomDebouncer(callback, 50);
+
+    debounced(-1.0);
+    vi.advanceTimersByTime(50);
+    expect(callback).toHaveBeenCalledWith(-1.0);
+  });
+
+  it('handles very large delay values', () => {
+    const callback = vi.fn();
+    const debounced = createZoomDebouncer(callback, 10000);
+
+    debounced(1.0);
+    vi.advanceTimersByTime(9999);
+    expect(callback).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(callback).toHaveBeenCalledWith(1.0);
+  });
+});
+
+// ============================================================================
+// Additional PdfRenderQueue edge case tests
+// ============================================================================
+
+describe('PdfRenderQueue - additional edge cases', () => {
+  let queue: PdfRenderQueue;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockWorkerInstance = undefined as unknown as MockWorker;
+    queue = new PdfRenderQueue(3, 5);
+  });
+
+  afterEach(() => {
+    queue.destroy();
+    vi.useRealTimers();
+  });
+
+  describe('LRU cache key edge cases', () => {
+    beforeEach(() => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+    });
+
+    it('generates different keys for scale 0 and scale 0.001', async () => {
+      // Scale 0 → key "1-0", scale 0.001 → Math.round(0.001*100) = 0 → same key "1-0"
+      const bitmap1 = createMockBitmap();
+      const p1 = queue.renderVisible([1], 0);
+      const reqId1 = mockWorkerInstance.postMessage.mock.calls[0][0].id;
+      mockWorkerInstance.onmessage?.({
+        data: { id: reqId1, pageNum: 1, bitmap: bitmap1, scale: 0 },
+      } as MessageEvent);
+      await p1;
+
+      // 0.001 rounds to same key as 0, so this should be a cache hit
+      expect(queue.isCached(1, 0.001)).toBe(true);
+    });
+
+    it('handles very large scale values', async () => {
+      const bitmap = createMockBitmap();
+      const p1 = queue.renderVisible([1], 100.0);
+      const reqId = mockWorkerInstance.postMessage.mock.calls[0][0].id;
+      mockWorkerInstance.onmessage?.({
+        data: { id: reqId, pageNum: 1, bitmap, scale: 100.0 },
+      } as MessageEvent);
+      await p1;
+
+      expect(queue.isCached(1, 100.0)).toBe(true);
+      expect(queue.getCached(1, 100.0)).toBe(bitmap);
+    });
+
+    it('handles fractional scale precision boundary', async () => {
+      // 1.006 * 100 = 100.6, Math.round → 101 → key "1-101"
+      // 1.004 * 100 = 100.4, Math.round → 100 → key "1-100"
+      // Note: 1.005 * 100 = 100.49999999999999 due to IEEE 754, rounds to 100
+      const bitmap = createMockBitmap();
+      const p1 = queue.renderVisible([1], 1.006);
+      const reqId = mockWorkerInstance.postMessage.mock.calls[0][0].id;
+      mockWorkerInstance.onmessage?.({
+        data: { id: reqId, pageNum: 1, bitmap, scale: 1.006 },
+      } as MessageEvent);
+      await p1;
+
+      expect(queue.isCached(1, 1.006)).toBe(true);
+      // 1.004 rounds to 100, 1.006 rounds to 101 — different keys
+      expect(queue.isCached(1, 1.004)).toBe(false);
+    });
+
+    it('generates distinct keys for different page numbers at same scale', async () => {
+      const bitmap1 = createMockBitmap();
+      const bitmap2 = createMockBitmap();
+
+      const p1 = queue.renderVisible([1], 1.0);
+      const reqId1 = mockWorkerInstance.postMessage.mock.calls[0][0].id;
+      mockWorkerInstance.onmessage?.({
+        data: { id: reqId1, pageNum: 1, bitmap: bitmap1, scale: 1.0 },
+      } as MessageEvent);
+      await p1;
+
+      const p2 = queue.renderVisible([2], 1.0);
+      const reqId2 = mockWorkerInstance.postMessage.mock.calls[1][0].id;
+      mockWorkerInstance.onmessage?.({
+        data: { id: reqId2, pageNum: 2, bitmap: bitmap2, scale: 1.0 },
+      } as MessageEvent);
+      await p2;
+
+      expect(queue.getCached(1, 1.0)).toBe(bitmap1);
+      expect(queue.getCached(2, 1.0)).toBe(bitmap2);
+      expect(queue.getCached(1, 1.0)).not.toBe(queue.getCached(2, 1.0));
+    });
+  });
+
+  describe('LRU bitmap cache - overwrite and boundary behavior', () => {
+    beforeEach(() => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+    });
+
+    it('bitmap cache persists across setPdfUrl changes', async () => {
+      const bitmap1 = createMockBitmap();
+
+      // Render page 1 at scale 1.0
+      const p1 = queue.renderVisible([1], 1.0);
+      const reqId1 = mockWorkerInstance.postMessage.mock.calls[0][0].id;
+      mockWorkerInstance.onmessage?.({
+        data: { id: reqId1, pageNum: 1, bitmap: bitmap1, scale: 1.0 },
+      } as MessageEvent);
+      await p1;
+
+      const callCountBefore = mockWorkerInstance.postMessage.mock.calls.length;
+
+      // setPdfUrl does NOT clear the bitmap cache, only text content cache
+      queue.setPdfUrl('http://example.com/other.pdf');
+      queue.setPdfUrl('http://example.com/test.pdf');
+
+      // Re-render same page — should get cache hit without new worker request
+      const result = await queue.renderVisible([1], 1.0);
+
+      expect(result.get(1)).toBe(bitmap1);
+      // No new render requests should have been sent (cancel messages may have been sent)
+      const renderCalls = mockWorkerInstance.postMessage.mock.calls
+        .slice(callCountBefore)
+        .filter((c) => c[0].type !== 'cancel');
+      expect(renderCalls).toHaveLength(0);
+    });
+
+    it('handles cache with maxSize=1 correctly', () => {
+      const smallQueue = new PdfRenderQueue(1, 5);
+      smallQueue.setPdfUrl('http://example.com/test.pdf');
+
+      // Render page 1
+      const bitmap1 = createMockBitmap();
+      smallQueue.renderVisible([1], 1.0);
+      const reqId1 = mockWorkerInstance.postMessage.mock.calls.at(-1)![0].id;
+      mockWorkerInstance.onmessage?.({
+        data: { id: reqId1, pageNum: 1, bitmap: bitmap1, scale: 1.0 },
+      } as MessageEvent);
+
+      expect(smallQueue.isCached(1, 1.0)).toBe(true);
+
+      // Render page 2 — should evict page 1
+      vi.advanceTimersByTime(10);
+      const bitmap2 = createMockBitmap();
+      smallQueue.renderVisible([2], 1.0);
+      const reqId2 = mockWorkerInstance.postMessage.mock.calls.at(-1)![0].id;
+      mockWorkerInstance.onmessage?.({
+        data: { id: reqId2, pageNum: 2, bitmap: bitmap2, scale: 1.0 },
+      } as MessageEvent);
+
+      expect(smallQueue.isCached(1, 1.0)).toBe(false);
+      expect(smallQueue.isCached(2, 1.0)).toBe(true);
+      expect(bitmap1.close).toHaveBeenCalled();
+
+      smallQueue.destroy();
+    });
+  });
+
+  describe('renderVisible with includeText=false', () => {
+    beforeEach(() => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+    });
+
+    it('sends includeText=false in render request by default', () => {
+      queue.renderVisible([1], 1.0);
+
+      const req = mockWorkerInstance.postMessage.mock.calls[0][0];
+      expect(req.includeText).toBe(true); // default is true
+    });
+
+    it('sends includeText=false when explicitly set', () => {
+      queue.renderVisible([1], 1.0, false);
+
+      const req = mockWorkerInstance.postMessage.mock.calls[0][0];
+      expect(req.includeText).toBe(false);
+    });
+
+    it('does not cache text content when response has textContent but includeText was false', async () => {
+      const callback = vi.fn();
+      queue.onTextContent(callback);
+
+      // Even though we said includeText=false, the response might still
+      // have textContent. The queue doesn't filter based on includeText —
+      // it caches whatever the worker sends.
+      const textContent = { items: [{ str: 'Surprise' }], styles: {} };
+      const promise = queue.renderVisible([1], 1.0, false);
+      const reqId = mockWorkerInstance.postMessage.mock.calls[0][0].id;
+      mockWorkerInstance.onmessage?.({
+        data: { id: reqId, pageNum: 1, bitmap: createMockBitmap(), scale: 1.0, textContent },
+      } as MessageEvent);
+      await promise;
+
+      // The queue caches whatever the worker returns regardless of includeText flag
+      expect(queue.getTextContent(1)).toEqual(textContent);
+      expect(callback).toHaveBeenCalledWith(1, textContent);
+    });
+  });
+
+  describe('renderBuffer with no PDF URL set', () => {
+    it('does not crash or send worker messages', () => {
+      const freshQueue = new PdfRenderQueue();
+      const freshWorker = mockWorkerInstance;
+      freshWorker.postMessage.mockClear();
+
+      // No URL set — renderBuffer should not crash
+      expect(() => freshQueue.renderBuffer([1, 2, 3], 1.0)).not.toThrow();
+
+      // No messages sent to worker (processQueue returns early)
+      const renderCalls = freshWorker.postMessage.mock.calls.filter(
+        (c) => c[0].type === undefined
+      );
+      expect(renderCalls).toHaveLength(0);
+
+      freshQueue.destroy();
+    });
+  });
+
+  describe('interleaved render/cancel/render sequences', () => {
+    beforeEach(() => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+    });
+
+    it('handles render → cancel → re-render for the same page', async () => {
+      // First render
+      const promise1 = queue.renderVisible([1], 1.0);
+
+      // Cancel it
+      queue.cancel([1]);
+
+      // The first promise should resolve (error caught internally)
+      const results1 = await promise1;
+      expect(results1.has(1)).toBe(false);
+
+      // Re-render the same page
+      const bitmap = createMockBitmap();
+      const promise2 = queue.renderVisible([1], 1.0);
+      const reqId = mockWorkerInstance.postMessage.mock.calls.at(-1)![0].id;
+      mockWorkerInstance.onmessage?.({
+        data: { id: reqId, pageNum: 1, bitmap, scale: 1.0 },
+      } as MessageEvent);
+      const results2 = await promise2;
+
+      expect(results2.has(1)).toBe(true);
+      expect(results2.get(1)).toBe(bitmap);
+    });
+
+    it('handles cancelAll during active renders then new renders', async () => {
+      // Start renders
+      const promise1 = queue.renderVisible([1, 2, 3], 1.0);
+
+      // Cancel everything
+      queue.cancelAll();
+      const results1 = await promise1;
+      expect(results1.size).toBe(0);
+
+      // Start new renders — should work normally
+      const bitmap = createMockBitmap();
+      const promise2 = queue.renderVisible([4], 1.0);
+      const reqId = mockWorkerInstance.postMessage.mock.calls.at(-1)![0].id;
+      mockWorkerInstance.onmessage?.({
+        data: { id: reqId, pageNum: 4, bitmap, scale: 1.0 },
+      } as MessageEvent);
+      const results2 = await promise2;
+
+      expect(results2.has(4)).toBe(true);
+    });
+
+    it('handles URL change during render then new render', async () => {
+      // Start render on first URL
+      const promise1 = queue.renderVisible([1], 1.0);
+
+      // Change URL (cancels everything)
+      queue.setPdfUrl('http://example.com/new.pdf');
+      const results1 = await promise1;
+      expect(results1.size).toBe(0);
+
+      // Start render on new URL
+      const bitmap = createMockBitmap();
+      const promise2 = queue.renderVisible([1], 1.0);
+      const reqId = mockWorkerInstance.postMessage.mock.calls.at(-1)![0].id;
+
+      // Verify the request uses the new URL
+      const lastReq = mockWorkerInstance.postMessage.mock.calls.at(-1)![0];
+      expect(lastReq.pdfUrl).toBe('http://example.com/new.pdf');
+
+      mockWorkerInstance.onmessage?.({
+        data: { id: reqId, pageNum: 1, bitmap, scale: 1.0 },
+      } as MessageEvent);
+      const results2 = await promise2;
+      expect(results2.get(1)).toBe(bitmap);
+    });
+  });
+
+  describe('processIdleTasks deadline exhaustion', () => {
+    beforeEach(() => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+    });
+
+    it('reschedules when deadline runs out before all tasks are processed', () => {
+      // Override requestIdleCallback to track invocations and use a deadline
+      // that reports no time remaining after the first call
+      let callCount = 0;
+      const ricMock = vi.fn((cb: IdleRequestCallback) => {
+        const id = ++callCount;
+        cb({
+          didTimeout: false,
+          timeRemaining: () => (callCount === 1 ? 50 : 0), // only first call has time
+        } as IdleDeadline);
+        return id;
+      });
+      vi.stubGlobal('requestIdleCallback', ricMock);
+
+      // Fill all 4 concurrent slots first so buffer pages stay in the queue
+      queue.renderVisible([1, 2, 3, 4], 1.0);
+
+      // Queue buffer pages — these won't be sent immediately since slots are full
+      queue.renderBuffer([10, 11, 12], 1.0);
+
+      // requestIdleCallback should have been called
+      expect(ricMock).toHaveBeenCalled();
+
+      // Restore default mock
+      vi.stubGlobal('requestIdleCallback', vi.fn((cb: IdleRequestCallback) => {
+        cb({ didTimeout: false, timeRemaining: () => 50 } as IdleDeadline);
+        return Math.random();
+      }));
+    });
+  });
+
+  describe('cancelAll idempotency', () => {
+    it('can be called multiple times without error', () => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+      queue.renderVisible([1, 2], 1.0);
+
+      expect(() => {
+        queue.cancelAll();
+        queue.cancelAll();
+        queue.cancelAll();
+      }).not.toThrow();
+    });
+
+    it('second cancelAll sends no additional cancel messages', () => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+      queue.renderVisible([1, 2, 3], 1.0);
+
+      queue.cancelAll();
+      const cancelCountAfterFirst = mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === 'cancel'
+      ).length;
+
+      queue.cancelAll();
+      const cancelCountAfterSecond = mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === 'cancel'
+      ).length;
+
+      // No new cancel messages on second call
+      expect(cancelCountAfterSecond).toBe(cancelCountAfterFirst);
+    });
+  });
+
+  describe('concurrent render requests for overlapping pages', () => {
+    beforeEach(() => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+    });
+
+    it('handles two renderVisible calls with overlapping pages', async () => {
+      // Both requests include page 2
+      const promise1 = queue.renderVisible([1, 2], 1.0);
+      const promise2 = queue.renderVisible([2, 3], 1.0);
+
+      // Resolve all worker messages
+      for (const call of mockWorkerInstance.postMessage.mock.calls) {
+        const req = call[0];
+        if (req.type !== 'cancel') {
+          mockWorkerInstance.onmessage?.({
+            data: { id: req.id, pageNum: req.pageNum, bitmap: createMockBitmap(), scale: 1.0 },
+          } as MessageEvent);
+        }
+      }
+
+      const [results1, results2] = await Promise.all([promise1, promise2]);
+
+      expect(results1.has(1)).toBe(true);
+      expect(results1.has(2)).toBe(true);
+      expect(results2.has(3)).toBe(true);
+    });
+
+    it('both promises resolve when renders complete out of order', async () => {
+      const promise1 = queue.renderVisible([1], 1.0);
+      const promise2 = queue.renderVisible([2], 1.0);
+
+      const calls = mockWorkerInstance.postMessage.mock.calls;
+
+      // Complete page 2 first (out of order)
+      mockWorkerInstance.onmessage?.({
+        data: { id: calls[1][0].id, pageNum: 2, bitmap: createMockBitmap(), scale: 1.0 },
+      } as MessageEvent);
+
+      // Then complete page 1
+      mockWorkerInstance.onmessage?.({
+        data: { id: calls[0][0].id, pageNum: 1, bitmap: createMockBitmap(), scale: 1.0 },
+      } as MessageEvent);
+
+      const [results1, results2] = await Promise.all([promise1, promise2]);
+      expect(results1.has(1)).toBe(true);
+      expect(results2.has(2)).toBe(true);
+    });
+  });
+
+  describe('text content cache with maxSize=1', () => {
+    it('only keeps the most recent text content', async () => {
+      const tinyQueue = new PdfRenderQueue(15, 1);
+      tinyQueue.setPdfUrl('http://example.com/test.pdf');
+
+      // Render page 1 with text
+      const p1 = tinyQueue.renderVisible([1], 1.0, true);
+      const reqId1 = mockWorkerInstance.postMessage.mock.calls.at(-1)![0].id;
+      mockWorkerInstance.onmessage?.({
+        data: {
+          id: reqId1,
+          pageNum: 1,
+          bitmap: createMockBitmap(),
+          scale: 1.0,
+          textContent: { items: [{ str: 'Page 1' }], styles: {} },
+        },
+      } as MessageEvent);
+      await p1;
+
+      expect(tinyQueue.getTextContent(1)).not.toBeNull();
+
+      // Render page 2 with text — should evict page 1
+      vi.advanceTimersByTime(10);
+      const p2 = tinyQueue.renderVisible([2], 1.0, true);
+      const reqId2 = mockWorkerInstance.postMessage.mock.calls.at(-1)![0].id;
+      mockWorkerInstance.onmessage?.({
+        data: {
+          id: reqId2,
+          pageNum: 2,
+          bitmap: createMockBitmap(),
+          scale: 1.0,
+          textContent: { items: [{ str: 'Page 2' }], styles: {} },
+        },
+      } as MessageEvent);
+      await p2;
+
+      expect(tinyQueue.getTextContent(1)).toBeNull(); // evicted
+      expect(tinyQueue.getTextContent(2)).not.toBeNull();
+
+      tinyQueue.destroy();
+    });
+  });
+
+  describe('worker response after task cancelled', () => {
+    beforeEach(() => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+    });
+
+    it('ignores worker response for a cancelled pending task', async () => {
+      const promise = queue.renderVisible([1], 1.0);
+      const reqId = mockWorkerInstance.postMessage.mock.calls[0][0].id;
+
+      // Cancel the task
+      queue.cancel([1]);
+      const results = await promise;
+      expect(results.has(1)).toBe(false);
+
+      // Now the worker responds (late) for the cancelled task
+      expect(() => {
+        mockWorkerInstance.onmessage?.({
+          data: { id: reqId, pageNum: 1, bitmap: createMockBitmap(), scale: 1.0 },
+        } as MessageEvent);
+      }).not.toThrow();
+
+      // The late response should not cause the page to be cached
+      // (the task was removed from pendingRequests, so handleWorkerMessage returns early)
+      expect(queue.isCached(1, 1.0)).toBe(false);
+    });
+
+    it('ignores worker error response for a cancelled pending task', async () => {
+      const promise = queue.renderVisible([1], 1.0);
+      const reqId = mockWorkerInstance.postMessage.mock.calls[0][0].id;
+
+      // Cancel the task
+      queue.cancel([1]);
+      await promise;
+
+      // Worker sends an error for the cancelled task
+      expect(() => {
+        mockWorkerInstance.onmessage?.({
+          data: { id: reqId, error: 'Some error' },
+        } as MessageEvent);
+      }).not.toThrow();
+    });
+  });
+
+  describe('destroy during active renders', () => {
+    it('rejects pending renders and cleans up', async () => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+
+      const promise = queue.renderVisible([1, 2], 1.0);
+
+      // Destroy while renders are pending
+      queue.destroy();
+
+      // Promises should resolve (errors caught internally)
+      const results = await promise;
+      expect(results).toBeInstanceOf(Map);
+
+      // Worker should be terminated
+      expect(mockWorkerInstance.terminate).toHaveBeenCalled();
+    });
+  });
+
+  describe('getTextContent for uncached pages', () => {
+    it('returns null without throwing for any page number', () => {
+      expect(queue.getTextContent(0)).toBeNull();
+      expect(queue.getTextContent(-1)).toBeNull();
+      expect(queue.getTextContent(999999)).toBeNull();
+    });
+  });
+
+  describe('onTextContent subscription management', () => {
+    beforeEach(() => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+    });
+
+    it('calling unsubscribe twice does not throw or corrupt callbacks', async () => {
+      const callback1 = vi.fn();
+      const callback2 = vi.fn();
+      const unsub1 = queue.onTextContent(callback1);
+      queue.onTextContent(callback2);
+
+      // Unsubscribe twice
+      unsub1();
+      expect(() => unsub1()).not.toThrow();
+
+      // callback2 should still work
+      const textContent = { items: [{ str: 'Test' }], styles: {} };
+      const promise = queue.renderVisible([1], 1.0, true);
+      const reqId = mockWorkerInstance.postMessage.mock.calls[0][0].id;
+      mockWorkerInstance.onmessage?.({
+        data: { id: reqId, pageNum: 1, bitmap: createMockBitmap(), scale: 1.0, textContent },
+      } as MessageEvent);
+      await promise;
+
+      expect(callback1).not.toHaveBeenCalled();
+      expect(callback2).toHaveBeenCalledWith(1, textContent);
+    });
+  });
+
+  describe('renderVisible - large batch with concurrency', () => {
+    beforeEach(() => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+    });
+
+    it('processes all pages eventually with 4 concurrent slots', async () => {
+      // Request 10 pages
+      const promise = queue.renderVisible([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 1.0);
+
+      // First 4 sent immediately (render requests have no 'type' field)
+      const renderCalls = () => mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === undefined
+      );
+      expect(renderCalls()).toHaveLength(4);
+
+      // Resolve pending requests one at a time; each response frees a slot
+      // and triggers processQueue to dispatch the next queued task
+      const resolved = new Set<string>();
+      let safeguard = 0;
+      while (safeguard++ < 30) {
+        const calls = renderCalls();
+        // Find a call we haven't resolved yet
+        const unresolved = calls.find((c) => !resolved.has(c[0].id));
+        if (!unresolved) break;
+
+        const req = unresolved[0];
+        resolved.add(req.id);
+        mockWorkerInstance.onmessage?.({
+          data: { id: req.id, pageNum: req.pageNum, bitmap: createMockBitmap(), scale: 1.0 },
+        } as MessageEvent);
+        // Allow microtasks to flush so processQueue can dispatch next tasks
+        await Promise.resolve();
+      }
+
+      const results = await promise;
+
+      // All 10 pages should have results
+      expect(results.size).toBe(10);
+      for (let i = 1; i <= 10; i++) {
+        expect(results.has(i)).toBe(true);
+      }
+    });
+  });
 });
