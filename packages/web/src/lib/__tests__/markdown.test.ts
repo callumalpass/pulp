@@ -170,6 +170,43 @@ describe('processInlineMarkdown', () => {
     });
   });
 
+  describe('image and link coexistence', () => {
+    it('processes image without also matching as link', () => {
+      // Regression: ![alt](url) contains [alt](url), which would match the link regex
+      // if images are not processed first
+      const result = processInlineMarkdown('![photo](https://example.com/img.png)');
+      expect(result).toBe('<img src="https://example.com/img.png" alt="photo" />');
+      expect(result).not.toContain('<a ');
+    });
+
+    it('handles image followed by link on same line', () => {
+      const result = processInlineMarkdown('![photo](https://example.com/img.png) and [click](https://example.com)');
+      expect(result).toContain('<img src="https://example.com/img.png" alt="photo" />');
+      expect(result).toContain('<a href="https://example.com"');
+      expect(result).toContain('>click</a>');
+    });
+
+    it('handles link followed by image on same line', () => {
+      const result = processInlineMarkdown('[click](https://example.com) then ![photo](https://example.com/img.png)');
+      expect(result).toContain('<a href="https://example.com"');
+      expect(result).toContain('<img src="https://example.com/img.png" alt="photo" />');
+    });
+
+    it('handles multiple images on same line', () => {
+      const result = processInlineMarkdown('![a](https://a.png) ![b](https://b.png)');
+      expect(result).toContain('<img src="https://a.png" alt="a" />');
+      expect(result).toContain('<img src="https://b.png" alt="b" />');
+      expect(result).not.toContain('<a ');
+    });
+
+    it('handles image with link-like alt text', () => {
+      const result = processInlineMarkdown('![see [here]](https://example.com/img.png)');
+      // The regex may not capture bracket-containing alt text perfectly,
+      // but it should not produce a bare <a> tag from the image
+      expect(result).not.toContain('href="https://example.com/img.png"');
+    });
+  });
+
   it('returns plain text unchanged', () => {
     expect(processInlineMarkdown('just plain text')).toBe('just plain text');
   });
@@ -395,6 +432,67 @@ describe('markdownToHtml', () => {
     });
   });
 
+  describe('images in full document context', () => {
+    it('renders image in paragraph', () => {
+      const result = markdownToHtml('Here is an image: ![photo](https://example.com/img.png)');
+      expect(result).toContain('<img src="https://example.com/img.png" alt="photo" />');
+      expect(result).not.toContain('href="https://example.com/img.png"');
+    });
+
+    it('renders image alongside link in same paragraph', () => {
+      const result = markdownToHtml('![logo](https://logo.png) Visit [site](https://example.com)');
+      expect(result).toContain('<img src="https://logo.png" alt="logo" />');
+      expect(result).toContain('<a href="https://example.com"');
+    });
+
+    it('renders image inside list item', () => {
+      const result = markdownToHtml('- ![icon](https://icon.png) item text');
+      expect(result).toContain('<li><img src="https://icon.png" alt="icon" /> item text</li>');
+    });
+
+    it('renders image inside heading', () => {
+      const result = markdownToHtml('## ![badge](https://badge.png) Status');
+      expect(result).toContain('<h2><img src="https://badge.png" alt="badge" /> Status</h2>');
+    });
+
+    it('blocks data: URLs in images within full document', () => {
+      const result = markdownToHtml('![xss](data:text/html,<script>alert(1)</script>)');
+      expect(result).toContain('src="#blocked"');
+      expect(result).not.toContain('data:');
+    });
+  });
+
+  describe('XSS prevention - additional cases', () => {
+    it('blocks vbscript: URLs in links', () => {
+      const result = markdownToHtml('[click](vbscript:exec)');
+      expect(result).toContain('href="#blocked"');
+      expect(result).not.toContain('vbscript:');
+    });
+
+    it('blocks data: URLs in images', () => {
+      const result = markdownToHtml('![img](data:image/svg+xml,<svg onload=alert(1)>)');
+      expect(result).toContain('src="#blocked"');
+    });
+
+    it('escapes HTML in heading content', () => {
+      const result = markdownToHtml('# <img src=x onerror=alert(1)>');
+      expect(result).not.toContain('<img src=x');
+      expect(result).toContain('&lt;img');
+    });
+
+    it('escapes HTML in list item content', () => {
+      const result = markdownToHtml('- <script>alert(1)</script>');
+      expect(result).not.toContain('<script>');
+      expect(result).toContain('&lt;script&gt;');
+    });
+
+    it('escapes HTML in blockquote content', () => {
+      const result = markdownToHtml('> <img src=x onerror=alert(1)>');
+      expect(result).not.toContain('<img src=x');
+      expect(result).toContain('&lt;img');
+    });
+  });
+
   describe('edge cases', () => {
     it('handles empty string', () => {
       const result = markdownToHtml('');
@@ -419,6 +517,47 @@ describe('markdownToHtml', () => {
       expect(result).toContain('Some text');
       expect(result).toContain('<li>item one</li>');
       expect(result).toContain('<blockquote>A quote</blockquote>');
+    });
+
+    it('handles heading followed immediately by list', () => {
+      const result = markdownToHtml('# Title\n- item');
+      expect(result).toContain('<h1>Title</h1>');
+      expect(result).toContain('<li>item</li>');
+    });
+
+    it('handles list followed by paragraph text', () => {
+      const result = markdownToHtml('- item\nSome text after');
+      expect(result).toContain('<li>item</li>');
+      expect(result).toContain('</ul>');
+      expect(result).toContain('Some text after');
+    });
+
+    it('handles single list item', () => {
+      const result = markdownToHtml('- only item');
+      expect(result).toContain('<ul>');
+      expect(result).toContain('<li>only item</li>');
+      expect(result).toContain('</ul>');
+    });
+
+    it('handles single ordered list item', () => {
+      const result = markdownToHtml('1. first');
+      expect(result).toContain('<ol>');
+      expect(result).toContain('<li>first</li>');
+      expect(result).toContain('</ol>');
+    });
+
+    it('wraps fenced code blocks in pre/code tags', () => {
+      const result = markdownToHtml('```\nconst x = 1;\nconst y = 2;\n```');
+      expect(result).toContain('<pre><code');
+      expect(result).toContain('</code></pre>');
+      expect(result).toContain('const x = 1;');
+    });
+
+    it('handles text with only inline formatting', () => {
+      const result = markdownToHtml('**bold** and *italic* and `code`');
+      expect(result).toContain('<strong>bold</strong>');
+      expect(result).toContain('<em>italic</em>');
+      expect(result).toContain('<code>code</code>');
     });
   });
 });
