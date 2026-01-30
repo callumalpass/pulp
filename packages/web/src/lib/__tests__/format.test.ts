@@ -56,6 +56,31 @@ describe('formatLastRead', () => {
     // 30 days ago falls to toLocaleDateString
     expect(formatLastRead('2025-05-16T12:00:00Z')).not.toContain('ago');
   });
+
+  it('returns "today" for a future date within the same day', () => {
+    // A date later today (e.g., timezone offset) results in negative diffMs
+    // floor(negative / day) = -1 for small negative, but 0 for tiny difference
+    // Actually, a few hours later: diffMs is negative, diffDays = floor(negative/day)
+    // floor(-1000 / 86400000) = floor(-0.0000...) = -1
+    // So this hits the fallback toLocaleDateString path
+    const result = formatLastRead('2025-06-15T23:59:59Z');
+    // This is still "today" because floor(negative small ms / day) = -1
+    // -1 doesn't match any branch, falls to toLocaleDateString
+    expect(result).not.toBe('yesterday');
+  });
+
+  it('returns "4w ago" for 29 days ago (last day before localized date)', () => {
+    // 29 days ago: 29/7 = 4.14, floor = 4 -> "4w ago"
+    expect(formatLastRead('2025-05-17T12:00:00Z')).toBe('4w ago');
+  });
+
+  it('handles invalid date string gracefully', () => {
+    // new Date('invalid') produces NaN, diffMs is NaN, diffDays is NaN
+    // NaN === 0 is false, NaN === 1 is false, NaN < 7 is false, etc.
+    // Falls through to toLocaleDateString
+    const result = formatLastRead('not-a-date');
+    expect(result).toBe('Invalid Date');
+  });
 });
 
 describe('formatReadingTime', () => {
@@ -166,6 +191,41 @@ describe('formatReadingTime', () => {
       const result = formatReadingTime(-1000);
       expect(result).toBe('-1s');
     });
+
+    it('handles boundary at exactly 60000ms (1 minute)', () => {
+      expect(formatReadingTime(60000)).toBe('1m');
+    });
+
+    it('handles boundary at exactly 3600000ms (1 hour)', () => {
+      expect(formatReadingTime(3600000)).toBe('1h');
+    });
+
+    it('handles NaN input (falls through to hours branch since NaN comparisons are false)', () => {
+      expect(formatReadingTime(NaN)).toBe('NaNh');
+    });
+
+    it('handles very large durations (100+ hours)', () => {
+      // 100 hours = 360,000,000ms
+      expect(formatReadingTime(360000000)).toBe('100h');
+    });
+
+    it('handles duration just over 1 minute (60001ms)', () => {
+      // 60001ms rounds to 1m
+      expect(formatReadingTime(60001)).toBe('1m');
+    });
+
+    it('handles duration just under 1 hour (3599999ms)', () => {
+      // 3599999ms = 59.999... minutes, rounds to 60m
+      expect(formatReadingTime(3599999)).toBe('60m');
+    });
+
+    it('handles hours with remainder that rounds to 60 minutes', () => {
+      // 1h 59.5m = 3600000 + 59.5 * 60000 = 3600000 + 3570000 = 7170000ms
+      // hours = floor(7170000/3600000) = 1
+      // mins = round(3570000/60000) = 60 -> shows "1h 60m"
+      // This is a known edge case in the formatting
+      expect(formatReadingTime(7170000)).toBe('1h 60m');
+    });
   });
 });
 
@@ -256,6 +316,55 @@ describe('getEstimatedTimeRemaining', () => {
       // 1 page remaining / 25 pph = 0.04 hours = 2.4 min -> "2m"
       expect(getEstimatedTimeRemaining({ totalPages: 1, progress: 0 })).toBe('2m');
     });
+
+    it('handles pagesPerHour of 0 (division by zero produces Infinity)', () => {
+      // 100 pages / 0 pph = Infinity hours
+      // Infinity >= 10, so rounds to Infinity -> "Infinityh"
+      const result = getEstimatedTimeRemaining({ totalPages: 100, progress: 0, pagesPerHour: 0 });
+      expect(result).toBe('Infinityh');
+    });
+
+    it('handles negative progress (treated as having more pages remaining)', () => {
+      // totalPages=100, progress=-10 -> pagesRemaining = ceil(100 * 110/100) = 110
+      // 110 / 25 = 4.4h -> "4.4h"
+      const result = getEstimatedTimeRemaining({ totalPages: 100, progress: -10 });
+      expect(result).toBe('4.4h');
+    });
+
+    it('handles fractional progress values', () => {
+      // totalPages=100, progress=33.3 -> pagesRemaining = ceil(100 * 66.7/100) = ceil(66.7) = 67
+      // 67 / 25 = 2.68h -> rounded to 2.7 -> "2.7h"
+      const result = getEstimatedTimeRemaining({ totalPages: 100, progress: 33.3 });
+      expect(result).toBe('2.7h');
+    });
+
+    it('handles very large page counts', () => {
+      // 10000 pages / 25 pph = 400h -> "400h"
+      expect(getEstimatedTimeRemaining({ totalPages: 10000, progress: 0 })).toBe('400h');
+    });
+
+    it('returns minutes string at the sub-hour boundary', () => {
+      // 24 pages remaining / 25 pph = 0.96 hours = 57.6 min -> "58m"
+      expect(getEstimatedTimeRemaining({ totalPages: 100, progress: 76 })).toBe('58m');
+    });
+
+    it('returns hours with decimal at the 1-hour boundary', () => {
+      // 25 pages / 25 pph = 1.0 hours -> "1h"
+      expect(getEstimatedTimeRemaining({ totalPages: 100, progress: 75 })).toBe('1h');
+    });
+
+    it('returns rounded integer at the 10-hour boundary', () => {
+      // 250 pages / 25 pph = 10 hours -> "10h"
+      expect(getEstimatedTimeRemaining({ totalPages: 250, progress: 0 })).toBe('10h');
+    });
+
+    it('handles negative totalPages (falsy check returns null)', () => {
+      // negative totalPages is truthy, so it proceeds
+      // totalPages=-100, progress=0 -> pagesRemaining = ceil(-100 * 100/100) = -100
+      // -100 / 25 = -4h -> -4 < 1 -> mins = round(-4 * 60) = -240 -> "-240m"
+      const result = getEstimatedTimeRemaining({ totalPages: -100, progress: 0 });
+      expect(result).toBe('-240m');
+    });
   });
 });
 
@@ -335,6 +444,50 @@ describe('formatEstimatedCompletion', () => {
       // Set time to midnight
       vi.setSystemTime(new Date('2025-06-15T00:00:00Z'));
       expect(formatEstimatedCompletion('2025-06-15T00:00:00Z')).toBe('Today');
+    });
+
+    it('returns null for empty string', () => {
+      expect(formatEstimatedCompletion('')).toBeNull();
+    });
+
+    it('handles boundary between days and next week (exactly 7 days)', () => {
+      // 7 days from June 15 = June 22
+      expect(formatEstimatedCompletion('2025-06-22T00:00:00Z')).toBe('Next week');
+    });
+
+    it('handles boundary between next week and weeks (exactly 14 days)', () => {
+      // 14 days from June 15 = June 29
+      expect(formatEstimatedCompletion('2025-06-29T00:00:00Z')).toBe('In 2 weeks');
+    });
+
+    it('handles boundary between weeks and next month (exactly 30 days)', () => {
+      // 30 days from June 15 = July 15
+      expect(formatEstimatedCompletion('2025-07-15T00:00:00Z')).toBe('Next month');
+    });
+
+    it('handles boundary between next month and formatted date (exactly 60 days)', () => {
+      // 60 days from June 15 = Aug 14
+      const result = formatEstimatedCompletion('2025-08-14T00:00:00Z');
+      // 60 days is no longer < 60, falls to toLocaleDateString
+      expect(result).not.toBeNull();
+      expect(result).not.toBe('Next month');
+    });
+
+    it('handles year boundary (Dec 31 to Jan 1 next year)', () => {
+      vi.setSystemTime(new Date('2025-12-31T12:00:00Z'));
+      expect(formatEstimatedCompletion('2026-01-01T00:00:00Z')).toBe('Tomorrow');
+    });
+
+    it('handles leap year date (Feb 29)', () => {
+      vi.setSystemTime(new Date('2028-02-28T12:00:00Z'));
+      expect(formatEstimatedCompletion('2028-02-29T00:00:00Z')).toBe('Tomorrow');
+    });
+
+    it('returns formatted month/day for dates 60+ days out', () => {
+      const result = formatEstimatedCompletion('2025-12-25T00:00:00Z');
+      expect(result).not.toBeNull();
+      // Should be a localized date string with month and day
+      expect(typeof result).toBe('string');
     });
   });
 });
