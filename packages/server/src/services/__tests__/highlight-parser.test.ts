@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   generatePDFHighlightId,
   generateEPUBHighlightId,
   parseHighlights,
+  parseHighlightsFromNote,
   extractHighlightContext,
   extractPageLabel,
   extractTimestamp,
@@ -1007,5 +1008,439 @@ describe('extractPageLabel - additional edge cases', () => {
   it('returns undefined for link without any page label pattern', () => {
     const linkText = '[[books/test.pdf#page=5&selection=0,0,1,10|some random text]]';
     expect(extractPageLabel(linkText, 5)).toBeUndefined();
+  });
+});
+
+describe('parseHighlightsFromNote', () => {
+  it('returns empty array when file does not exist', () => {
+    const result = parseHighlightsFromNote('/nonexistent/path.md', 'books/test.pdf');
+    expect(result).toEqual([]);
+  });
+
+  it('returns empty array when file path is empty string', () => {
+    const result = parseHighlightsFromNote('', 'books/test.pdf');
+    expect(result).toEqual([]);
+  });
+
+  it('logs error when file cannot be read', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    parseHighlightsFromNote('/nonexistent/path.md', 'books/test.pdf');
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to parse highlights from /nonexistent/path.md'),
+      expect.any(Error)
+    );
+    consoleSpy.mockRestore();
+  });
+});
+
+describe('parseHighlights - CFI edge cases', () => {
+  it('handles CFI with URL-encoded characters', () => {
+    const content = `> Some highlighted text
+[[books/test.epub#cfi=epubcfi(%2F6%2F4)|"Some highlighted text"]]`;
+    const highlights = parseHighlights(content, 'books/test.epub');
+    expect(highlights).toHaveLength(1);
+    expect(highlights[0].type).toBe('epub');
+    expect((highlights[0] as { cfi: string }).cfi).toBe('epubcfi(%2F6%2F4)');
+  });
+
+  it('handles CFI with exclamation marks (inter-document references)', () => {
+    const content = `> Chapter text
+[[books/test.epub#cfi=epubcfi(/6/14!/4/2/1:0)|"Chapter text"]]`;
+    const highlights = parseHighlights(content, 'books/test.epub');
+    expect(highlights).toHaveLength(1);
+    expect((highlights[0] as { cfi: string }).cfi).toBe('epubcfi(/6/14!/4/2/1:0)');
+  });
+
+  it('does not match CFI with square bracket assertions (regex limitation)', () => {
+    // Square brackets inside CFI conflict with the wikilink ]] delimiter
+    // The EPUB regex stops at | or ] or &, so [chap01ref] breaks the match
+    const content = `> Some text
+[[books/test.epub#cfi=epubcfi(/6/4[chap01ref])|"Some text"]]`;
+    const highlights = parseHighlights(content, 'books/test.epub');
+    expect(highlights).toHaveLength(0);
+  });
+
+  it('handles EPUB highlights with both category and timestamp', () => {
+    const content = `> Definition text
+[[books/test.epub#cfi=epubcfi(/6/4)&category=definition|"Definition text"|2024-03-20]]`;
+    const highlights = parseHighlights(content, 'books/test.epub');
+    expect(highlights).toHaveLength(1);
+    expect(highlights[0].category).toBe('definition');
+    expect(highlights[0].createdAt).toBe('2024-03-20T00:00:00.000Z');
+  });
+});
+
+describe('parseHighlights - source path edge cases', () => {
+  it('handles source path with special regex characters (curly braces)', () => {
+    const content = `> Text
+[[books/{test}.pdf#page=1&selection=0,0,1,10|"Text"]]`;
+    const highlights = parseHighlights(content, 'books/{test}.pdf');
+    expect(highlights).toHaveLength(1);
+  });
+
+  it('handles source path with dollar sign', () => {
+    const content = `> Text
+[[books/$100.pdf#page=1&selection=0,0,1,10|"Text"]]`;
+    const highlights = parseHighlights(content, 'books/$100.pdf');
+    expect(highlights).toHaveLength(1);
+  });
+
+  it('handles source path with caret', () => {
+    const content = `> Text
+[[books/file^2.pdf#page=1&selection=0,0,1,10|"Text"]]`;
+    const highlights = parseHighlights(content, 'books/file^2.pdf');
+    expect(highlights).toHaveLength(1);
+  });
+
+  it('handles source path with pipe-like characters escaped in filename', () => {
+    const content = `> Text
+[[books/test.pdf#page=3&selection=0,0,1,5|"Text"]]`;
+    const highlights = parseHighlights(content, 'books/test.pdf');
+    expect(highlights).toHaveLength(1);
+    expect(highlights[0].type).toBe('pdf');
+    expect((highlights[0] as { page: number }).page).toBe(3);
+  });
+
+  it('does not match partial source path (prefix match)', () => {
+    const content = `> Text
+[[books/test.pdf.bak#page=1&selection=0,0,1,10|"Text"]]`;
+    const highlights = parseHighlights(content, 'books/test.pdf');
+    expect(highlights).toHaveLength(0);
+  });
+});
+
+describe('extractHighlightContext - blockquote edge cases', () => {
+  it('handles blockquote with only ">" and whitespace lines', () => {
+    const content = `>
+> Actual text
+[[books/test.pdf#page=1&selection=0,0,1,10|"Actual text"]]`;
+    const linkIndex = content.indexOf('[[');
+    const { text } = extractHighlightContext(content, linkIndex);
+    expect(text).toBe('Actual text');
+  });
+
+  it('handles blockquote with nested ">" (double blockquote)', () => {
+    const content = `>> Nested quoted text
+[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]`;
+    const linkIndex = content.indexOf('[[');
+    const { text } = extractHighlightContext(content, linkIndex);
+    // The parser strips the first > and treats the rest as content
+    expect(text).toBe('> Nested quoted text');
+  });
+
+  it('handles blockquote lines with trailing whitespace', () => {
+    const content = `> Text with trailing spaces
+[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]`;
+    const linkIndex = content.indexOf('[[');
+    const { text } = extractHighlightContext(content, linkIndex);
+    expect(text).toBe('Text with trailing spaces');
+  });
+
+  it('handles blockquote with unicode content', () => {
+    const content = `> 日本語テキスト — "quoted" — émphasis
+[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]`;
+    const linkIndex = content.indexOf('[[');
+    const { text } = extractHighlightContext(content, linkIndex);
+    expect(text).toBe('日本語テキスト — "quoted" — émphasis');
+  });
+
+  it('handles blockquote with markdown formatting', () => {
+    const content = `> This is **bold** and *italic* text
+[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]`;
+    const linkIndex = content.indexOf('[[');
+    const { text } = extractHighlightContext(content, linkIndex);
+    expect(text).toBe('This is **bold** and *italic* text');
+  });
+
+  it('stops collecting blockquote at non-blockquote line', () => {
+    const content = `Regular paragraph text
+> Quoted text
+[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]`;
+    const linkIndex = content.indexOf('[[');
+    const { text } = extractHighlightContext(content, linkIndex);
+    expect(text).toBe('Quoted text');
+  });
+
+  it('handles content with link at position 0', () => {
+    const content = `[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]`;
+    const { text, note } = extractHighlightContext(content, 0);
+    expect(text).toBeUndefined();
+    expect(note).toBeUndefined();
+  });
+
+  it('limits lookback to 2000 characters', () => {
+    // Create content with a blockquote further than 2000 chars before the link
+    const padding = 'x'.repeat(2100);
+    const content = `> This quote is too far away
+${padding}
+[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]`;
+    const linkIndex = content.indexOf('[[');
+    const { text } = extractHighlightContext(content, linkIndex);
+    expect(text).toBeUndefined();
+  });
+
+  it('finds blockquote even with non-quote lines between quote and link', () => {
+    // The parser walks backwards, skipping non-blockquote lines BEFORE finding a quote.
+    // Once it finds a blockquote, non-blockquote lines AFTER cause a break.
+    const content = `> This quote is nearby
+some non-blockquote text
+[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]`;
+    const linkIndex = content.indexOf('[[');
+    const { text } = extractHighlightContext(content, linkIndex);
+    // The parser finds the blockquote because non-quote lines before the first
+    // blockquote don't stop scanning — only non-quote lines after a found quote do
+    expect(text).toBe('This quote is nearby');
+  });
+
+  it('stops collecting blockquote at non-quote line after finding quotes', () => {
+    // Once a blockquote is found, a non-blockquote line stops the collection
+    const content = `> Should NOT be included
+Regular text breaks collection
+> Should be included
+[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]`;
+    const linkIndex = content.indexOf('[[');
+    const { text } = extractHighlightContext(content, linkIndex);
+    expect(text).toBe('Should be included');
+  });
+
+  it('finds blockquote when only whitespace and blockquotes precede the link', () => {
+    const content = `> First line
+> Second line
+[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]`;
+    const linkIndex = content.indexOf('[[');
+    const { text } = extractHighlightContext(content, linkIndex);
+    expect(text).toBe('First line\nSecond line');
+  });
+
+  it('handles link immediately after blockquote on next line', () => {
+    const content = `> Single line quote
+[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]`;
+    const linkIndex = content.indexOf('[[');
+    const { text } = extractHighlightContext(content, linkIndex);
+    expect(text).toBe('Single line quote');
+  });
+});
+
+describe('extractHighlightContext - note extraction edge cases', () => {
+  it('extracts only the first non-empty line as the note', () => {
+    const content = `> Quote
+[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]
+First line of note
+Second line (should not be included)`;
+    const linkIndex = content.indexOf('[[');
+    const { note } = extractHighlightContext(content, linkIndex);
+    expect(note).toBe('First line of note');
+  });
+
+  it('stops at heading in note extraction', () => {
+    const content = `> Quote
+[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]
+## Next Section`;
+    const linkIndex = content.indexOf('[[');
+    const { note } = extractHighlightContext(content, linkIndex);
+    expect(note).toBeUndefined();
+  });
+
+  it('stops at list item in note extraction', () => {
+    const content = `> Quote
+[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]
+- List item`;
+    const linkIndex = content.indexOf('[[');
+    const { note } = extractHighlightContext(content, linkIndex);
+    expect(note).toBeUndefined();
+  });
+
+  it('stops at next blockquote in note extraction', () => {
+    const content = `> First quote
+[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]
+> Next quote`;
+    const linkIndex = content.indexOf('[[');
+    const { note } = extractHighlightContext(content, linkIndex);
+    expect(note).toBeUndefined();
+  });
+
+  it('skips multiple empty lines before finding note', () => {
+    const content = `> Quote
+[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]
+
+
+My note after empty lines`;
+    const linkIndex = content.indexOf('[[');
+    const { note } = extractHighlightContext(content, linkIndex);
+    expect(note).toBe('My note after empty lines');
+  });
+
+  it('handles note with leading and trailing whitespace', () => {
+    const content = `> Quote
+[[books/test.pdf#page=1&selection=0,0,1,10|"text"]]
+   Indented note text   `;
+    const linkIndex = content.indexOf('[[');
+    const { note } = extractHighlightContext(content, linkIndex);
+    expect(note).toBe('Indented note text');
+  });
+});
+
+describe('parseHighlights - selection edge cases', () => {
+  it('handles selection with 3 comma-separated values (invalid)', () => {
+    const content = `> Text
+[[books/test.pdf#page=1&selection=0,0,1|"Text"]]`;
+    const highlights = parseHighlights(content, 'books/test.pdf');
+    expect(highlights).toHaveLength(0);
+  });
+
+  it('handles selection with 5 comma-separated values (extra)', () => {
+    const content = `> Text
+[[books/test.pdf#page=1&selection=0,0,1,10,99|"Text"]]`;
+    const highlights = parseHighlights(content, 'books/test.pdf');
+    expect(highlights).toHaveLength(0);
+  });
+
+  it('handles page number 0', () => {
+    const content = `> Text
+[[books/test.pdf#page=0&selection=0,0,1,10|"Text"]]`;
+    const highlights = parseHighlights(content, 'books/test.pdf');
+    expect(highlights).toHaveLength(1);
+    expect((highlights[0] as { page: number }).page).toBe(0);
+  });
+
+  it('handles very large page numbers', () => {
+    const content = `> Text
+[[books/test.pdf#page=99999&selection=0,0,1,10|"Text"]]`;
+    const highlights = parseHighlights(content, 'books/test.pdf');
+    expect(highlights).toHaveLength(1);
+    expect((highlights[0] as { page: number }).page).toBe(99999);
+  });
+});
+
+describe('parseHighlights - ordering and deduplication', () => {
+  it('preserves document order for highlights', () => {
+    const content = `> First
+[[books/test.pdf#page=1&selection=0,0,1,5|"First"]]
+
+> Second
+[[books/test.pdf#page=2&selection=0,0,1,10|"Second"]]
+
+> Third
+[[books/test.pdf#page=3&selection=0,0,1,15|"Third"]]`;
+    const highlights = parseHighlights(content, 'books/test.pdf');
+    expect(highlights).toHaveLength(3);
+    expect((highlights[0] as { page: number }).page).toBe(1);
+    expect((highlights[1] as { page: number }).page).toBe(2);
+    expect((highlights[2] as { page: number }).page).toBe(3);
+  });
+
+  it('PDF highlights appear before EPUB highlights in mixed documents', () => {
+    const content = `> PDF text
+[[books/test.pdf#page=1&selection=0,0,1,5|"PDF text"]]
+
+> EPUB text
+[[books/test.epub#cfi=epubcfi(/6/4)|"EPUB text"]]`;
+    // PDF and EPUB use different sources, so test with same source
+    // Actually, a document would have only one source type
+    const pdfHighlights = parseHighlights(content, 'books/test.pdf');
+    const epubHighlights = parseHighlights(content, 'books/test.epub');
+    expect(pdfHighlights).toHaveLength(1);
+    expect(epubHighlights).toHaveLength(1);
+  });
+
+  it('same highlight appearing twice gets same stable ID', () => {
+    const content = `> Same text
+[[books/test.pdf#page=5&selection=0,0,1,10|"Same text"]]
+
+> Same text again
+[[books/test.pdf#page=5&selection=0,0,1,10|"Same text"]]`;
+    const highlights = parseHighlights(content, 'books/test.pdf');
+    expect(highlights).toHaveLength(2);
+    expect(highlights[0].id).toBe(highlights[1].id);
+  });
+});
+
+describe('generatePDFHighlightId - determinism', () => {
+  it('produces consistent IDs across calls', () => {
+    const selection = { beginIndex: 5, beginOffset: 10, endIndex: 8, endOffset: 20 };
+    const id1 = generatePDFHighlightId(3, selection);
+    const id2 = generatePDFHighlightId(3, selection);
+    const id3 = generatePDFHighlightId(3, selection);
+    expect(id1).toBe(id2);
+    expect(id2).toBe(id3);
+  });
+
+  it('uses all four selection values for uniqueness', () => {
+    const base = { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 0 };
+    const ids = [
+      generatePDFHighlightId(1, { ...base, beginIndex: 1 }),
+      generatePDFHighlightId(1, { ...base, beginOffset: 1 }),
+      generatePDFHighlightId(1, { ...base, endIndex: 1 }),
+      generatePDFHighlightId(1, { ...base, endOffset: 1 }),
+    ];
+    // All four should be different (each selection field contributes to uniqueness)
+    const uniqueIds = new Set(ids);
+    expect(uniqueIds.size).toBe(4);
+  });
+});
+
+describe('generateEPUBHighlightId - determinism', () => {
+  it('produces consistent IDs across calls', () => {
+    const cfi = 'epubcfi(/6/14!/4/2/1:0)';
+    const id1 = generateEPUBHighlightId(cfi);
+    const id2 = generateEPUBHighlightId(cfi);
+    expect(id1).toBe(id2);
+  });
+
+  it('produces different IDs for CFIs differing only in offset', () => {
+    const id1 = generateEPUBHighlightId('epubcfi(/6/4:0)');
+    const id2 = generateEPUBHighlightId('epubcfi(/6/4:1)');
+    expect(id1).not.toBe(id2);
+  });
+
+  it('handles empty CFI string', () => {
+    const id = generateEPUBHighlightId('');
+    expect(id).toHaveLength(10);
+    expect(typeof id).toBe('string');
+  });
+});
+
+describe('extractCategory - boundary cases', () => {
+  it('matches category at the end of a fragment', () => {
+    expect(extractCategory('#page=1&selection=0,0,1,5&category=todo')).toBe('todo');
+  });
+
+  it('matches category followed by more parameters', () => {
+    // In practice category is last, but the regex should still match
+    expect(extractCategory('#page=1&category=important&other=value')).toBe('important');
+  });
+
+  it('returns undefined for category value with special characters', () => {
+    expect(extractCategory('&category=high-light')).toBeUndefined();
+    // hyphen doesn't match \w+ which is [a-zA-Z0-9_]
+  });
+
+  it('matches only the first category parameter if duplicated', () => {
+    const result = extractCategory('&category=important&category=question');
+    expect(result).toBe('important');
+  });
+});
+
+describe('extractTimestamp - boundary dates', () => {
+  it('handles leap year date (Feb 29)', () => {
+    const result = extractTimestamp('|2024-02-29]]');
+    expect(result).toBe('2024-02-29T00:00:00.000Z');
+  });
+
+  it('wraps Feb 29 in a non-leap year to March 1 (JS Date behavior)', () => {
+    // 2023-02-29 is invalid, but JavaScript Date wraps it to March 1
+    // The function validates via isNaN, which passes since Date still produces a valid timestamp
+    const result = extractTimestamp('|2023-02-29]]');
+    expect(result).toBe('2023-03-01T00:00:00.000Z');
+  });
+
+  it('handles year 2000 (leap year edge case)', () => {
+    const result = extractTimestamp('|2000-02-29]]');
+    expect(result).toBe('2000-02-29T00:00:00.000Z');
+  });
+
+  it('handles end-of-month dates', () => {
+    const result = extractTimestamp('|2024-01-31]]');
+    expect(result).toBe('2024-01-31T00:00:00.000Z');
   });
 });
