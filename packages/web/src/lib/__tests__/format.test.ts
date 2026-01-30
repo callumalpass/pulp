@@ -81,6 +81,38 @@ describe('formatLastRead', () => {
     const result = formatLastRead('not-a-date');
     expect(result).toBe('Invalid Date');
   });
+
+  it('handles empty string', () => {
+    const result = formatLastRead('');
+    expect(result).toBe('Invalid Date');
+  });
+
+  it('handles date exactly at the week boundary (6 days)', () => {
+    // 6 days ago should still show days, not weeks
+    expect(formatLastRead('2025-06-09T12:00:00Z')).toBe('6d ago');
+  });
+
+  it('handles date exactly at week boundary transition (7 days)', () => {
+    // 7 days ago switches to weeks
+    expect(formatLastRead('2025-06-08T12:00:00Z')).toBe('1w ago');
+  });
+
+  it('handles date at 3 weeks exactly (21 days)', () => {
+    // floor(21/7) = 3
+    expect(formatLastRead('2025-05-25T12:00:00Z')).toBe('3w ago');
+  });
+
+  it('handles a date just barely yesterday (23h59m ago)', () => {
+    // 2025-06-14T12:01:00Z is 23h59m ago from 2025-06-15T12:00:00Z
+    // diffMs ~ 86340000, diffDays = floor(86340000/86400000) = 0 -> "today"
+    expect(formatLastRead('2025-06-14T12:01:00Z')).toBe('today');
+  });
+
+  it('handles dates far in the past (years ago)', () => {
+    const result = formatLastRead('2020-01-01T00:00:00Z');
+    expect(result).not.toContain('ago');
+    expect(result).not.toBe('today');
+  });
 });
 
 describe('formatReadingTime', () => {
@@ -219,12 +251,23 @@ describe('formatReadingTime', () => {
       expect(formatReadingTime(3599999)).toBe('60m');
     });
 
-    it('handles hours with remainder that rounds to 60 minutes', () => {
+    it('rounds up to the next hour when remainder rounds to 60 minutes', () => {
       // 1h 59.5m = 3600000 + 59.5 * 60000 = 3600000 + 3570000 = 7170000ms
       // hours = floor(7170000/3600000) = 1
-      // mins = round(3570000/60000) = 60 -> shows "1h 60m"
-      // This is a known edge case in the formatting
-      expect(formatReadingTime(7170000)).toBe('1h 60m');
+      // mins = round(3570000/60000) = 60 -> should carry over to "2h"
+      expect(formatReadingTime(7170000)).toBe('2h');
+    });
+
+    it('carries over 60-minute rounding at multi-hour boundaries', () => {
+      // 2h 59.5m = 7200000 + 3570000 = 10770000ms
+      // hours = floor(10770000/3600000) = 2
+      // mins = round(3570000/60000) = 60 -> should carry over to "3h"
+      expect(formatReadingTime(10770000)).toBe('3h');
+    });
+
+    it('handles Infinity input', () => {
+      // Infinity >= 3600000 -> hours branch
+      expect(formatReadingTime(Infinity)).toBe('Infinityh');
     });
   });
 });
@@ -365,6 +408,48 @@ describe('getEstimatedTimeRemaining', () => {
       const result = getEstimatedTimeRemaining({ totalPages: -100, progress: 0 });
       expect(result).toBe('-240m');
     });
+
+    it('handles pagesPerHour of undefined (uses default)', () => {
+      const result = getEstimatedTimeRemaining({ totalPages: 100, progress: 0, pagesPerHour: undefined });
+      // 100 / 25 = 4h
+      expect(result).toBe('4h');
+    });
+
+    it('handles progress just below 100', () => {
+      // progress=99.9, totalPages=1000 -> pagesRemaining = ceil(1000 * 0.1/100) = ceil(1) = 1
+      const result = getEstimatedTimeRemaining({ totalPages: 1000, progress: 99.9 });
+      // 1 / 25 = 0.04h = 2.4min -> "2m"
+      expect(result).toBe('2m');
+    });
+
+    it('returns minutes at the sub-hour / hour boundary (exactly 1 hour)', () => {
+      // pagesRemaining = ceil(totalPages * (100 - progress) / 100) / pph = 1.0h
+      // 25 pages / 25 pph = 1.0 hours -> >= 1 and < 10 -> round(10)/10 = "1h"
+      expect(getEstimatedTimeRemaining({ totalPages: 25, progress: 0 })).toBe('1h');
+    });
+
+    it('returns "0m" for near-complete book with very high speed', () => {
+      // 1 page remaining / 10000 pph = 0.0001h = 0.006min -> round = 0 -> "0m"
+      const result = getEstimatedTimeRemaining({ totalPages: 100, progress: 99, pagesPerHour: 10000 });
+      expect(result).toBe('0m');
+    });
+
+    it('formats 9.95 hours correctly (boundary of < 10 check)', () => {
+      // We need hoursRemaining just under 10 to hit the decimal formatting
+      // pagesRemaining / pph = 9.95 -> round(99.5)/10 = 100/10 = 10 -> "10h"
+      // So 9.95 rounds to 10.0 and shows "10h"
+      // 9.95 * 25 = 248.75 pages -> ceil = 249
+      const result = getEstimatedTimeRemaining({ totalPages: 249, progress: 0 });
+      // 249/25 = 9.96 -> round(99.6)/10 = 100/10 = "10h"
+      expect(result).toBe('10h');
+    });
+
+    it('formats 9.94 hours with one decimal', () => {
+      // 9.94 * 25 = 248.5 -> ceil = 249 pages -- same as above
+      // Let's try: 248 pages / 25 = 9.92 -> round(99.2)/10 = 99/10 = "9.9h"
+      const result = getEstimatedTimeRemaining({ totalPages: 248, progress: 0 });
+      expect(result).toBe('9.9h');
+    });
   });
 });
 
@@ -488,6 +573,43 @@ describe('formatEstimatedCompletion', () => {
       expect(result).not.toBeNull();
       // Should be a localized date string with month and day
       expect(typeof result).toBe('string');
+    });
+
+    it('returns "In 6 days" at the boundary before next week', () => {
+      // 6 days from June 15 = June 21
+      expect(formatEstimatedCompletion('2025-06-21T00:00:00Z')).toBe('In 6 days');
+    });
+
+    it('returns "Next week" at the boundary before weeks (13 days)', () => {
+      // 13 days from June 15 = June 28
+      expect(formatEstimatedCompletion('2025-06-28T00:00:00Z')).toBe('Next week');
+    });
+
+    it('returns "In 4 weeks" at the boundary before next month (29 days)', () => {
+      // 29 days from June 15 = July 14
+      // round(29/7) = round(4.14) = 4
+      expect(formatEstimatedCompletion('2025-07-14T00:00:00Z')).toBe('In 4 weeks');
+    });
+
+    it('returns "Next month" at 59 days (boundary before formatted date)', () => {
+      // 59 days from June 15 = Aug 13
+      expect(formatEstimatedCompletion('2025-08-13T00:00:00Z')).toBe('Next month');
+    });
+
+    it('handles yesterday at noon (past date)', () => {
+      // Use a clearly-in-the-past date (noon June 14) to avoid timezone boundary issues
+      expect(formatEstimatedCompletion('2025-06-14T12:00:00Z')).toBeNull();
+    });
+
+    it('handles today at noon', () => {
+      expect(formatEstimatedCompletion('2025-06-15T12:00:00Z')).toBe('Today');
+    });
+
+    it('handles different timezone offsets in ISO string', () => {
+      // This is still a valid ISO date that JS can parse
+      const result = formatEstimatedCompletion('2025-06-16T12:00:00+05:00');
+      // Should be "Tomorrow" since the date component is June 16
+      expect(result).toBe('Tomorrow');
     });
   });
 });
