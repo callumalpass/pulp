@@ -1785,6 +1785,376 @@ describe('useReadingStatsStore', () => {
       expect(apiCall[1].sessionDurationMs).toBeLessThan(960000 - 1000); // Less than wall time
     });
   });
+
+  // ── saveSessionWithRetry edge cases (via endSession/syncPendingSessions) ─
+
+  describe('saveSessionWithRetry edge cases', () => {
+    it('uses exponential backoff timing between retries', async () => {
+      mockedApiUpdate.mockRejectedValue(new Error('Server error'));
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 60000;
+      const endPromise = store.endSession();
+
+      // endSession uses 3 retries. Backoff: 2s, 4s
+      // First retry after 2000ms
+      expect(mockedApiUpdate).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(mockedApiUpdate).toHaveBeenCalledTimes(2);
+      // Second retry after 4000ms
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(mockedApiUpdate).toHaveBeenCalledTimes(3);
+
+      await endPromise;
+    });
+
+    it('handles non-Error exceptions from API', async () => {
+      mockedApiUpdate.mockRejectedValue('string error');
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 60000;
+      const endPromise = store.endSession();
+
+      await vi.advanceTimersByTimeAsync(2000);
+      await vi.advanceTimersByTimeAsync(4000);
+      await endPromise;
+
+      // Should still queue as pending with 'Unknown error'
+      const pending = useReadingStatsStore.getState().pendingSessions;
+      expect(pending).toHaveLength(1);
+      expect(useReadingStatsStore.getState().lastSyncError).toBeTruthy();
+    });
+
+    it('does not retry on HTTP 4xx errors (e.g., 404, 422)', async () => {
+      mockedApiUpdate.mockRejectedValue(new Error('HTTP 404 Not Found'));
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 60000;
+      await store.endSession();
+
+      expect(mockedApiUpdate).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries up to MAX_RETRY_ATTEMPTS during syncPendingSessions', async () => {
+      mockedApiUpdate.mockRejectedValue(new Error('Server error'));
+
+      useReadingStatsStore.setState({
+        pendingSessions: [{
+          noteId: 'note-1',
+          sessionDurationMs: 30000,
+          pagesRead: 5,
+          startPage: 1,
+          endPage: 6,
+          startTime: '2025-01-01T00:00:00.000Z',
+          timestamp: '2025-01-01T00:30:00.000Z',
+          retryCount: 0,
+        }],
+      });
+
+      const store = useReadingStatsStore.getState();
+      const syncPromise = store.syncPendingSessions();
+
+      // syncPendingSessions uses MAX_RETRY_ATTEMPTS (5). Backoff: 2s, 4s, 8s, 16s
+      for (let i = 0; i < 5; i++) {
+        await vi.advanceTimersByTimeAsync(2000 * Math.pow(2, i));
+      }
+      await syncPromise;
+
+      expect(mockedApiUpdate).toHaveBeenCalledTimes(5);
+    });
+  });
+
+  // ── updateCurrentPage edge cases ────────────────────────────────────
+
+  describe('updateCurrentPage edge cases', () => {
+    it('handles totalPages of 0 without division error', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 0, 0);
+
+      store.updateCurrentPage(5);
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.currentProgress).toBe(0);
+      expect(session!.currentPage).toBe(5);
+    });
+
+    it('does not auto-resume a manually paused session on page change', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      currentTime = 5000;
+      store.pauseSession(); // Manual pause (isIdlePaused = false)
+
+      currentTime = 10000;
+      store.updateCurrentPage(10);
+
+      const session = useReadingStatsStore.getState().activeSession;
+      // calculateIdleResumeState returns null because isIdlePaused is false
+      expect(session!.isPaused).toBe(true);
+      expect(session!.isIdlePaused).toBe(false);
+      expect(session!.pausedAt).toBe(5000);
+    });
+
+    it('updates progress to 100% on last page', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 50);
+
+      store.updateCurrentPage(50);
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.currentProgress).toBe(100);
+    });
+  });
+
+  // ── endSession pending session metadata ─────────────────────────────
+
+  describe('endSession pending session data structure', () => {
+    it('includes idle metadata in queued pending session on API failure', async () => {
+      mockedApiUpdate.mockRejectedValue(new Error('Network error'));
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 200); // t=1000, progress = 0.5%
+
+      // Simulate idle pause
+      currentTime = 301000;
+      store.checkIdleStatus();
+
+      // Resume via activity
+      currentTime = 350000;
+      store.recordActivity();
+
+      // End session
+      currentTime = 400000;
+      const endPromise = store.endSession();
+
+      await vi.advanceTimersByTimeAsync(2000);
+      await vi.advanceTimersByTimeAsync(4000);
+      await endPromise;
+
+      const pending = useReadingStatsStore.getState().pendingSessions;
+      expect(pending).toHaveLength(1);
+      expect(pending[0].idlePauseCount).toBe(1);
+      expect(pending[0].idlePauseTotalMs).toBe(49000); // 350000 - 301000
+      expect(pending[0].noteId).toBe('note-1');
+      expect(pending[0].retryCount).toBe(0);
+      expect(pending[0].startPage).toBe(1);
+    });
+
+    it('includes current progress in pending session data', async () => {
+      mockedApiUpdate.mockRejectedValue(new Error('Network error'));
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100); // t=1000
+
+      currentTime = 30000;
+      store.updateCurrentPage(50); // 50% progress
+
+      currentTime = 60000;
+      const endPromise = store.endSession();
+
+      await vi.advanceTimersByTimeAsync(2000);
+      await vi.advanceTimersByTimeAsync(4000);
+      await endPromise;
+
+      const pending = useReadingStatsStore.getState().pendingSessions;
+      expect(pending[0].currentProgress).toBe(50);
+    });
+  });
+
+  // ── startSession overlapping session cleanup ─────────────────────────
+
+  describe('startSession overlapping session cleanup', () => {
+    it('ends an idle-paused session when starting a new one', async () => {
+      mockedApiUpdate.mockResolvedValue({
+        success: true,
+        readingStats: makeStats(),
+        lastRead: new Date().toISOString(),
+      });
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100); // t=1000
+
+      // Trigger idle pause
+      currentTime = 301000;
+      store.checkIdleStatus();
+      expect(store.isIdlePaused()).toBe(true);
+
+      // Start new session while old is idle-paused
+      currentTime = 400000;
+      store.startSession('note-2', 1, 200);
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.noteId).toBe('note-2');
+      expect(session!.isPaused).toBe(false);
+      expect(session!.isIdlePaused).toBe(false);
+    });
+
+    it('preserves new session state even when ending previous session fails', async () => {
+      // The endSession for the old session is fire-and-forget from startSession
+      mockedApiUpdate.mockRejectedValue(new Error('Network error'));
+
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100); // t=1000
+
+      currentTime = 60000;
+      store.startSession('note-2', 5, 200);
+
+      const session = useReadingStatsStore.getState().activeSession;
+      expect(session!.noteId).toBe('note-2');
+      expect(session!.startPage).toBe(5);
+      expect(session!.totalPages).toBe(200);
+    });
+  });
+
+  // ── setBookStats edge cases ────────────────────────────────────────
+
+  describe('setBookStats edge cases', () => {
+    it('does not create a cache entry when setting null for uncached note', () => {
+      const store = useReadingStatsStore.getState();
+      store.setBookStats('never-seen', null);
+
+      expect(useReadingStatsStore.getState().bookStatsCache).not.toHaveProperty('never-seen');
+    });
+
+    it('overwrites existing stats with new stats', () => {
+      const store = useReadingStatsStore.getState();
+      const stats1 = makeStats({ totalSessions: 1 });
+      const stats2 = makeStats({ totalSessions: 99 });
+
+      store.setBookStats('note-1', stats1);
+      store.setBookStats('note-1', stats2);
+
+      expect(store.getBookStats('note-1')!.totalSessions).toBe(99);
+    });
+  });
+
+  // ── getEstimatedTimeRemaining additional edge cases ─────────────────
+
+  describe('getEstimatedTimeRemaining additional edge cases', () => {
+    it('treats undefined pagesPerHour same as null (uses fallback)', () => {
+      const store = useReadingStatsStore.getState();
+      const stats = makeStats({
+        totalReadingTimeMs: 600000,
+        totalSessions: 5,
+      });
+      // Explicitly set pagesPerHour to undefined
+      (stats as Record<string, unknown>).pagesPerHour = undefined;
+      store.setBookStats('note-1', stats);
+
+      // Should use progress-based fallback
+      // At page 50 of 100: remaining = 600000 / 0.5 - 600000 = 600000
+      const result = store.getEstimatedTimeRemaining('note-1', 50, 100);
+      expect(result).toBe(600000);
+    });
+
+    it('returns null when both totalReadingTimeMs and totalSessions are 0', () => {
+      const store = useReadingStatsStore.getState();
+      store.setBookStats('note-1', makeStats({ totalReadingTimeMs: 0, totalSessions: 0 }));
+
+      expect(store.getEstimatedTimeRemaining('note-1', 50, 100)).toBeNull();
+    });
+
+    it('handles very high pagesPerHour without overflow', () => {
+      const store = useReadingStatsStore.getState();
+      store.setBookStats('note-1', makeStats({ pagesPerHour: 100000 }));
+
+      const result = store.getEstimatedTimeRemaining('note-1', 50, 100);
+      expect(result).toBeGreaterThanOrEqual(0);
+      expect(Number.isFinite(result)).toBe(true);
+    });
+  });
+
+  // ── syncPendingSessions non-Error exception handling ────────────────
+
+  describe('syncPendingSessions non-Error exception handling', () => {
+    it('handles non-Error throws from API during sync', async () => {
+      mockedApiUpdate.mockRejectedValue(42); // Non-Error thrown
+
+      useReadingStatsStore.setState({
+        pendingSessions: [{
+          noteId: 'note-1',
+          sessionDurationMs: 30000,
+          pagesRead: 5,
+          startPage: 1,
+          endPage: 6,
+          startTime: '2025-01-01T00:00:00.000Z',
+          timestamp: '2025-01-01T00:30:00.000Z',
+          retryCount: 0,
+        }],
+      });
+
+      const store = useReadingStatsStore.getState();
+      const syncPromise = store.syncPendingSessions();
+      for (let i = 0; i < 5; i++) {
+        await vi.advanceTimersByTimeAsync(2000 * Math.pow(2, i));
+      }
+      await syncPromise;
+
+      // Session should be kept with incremented retry count
+      const pending = useReadingStatsStore.getState().pendingSessions;
+      expect(pending).toHaveLength(1);
+      expect(pending[0].retryCount).toBe(1);
+    });
+  });
+
+  // ── pauseSession clears isIdlePaused ────────────────────────────────
+
+  describe('pauseSession clears idle state', () => {
+    it('manual pause after idle-paused state sets isIdlePaused to false', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      // Go idle
+      currentTime = 1000 + 5 * 60 * 1000;
+      store.checkIdleStatus();
+      expect(useReadingStatsStore.getState().activeSession!.isIdlePaused).toBe(true);
+
+      // Resume
+      currentTime += 1000;
+      store.resumeSession();
+
+      // Immediately manually pause
+      currentTime += 1000;
+      store.pauseSession();
+
+      const session = useReadingStatsStore.getState().activeSession!;
+      expect(session.isPaused).toBe(true);
+      expect(session.isIdlePaused).toBe(false);
+    });
+  });
+
+  // ── resumeSession with null pausedAt ────────────────────────────────
+
+  describe('resumeSession edge cases', () => {
+    it('handles resume when pausedAt is null (treats pause duration as 0)', () => {
+      const store = useReadingStatsStore.getState();
+      store.startSession('note-1', 1, 100);
+
+      // Artificially set paused with null pausedAt
+      useReadingStatsStore.setState((state) => ({
+        activeSession: state.activeSession ? {
+          ...state.activeSession,
+          isPaused: true,
+          pausedAt: null,
+          totalPausedMs: 5000,
+        } : null,
+      }));
+
+      currentTime = 50000;
+      store.resumeSession();
+
+      const session = useReadingStatsStore.getState().activeSession!;
+      expect(session.isPaused).toBe(false);
+      // totalPausedMs should not change (pausedDuration = 0 since pausedAt is null)
+      expect(session.totalPausedMs).toBe(5000);
+    });
+  });
 });
 
 // Retry delay constant used in timer advancement
