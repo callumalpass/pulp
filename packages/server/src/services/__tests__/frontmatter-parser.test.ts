@@ -4019,3 +4019,751 @@ describe('updateDailyReadingHistory (additional edge cases)', () => {
     expect(result[0].date).toBe('2024-12-01');
   });
 });
+
+// =============================================================================
+// Deepened edge case and boundary coverage
+// =============================================================================
+
+describe('calculateSessionQuality (idle percentage boundary)', () => {
+  it('returns normal at exactly 15.0% idle time (boundary: >15 triggers distracted)', () => {
+    const durationMs = 10 * 60 * 1000;
+    // Exactly 15%: idlePercentage = 15.0, which is NOT > 15, so not distracted
+    const idlePauseTotalMs = durationMs * 0.15;
+    expect(calculateSessionQuality(durationMs, 2, idlePauseTotalMs)).toBe('normal');
+  });
+
+  it('returns distracted at 15.01% idle time (just over boundary)', () => {
+    const durationMs = 100 * 60 * 1000; // Large duration for precision
+    const idlePauseTotalMs = durationMs * 0.1501;
+    expect(calculateSessionQuality(durationMs, 2, idlePauseTotalMs)).toBe('distracted');
+  });
+
+  it('returns focused for 0 pauses with 4.99% idle in a 10-minute session', () => {
+    const durationMs = 10 * 60 * 1000;
+    const idlePauseTotalMs = durationMs * 0.0499;
+    // pauseCount=0 <= 1, idlePercentage < 5 → focused
+    expect(calculateSessionQuality(durationMs, 0, idlePauseTotalMs)).toBe('focused');
+  });
+
+  it('returns deep when session is exactly 30 minutes with 0 pauses and 0 idle', () => {
+    const durationMs = 30 * 60 * 1000;
+    expect(calculateSessionQuality(durationMs, 0, 0)).toBe('deep');
+  });
+
+  it('returns focused (not deep) for 30-minute session with 1 pause but <5% idle', () => {
+    const durationMs = 30 * 60 * 1000;
+    // 1 pause means not deep (deep requires 0 pauses), but 1 pause + <5% idle → focused
+    const idlePauseTotalMs = durationMs * 0.01;
+    expect(calculateSessionQuality(durationMs, 1, idlePauseTotalMs)).toBe('focused');
+  });
+
+  it('returns distracted for exactly 5 pauses regardless of idle percentage', () => {
+    const durationMs = 60 * 60 * 1000;
+    // 5 pauses with very low idle: pauseCount >= 5 → distracted
+    expect(calculateSessionQuality(durationMs, 5, 1000)).toBe('distracted');
+  });
+});
+
+describe('getReadingStats (estimated_completion date edge cases)', () => {
+  it('extracts date portion from Date at midnight UTC', () => {
+    const date = new Date('2025-03-15T00:00:00.000Z');
+    const stats = getReadingStats({
+      rs: { estimated_completion: date, total_time_ms: 100, total_sessions: 1 },
+    }, 'rs');
+    expect(stats?.estimatedCompletionDate).toBe('2025-03-15');
+  });
+
+  it('extracts date portion from Date at end of day', () => {
+    const date = new Date('2025-12-31T23:59:59.999Z');
+    const stats = getReadingStats({
+      rs: { estimated_completion: date, total_time_ms: 100, total_sessions: 1 },
+    }, 'rs');
+    expect(stats?.estimatedCompletionDate).toBe('2025-12-31');
+  });
+
+  it('handles ISO string with timezone offset for estimated_completion', () => {
+    const stats = getReadingStats({
+      rs: { estimated_completion: '2025-06-15T10:30:00+05:00', total_time_ms: 100, total_sessions: 1 },
+    }, 'rs');
+    // The string is split at 'T', so result should be '2025-06-15'
+    expect(stats?.estimatedCompletionDate).toBe('2025-06-15');
+  });
+
+  it('returns null for estimated_completion that is an invalid date string', () => {
+    const stats = getReadingStats({
+      rs: { estimated_completion: 'not-a-date', total_time_ms: 100, total_sessions: 1 },
+    }, 'rs');
+    expect(stats?.estimatedCompletionDate).toBeNull();
+  });
+
+  it('returns null for estimated_completion that is a number', () => {
+    const stats = getReadingStats({
+      rs: { estimated_completion: 1700000000, total_time_ms: 100, total_sessions: 1 },
+    }, 'rs');
+    expect(stats?.estimatedCompletionDate).toBeNull();
+  });
+});
+
+describe('bookmarkToWikilink (special characters)', () => {
+  it('handles label with pipe characters', () => {
+    // Pipe in the label — gets embedded directly since it's inside the wikilink structure
+    const result = bookmarkToWikilink('docs/book.pdf', {
+      label: 'Chapter 3 | Summary',
+      page: 42,
+      createdAt: '2024-01-15',
+    });
+    expect(result).toBe('[[docs/book.pdf#page=42|Chapter 3 | Summary|2024-01-15]]');
+  });
+
+  it('URL-encodes CFI with special characters', () => {
+    const result = bookmarkToWikilink('books/novel.epub', {
+      label: 'Introduction',
+      cfi: 'epubcfi(/6/4[chap01]!/4/2/1:0)',
+      createdAt: '2024-06-01',
+    });
+    // The CFI should be URL-encoded
+    expect(result).toContain('#cfi=');
+    expect(result).toContain(encodeURIComponent('epubcfi(/6/4[chap01]!/4/2/1:0)'));
+  });
+
+  it('creates wikilink with empty string label', () => {
+    const result = bookmarkToWikilink('doc.pdf', {
+      label: '',
+      page: 1,
+      createdAt: '2024-01-01',
+    });
+    expect(result).toBe('[[doc.pdf#page=1||2024-01-01]]');
+  });
+
+  it('prefers page over cfi when both are provided', () => {
+    const result = bookmarkToWikilink('doc.pdf', {
+      label: 'Test',
+      page: 10,
+      cfi: 'epubcfi(/6/4)',
+      createdAt: '2024-01-01',
+    });
+    // Source code checks page first with `if (bookmark.page !== undefined)`
+    expect(result).toContain('#page=10');
+    expect(result).not.toContain('#cfi=');
+  });
+
+  it('handles page value of 0', () => {
+    const result = bookmarkToWikilink('doc.pdf', {
+      label: 'Cover',
+      page: 0,
+      createdAt: '2024-01-01',
+    });
+    // page=0 is falsy but !== undefined, so fragment should include page=0
+    expect(result).toContain('#page=0');
+  });
+});
+
+describe('getBookmarks (decode failure path)', () => {
+  it('uses raw CFI value when URL decoding fails with malformed encoding', () => {
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const bookmarks = getBookmarks({
+      bm: ['[[book.epub#cfi=%ZZinvalid|Ch 1]]'],
+    }, 'bm');
+
+    expect(bookmarks).toHaveLength(1);
+    expect(bookmarks[0].cfi).toBe('%ZZinvalid');
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to decode CFI'),
+      expect.anything()
+    );
+    consoleSpy.mockRestore();
+  });
+});
+
+describe('getCSLMetadata (DOI extraction edge cases)', () => {
+  it('extracts DOI at the end of the note field', () => {
+    const result = getCSLMetadata({
+      note: 'Some note text DOI: 10.1234/test.5678',
+    });
+    expect(result).not.toBeNull();
+    expect(result?.doi).toBe('10.1234/test.5678');
+  });
+
+  it('extracts DOI case-insensitively from note', () => {
+    const result = getCSLMetadata({
+      note: 'Reference doi: 10.9999/abc',
+    });
+    expect(result).not.toBeNull();
+    expect(result?.doi).toBe('10.9999/abc');
+  });
+
+  it('prefers direct DOI field over note-embedded DOI', () => {
+    const result = getCSLMetadata({
+      DOI: '10.1111/direct',
+      note: 'DOI: 10.2222/embedded',
+    });
+    expect(result?.doi).toBe('10.1111/direct');
+  });
+
+  it('falls back to lowercase doi field', () => {
+    const result = getCSLMetadata({
+      doi: '10.3333/lowercase',
+    });
+    expect(result?.doi).toBe('10.3333/lowercase');
+  });
+
+  it('returns null DOI when note contains no DOI pattern', () => {
+    const result = getCSLMetadata({
+      note: 'Just a regular note without any identifiers',
+      publisher: 'Test',
+    });
+    expect(result?.doi).toBeNull();
+  });
+});
+
+describe('getCSLMetadata (translator parsing)', () => {
+  it('parses translator as a single object with given/family', () => {
+    const result = getCSLMetadata({
+      translator: { given: 'Jane', family: 'Smith' },
+    });
+    expect(result?.translator).toBe('Jane Smith');
+  });
+
+  it('returns null translator for empty string', () => {
+    const result = getCSLMetadata({
+      translator: '',
+      publisher: 'Test',
+    });
+    expect(result?.translator).toBeNull();
+  });
+
+  it('returns null translator for whitespace-only string', () => {
+    const result = getCSLMetadata({
+      translator: '   ',
+      publisher: 'Test',
+    });
+    expect(result?.translator).toBeNull();
+  });
+});
+
+describe('getCSLMetadata (issued date-parts variations)', () => {
+  it('handles string year in date-parts', () => {
+    const result = getCSLMetadata({
+      issued: { 'date-parts': [['2023', '06', '15']] },
+    });
+    expect(result?.issued).toBe('2023-06-15');
+  });
+
+  it('pads single-digit month and day', () => {
+    const result = getCSLMetadata({
+      issued: { 'date-parts': [[2023, 3, 5]] },
+    });
+    expect(result?.issued).toBe('2023-03-05');
+  });
+
+  it('handles year-month without day', () => {
+    const result = getCSLMetadata({
+      issued: { 'date-parts': [[2020, 11]] },
+    });
+    expect(result?.issued).toBe('2020-11');
+  });
+
+  it('handles year only in date-parts', () => {
+    const result = getCSLMetadata({
+      issued: { 'date-parts': [[1999]] },
+    });
+    expect(result?.issued).toBe('1999');
+  });
+
+  it('returns null for date-parts with boolean year value', () => {
+    const result = getCSLMetadata({
+      issued: { 'date-parts': [[true]] },
+      publisher: 'Test',
+    });
+    expect(result?.issued).toBeNull();
+  });
+
+  it('falls back to numeric year field when issued is not an object', () => {
+    const result = getCSLMetadata({
+      issued: 'not-an-object',
+      year: 2015,
+    });
+    expect(result?.issued).toBe('2015');
+  });
+
+  it('returns null issued when year field is empty string', () => {
+    const result = getCSLMetadata({
+      year: '   ',
+      publisher: 'Test',
+    });
+    expect(result?.issued).toBeNull();
+  });
+});
+
+describe('getDailyReadingHistory (leap year date validation)', () => {
+  it('accepts Feb 29 in a leap year', () => {
+    const entries = getDailyReadingHistory({
+      h: [{ date: '2024-02-29', duration_ms: 1000, sessions: 1, pages: 5 }],
+    }, 'h');
+    expect(entries).toHaveLength(1);
+    expect(entries[0].date).toBe('2024-02-29');
+  });
+
+  it('rejects Feb 29 in a non-leap year', () => {
+    const entries = getDailyReadingHistory({
+      h: [{ date: '2023-02-29', duration_ms: 1000, sessions: 1, pages: 5 }],
+    }, 'h');
+    // 2023 is not a leap year; Date('2023-02-29T12:00:00') becomes Mar 1
+    // The round-trip check catches this: parsed.toISOString() starts with '2023-03-01'
+    expect(entries).toHaveLength(0);
+  });
+
+  it('rejects April 31', () => {
+    const entries = getDailyReadingHistory({
+      h: [{ date: '2024-04-31', duration_ms: 1000, sessions: 1, pages: 5 }],
+    }, 'h');
+    expect(entries).toHaveLength(0);
+  });
+
+  it('accepts Dec 31', () => {
+    const entries = getDailyReadingHistory({
+      h: [{ date: '2024-12-31', duration_ms: 1000, sessions: 1, pages: 5 }],
+    }, 'h');
+    expect(entries).toHaveLength(1);
+    expect(entries[0].date).toBe('2024-12-31');
+  });
+
+  it('rejects month 13', () => {
+    const entries = getDailyReadingHistory({
+      h: [{ date: '2024-13-01', duration_ms: 1000, sessions: 1, pages: 5 }],
+    }, 'h');
+    expect(entries).toHaveLength(0);
+  });
+
+  it('rejects day 0', () => {
+    const entries = getDailyReadingHistory({
+      h: [{ date: '2024-01-00', duration_ms: 1000, sessions: 1, pages: 5 }],
+    }, 'h');
+    expect(entries).toHaveLength(0);
+  });
+});
+
+describe('updateDailyReadingHistory (zero and edge values)', () => {
+  it('adds entry with zero pagesRead', () => {
+    const result = updateDailyReadingHistory([], '2024-06-15', 60000, 0);
+    expect(result).toHaveLength(1);
+    expect(result[0].pagesRead).toBe(0);
+    expect(result[0].sessions).toBe(1);
+  });
+
+  it('adds entry with zero sessionDuration', () => {
+    const result = updateDailyReadingHistory([], '2024-06-15', 0, 5);
+    expect(result).toHaveLength(1);
+    expect(result[0].durationMs).toBe(0);
+  });
+
+  it('accumulates correctly with zero duration on existing entry', () => {
+    const existing = [{
+      date: '2024-06-15',
+      durationMs: 5000,
+      sessions: 1,
+      pagesRead: 3,
+    }];
+    const result = updateDailyReadingHistory(existing, '2024-06-15', 0, 0);
+    expect(result).toHaveLength(1);
+    expect(result[0].durationMs).toBe(5000);
+    expect(result[0].sessions).toBe(2);
+    expect(result[0].pagesRead).toBe(3);
+  });
+
+  it('drops oldest entry when exceeding 90-entry limit with new date', () => {
+    const entries = Array.from({ length: 90 }, (_, i) => {
+      const date = new Date('2024-06-01');
+      date.setDate(date.getDate() - i);
+      return {
+        date: date.toISOString().split('T')[0],
+        durationMs: 1000,
+        sessions: 1,
+        pagesRead: 1,
+      };
+    });
+
+    // The oldest entry is 89 days before 2024-06-01 = 2024-03-04
+    const oldestDate = entries[entries.length - 1].date;
+
+    const result = updateDailyReadingHistory(entries, '2024-06-02', 2000, 5);
+    expect(result).toHaveLength(90);
+    // Newest should be first
+    expect(result[0].date).toBe('2024-06-02');
+    // Oldest should have been dropped
+    expect(result.find(e => e.date === oldestDate)).toBeUndefined();
+  });
+});
+
+describe('createReadingStatsForFrontmatter / getReadingStats roundtrip', () => {
+  it('roundtrips all stat fields correctly', () => {
+    const original = {
+      totalReadingTimeMs: 3600000,
+      totalSessions: 5,
+      averageSessionMs: 720000,
+      firstReadDate: '2024-01-15T10:30:00.000Z',
+      pagesPerHour: 25.5,
+      totalPagesRead: 127,
+      longestSessionMs: 1800000,
+      estimatedCompletionDate: '2025-06-15',
+      averageDailyReadingMs: 1200000,
+      milestones: [
+        { milestone: 25 as const, reachedAt: '2024-02-01T12:00:00Z', daysFromStart: 17, totalReadingTimeMs: 900000 },
+        { milestone: 50 as const, reachedAt: '2024-03-01T12:00:00Z', daysFromStart: 45, totalReadingTimeMs: 1800000 },
+      ],
+      momentum: 'accelerating' as const,
+      momentumScore: 45,
+    };
+
+    const frontmatter = createReadingStatsForFrontmatter(original);
+    const parsed = getReadingStats({ rs: frontmatter }, 'rs');
+
+    expect(parsed).not.toBeNull();
+    expect(parsed!.totalReadingTimeMs).toBe(original.totalReadingTimeMs);
+    expect(parsed!.totalSessions).toBe(original.totalSessions);
+    expect(parsed!.firstReadDate).toBe(original.firstReadDate);
+    expect(parsed!.pagesPerHour).toBe(original.pagesPerHour);
+    expect(parsed!.totalPagesRead).toBe(original.totalPagesRead);
+    expect(parsed!.longestSessionMs).toBe(original.longestSessionMs);
+    expect(parsed!.estimatedCompletionDate).toBe(original.estimatedCompletionDate);
+    expect(parsed!.averageDailyReadingMs).toBe(original.averageDailyReadingMs);
+    expect(parsed!.milestones).toHaveLength(2);
+    expect(parsed!.milestones![0].milestone).toBe(25);
+    expect(parsed!.milestones![1].milestone).toBe(50);
+    expect(parsed!.momentum).toBe('accelerating');
+    expect(parsed!.momentumScore).toBe(45);
+  });
+
+  it('roundtrips minimal stats (no optional fields)', () => {
+    const original = {
+      totalReadingTimeMs: 0,
+      totalSessions: 0,
+      averageSessionMs: 0,
+      firstReadDate: null,
+      pagesPerHour: null,
+      totalPagesRead: 0,
+      longestSessionMs: null,
+      estimatedCompletionDate: null,
+      averageDailyReadingMs: null,
+    };
+
+    const frontmatter = createReadingStatsForFrontmatter(original);
+    const parsed = getReadingStats({ rs: frontmatter }, 'rs');
+
+    expect(parsed).not.toBeNull();
+    expect(parsed!.totalReadingTimeMs).toBe(0);
+    expect(parsed!.totalSessions).toBe(0);
+    expect(parsed!.firstReadDate).toBeNull();
+    expect(parsed!.pagesPerHour).toBeNull();
+    expect(parsed!.longestSessionMs).toBeNull();
+    expect(parsed!.estimatedCompletionDate).toBeNull();
+    expect(parsed!.averageDailyReadingMs).toBeNull();
+    expect(parsed!.milestones).toBeUndefined();
+    expect(parsed!.momentum).toBeUndefined();
+    expect(parsed!.momentumScore).toBeUndefined();
+  });
+});
+
+describe('createReaderPreferencesForFrontmatter / getReaderPreferences roundtrip', () => {
+  it('roundtrips all preferences correctly', () => {
+    const original = {
+      zoomLevel: 1.5,
+      zoomMode: 'fit-width' as const,
+      theme: 'sepia' as const,
+      fontSize: 16,
+      lineHeight: 1.6,
+      dailyGoalMinutes: 45,
+    };
+
+    const frontmatter = createReaderPreferencesForFrontmatter(original);
+    const parsed = getReaderPreferences({ rp: frontmatter }, 'rp');
+
+    expect(parsed).not.toBeNull();
+    expect(parsed!.zoomLevel).toBe(1.5);
+    expect(parsed!.zoomMode).toBe('fit-width');
+    expect(parsed!.theme).toBe('sepia');
+    expect(parsed!.fontSize).toBe(16);
+    expect(parsed!.lineHeight).toBe(1.6);
+    expect(parsed!.dailyGoalMinutes).toBe(45);
+  });
+
+  it('roundtrips with only some preferences set', () => {
+    const original = {
+      theme: 'dark' as const,
+      fontSize: 20,
+    };
+
+    const frontmatter = createReaderPreferencesForFrontmatter(original);
+    const parsed = getReaderPreferences({ rp: frontmatter }, 'rp');
+
+    expect(parsed).not.toBeNull();
+    expect(parsed!.theme).toBe('dark');
+    expect(parsed!.fontSize).toBe(20);
+    expect(parsed!.zoomLevel).toBeUndefined();
+    expect(parsed!.zoomMode).toBeUndefined();
+  });
+
+  it('rounds zoom level to 2 decimal places on roundtrip', () => {
+    const original = { zoomLevel: 1.2345 };
+    const frontmatter = createReaderPreferencesForFrontmatter(original);
+    const parsed = getReaderPreferences({ rp: frontmatter }, 'rp');
+
+    // createReaderPreferencesForFrontmatter rounds to 2 decimals
+    expect(parsed!.zoomLevel).toBe(1.23);
+  });
+
+  it('rounds line height to 1 decimal place on roundtrip', () => {
+    const original = { lineHeight: 1.567 };
+    const frontmatter = createReaderPreferencesForFrontmatter(original);
+    const parsed = getReaderPreferences({ rp: frontmatter }, 'rp');
+
+    // createReaderPreferencesForFrontmatter rounds to 1 decimal
+    expect(parsed!.lineHeight).toBe(1.6);
+  });
+});
+
+describe('getReadingSessions (quality and idle metric edge cases)', () => {
+  it('accepts idle_pause_count of exactly 0', () => {
+    const sessions = getReadingSessions({
+      s: [{
+        start: '2024-01-01T10:00:00Z',
+        end: '2024-01-01T11:00:00Z',
+        duration_ms: 3600000,
+        pages: 20,
+        start_page: 1,
+        end_page: 20,
+        idle_pause_count: 0,
+        idle_pause_total_ms: 0,
+      }],
+    }, 's');
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].idlePauseCount).toBe(0);
+    expect(sessions[0].idlePauseTotalMs).toBe(0);
+  });
+
+  it('rejects negative idle_pause_total_ms', () => {
+    const sessions = getReadingSessions({
+      s: [{
+        start: '2024-01-01T10:00:00Z',
+        end: '2024-01-01T11:00:00Z',
+        duration_ms: 3600000,
+        pages: 20,
+        start_page: 1,
+        end_page: 20,
+        idle_pause_count: 1,
+        idle_pause_total_ms: -500,
+      }],
+    }, 's');
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].idlePauseTotalMs).toBeUndefined();
+    // idle_pause_count is still valid
+    expect(sessions[0].idlePauseCount).toBe(1);
+  });
+
+  it('parses all valid quality values', () => {
+    const qualities = ['deep', 'focused', 'normal', 'distracted'];
+    for (const quality of qualities) {
+      const sessions = getReadingSessions({
+        s: [{
+          start: '2024-01-01T10:00:00Z',
+          end: '2024-01-01T11:00:00Z',
+          duration_ms: 3600000,
+          pages: 10,
+          start_page: 1,
+          end_page: 10,
+          quality,
+        }],
+      }, 's');
+      expect(sessions[0].quality).toBe(quality);
+    }
+  });
+
+  it('returns undefined quality for invalid quality string', () => {
+    const sessions = getReadingSessions({
+      s: [{
+        start: '2024-01-01T10:00:00Z',
+        end: '2024-01-01T11:00:00Z',
+        duration_ms: 3600000,
+        pages: 10,
+        start_page: 1,
+        end_page: 10,
+        quality: 'superb',
+      }],
+    }, 's');
+    expect(sessions[0].quality).toBeUndefined();
+  });
+
+  it('returns undefined quality for non-string quality', () => {
+    const sessions = getReadingSessions({
+      s: [{
+        start: '2024-01-01T10:00:00Z',
+        end: '2024-01-01T11:00:00Z',
+        duration_ms: 3600000,
+        pages: 10,
+        start_page: 1,
+        end_page: 10,
+        quality: 42,
+      }],
+    }, 's');
+    expect(sessions[0].quality).toBeUndefined();
+  });
+
+  it('uses stored hour_of_day when available', () => {
+    const sessions = getReadingSessions({
+      s: [{
+        start: '2024-01-01T10:00:00Z',
+        end: '2024-01-01T11:00:00Z',
+        duration_ms: 3600000,
+        pages: 10,
+        start_page: 1,
+        end_page: 10,
+        hour_of_day: 22,
+      }],
+    }, 's');
+    // Should use stored value, not calculate from startTime
+    expect(sessions[0].hourOfDay).toBe(22);
+  });
+});
+
+describe('createReadingSessionForFrontmatter (optional field handling)', () => {
+  it('omits quality when undefined', () => {
+    const result = createReadingSessionForFrontmatter({
+      startTime: '2024-01-01T10:00:00Z',
+      endTime: '2024-01-01T11:00:00Z',
+      durationMs: 3600000,
+      pagesRead: 20,
+      startPage: 1,
+      endPage: 20,
+    });
+    expect(result).not.toHaveProperty('quality');
+    expect(result).not.toHaveProperty('idle_pause_count');
+    expect(result).not.toHaveProperty('idle_pause_total_ms');
+    expect(result).not.toHaveProperty('hour_of_day');
+  });
+
+  it('includes all optional fields when present', () => {
+    const result = createReadingSessionForFrontmatter({
+      startTime: '2024-01-01T10:00:00Z',
+      endTime: '2024-01-01T11:00:00Z',
+      durationMs: 3600000,
+      pagesRead: 20,
+      startPage: 1,
+      endPage: 20,
+      hourOfDay: 10,
+      quality: 'deep',
+      idlePauseCount: 0,
+      idlePauseTotalMs: 0,
+    });
+    expect(result.hour_of_day).toBe(10);
+    expect(result.quality).toBe('deep');
+    expect(result.idle_pause_count).toBe(0);
+    expect(result.idle_pause_total_ms).toBe(0);
+  });
+});
+
+describe('hasTag (non-standard tag formats)', () => {
+  it('returns false when tags is a number', () => {
+    expect(hasTag({ tags: 42 }, 'literature_note')).toBe(false);
+  });
+
+  it('returns false when tags is an empty array', () => {
+    expect(hasTag({ tags: [] }, 'literature_note')).toBe(false);
+  });
+
+  it('returns false when tags is an empty string', () => {
+    expect(hasTag({ tags: '' }, 'literature_note')).toBe(false);
+  });
+
+  it('handles both # prefixes in source and target', () => {
+    expect(hasTag({ tags: ['#literature_note'] }, '#literature_note')).toBe(true);
+  });
+
+  it('does not match partial tag names without slash', () => {
+    // "lit" should not match "literature_note"
+    expect(hasTag({ tags: ['literature_note'] }, 'lit')).toBe(false);
+  });
+
+  it('handles tags with nested slash paths', () => {
+    expect(hasTag({ tags: ['literature_note/fiction/sci-fi'] }, 'literature_note')).toBe(true);
+    expect(hasTag({ tags: ['literature_note/fiction/sci-fi'] }, 'literature_note/fiction')).toBe(true);
+  });
+});
+
+describe('getSourcePath (edge cases)', () => {
+  it('extracts first element from array wiki-link', () => {
+    const result = getSourcePath({
+      source: ['[[path/to/file.pdf|Display]]', '[[other.pdf]]'],
+    }, 'source');
+    expect(result).toBe('path/to/file.pdf');
+  });
+
+  it('handles wiki-link with spaces in path', () => {
+    const result = getSourcePath({
+      source: '[[path/to/my file.pdf]]',
+    }, 'source');
+    expect(result).toBe('path/to/my file.pdf');
+  });
+});
+
+describe('checkMilestones (precise boundary conditions)', () => {
+  it('does not trigger at previousProgress exactly at milestone', () => {
+    // previousProgress = 25, currentProgress = 50 → should trigger 50 but NOT 25
+    const result = checkMilestones(25, 50, []);
+    expect(result).toContain(50);
+    expect(result).not.toContain(25); // previous was already AT 25, not below it
+  });
+
+  it('triggers milestone at fractional progress crossing', () => {
+    // 9.9 → 10.0 should trigger 10%
+    const result = checkMilestones(9.9, 10, []);
+    expect(result).toContain(10);
+  });
+
+  it('does not trigger when currentProgress is just below milestone', () => {
+    const result = checkMilestones(5, 9.999, []);
+    expect(result).toHaveLength(0);
+  });
+
+  it('triggers all milestones on jump from 0 to exactly 100', () => {
+    const result = checkMilestones(0, 100, []);
+    expect(result).toEqual([10, 25, 50, 75, 100]);
+  });
+
+  it('excludes only recorded milestones from result', () => {
+    const existing = [
+      { milestone: 10 as const, reachedAt: '2024-01-01', daysFromStart: 0, totalReadingTimeMs: 100 },
+      { milestone: 50 as const, reachedAt: '2024-01-15', daysFromStart: 14, totalReadingTimeMs: 500 },
+    ];
+    const result = checkMilestones(0, 100, existing);
+    expect(result).toEqual([25, 75, 100]);
+  });
+});
+
+describe('addReadingSession (edge cases)', () => {
+  it('sorts correctly when new session is older than all existing', () => {
+    const existing = [
+      {
+        startTime: '2024-06-15T10:00:00Z',
+        endTime: '2024-06-15T11:00:00Z',
+        durationMs: 3600000,
+        pagesRead: 20,
+        startPage: 1,
+        endPage: 20,
+      },
+    ];
+    const oldSession = {
+      startTime: '2024-01-01T10:00:00Z',
+      endTime: '2024-01-01T11:00:00Z',
+      durationMs: 3600000,
+      pagesRead: 15,
+      startPage: 1,
+      endPage: 15,
+    };
+
+    const result = addReadingSession(existing, oldSession);
+    expect(result).toHaveLength(2);
+    // Most recent first
+    expect(result[0].startTime).toBe('2024-06-15T10:00:00Z');
+    expect(result[1].startTime).toBe('2024-01-01T10:00:00Z');
+  });
+});
