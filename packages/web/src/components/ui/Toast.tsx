@@ -53,8 +53,8 @@ export function Toast({ message, type = 'info', duration = 3000, onClose }: Toas
   return (
     <div
       className={clsx(
-        'relative flex items-center gap-3 pl-4 pr-4 py-3 rounded-xl border backdrop-blur-sm',
-        'transition-all duration-300 ease-out overflow-hidden',
+        'relative flex items-center gap-3 pl-4 pr-2 py-3 rounded-xl border backdrop-blur-sm',
+        'transition-[transform,opacity] duration-300 ease-out overflow-hidden',
         {
           'bg-bg-surface/95 text-text-primary border-text-secondary/20': type === 'info',
           'bg-emerald-500/15 text-emerald-400 border-emerald-500/30': type === 'success',
@@ -67,7 +67,21 @@ export function Toast({ message, type = 'info', duration = 3000, onClose }: Toas
       role="alert"
     >
       <ToastIcon type={type} />
-      <span className="text-sm font-medium">{message}</span>
+      <span className="text-sm font-medium flex-1">{message}</span>
+      <button
+        onClick={() => {
+          setIsLeaving(true);
+          setTimeout(onClose, 300);
+        }}
+        type="button"
+        className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-current/60 hover:text-current hover:bg-current/10 transition-colors"
+        aria-label="Dismiss notification"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
 
       {/* Progress bar */}
       <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-current/10 overflow-hidden">

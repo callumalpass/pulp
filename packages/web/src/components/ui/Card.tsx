@@ -18,18 +18,16 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
     children,
     ...props
   }, ref) => {
-    // Use GPU-accelerated transforms for smoother animations
+    // Use the CSS-based .hover-lift class for hover effects. It uses
+    // GPU-accelerated transforms and has a @media (hover: none) override
+    // that disables the lift on touch devices, avoiding unwanted hover
+    // jumps on tap. Tailwind hover:translate-y classes would bypass that
+    // media query, so we avoid them here.
     const hoverClasses = hover || interactive ? [
       'cursor-pointer',
-      'will-change-transform',
-      // Use transform for GPU acceleration instead of top/margin
-      'transition-[transform,box-shadow,border-color] duration-200 ease-out',
-      'hover:translate-y-[-4px] hover:scale-[1.015]',
-      'hover:shadow-xl hover:shadow-accent-primary/10',
+      'hover-lift',
+      'hover:shadow-accent-primary/10',
       'hover:border-accent-primary/25',
-      // Active/pressed state for tactile feedback
-      'active:scale-[0.98] active:translate-y-0',
-      'active:transition-transform active:duration-75',
     ] : [];
 
     return (
@@ -37,8 +35,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
         ref={ref}
         className={clsx(
           'bg-bg-surface rounded-xl overflow-hidden',
-          'border border-white/[0.06]',
-          'shadow-sm shadow-black/10',
+          'border border-subtle',
           elevated && 'shadow-lg shadow-black/20',
           hoverClasses,
           className

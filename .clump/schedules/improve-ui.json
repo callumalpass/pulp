@@ -1,19 +1,19 @@
 {
   "id": "improve-ui",
-  "name": "Improve UI",
+  "name": "Playqwright performance and UI",
   "description": null,
-  "status": "active",
-  "cron_expression": "*/20 * * * *",
+  "status": "paused",
+  "cron_expression": "0 * * * *",
   "timezone": "Australia/Melbourne",
   "target_type": "custom",
   "filter_query": "state:open",
   "command_id": null,
-  "custom_prompt": "You are improving this project's user interface and experience.\n\n## Your Task\n\nExplore the frontend codebase and implement 1 UI/UX improvement.\n\n**Focus Areas:**\n\n- Layout\n- Visual consistency and polish\n- Clearer visual hierarchy\n- Better use of spacing and typography\n- Subtle animations or transitions\n- Accessibility improvements (ARIA, keyboard nav, focus states)\n- Responsive design fixes\n- Improved empty states\n- Better loading states\n- Clearer error messages\n- Navigation improvements\n- More sensible implicit user workflow\n\n**PREFER changes that:**\n- Use existing styling utilities (Tailwind, CSS modules, etc.)\n- Improve visual consistency\n- Fix obvious UI rough edges\n- Enhance existing components\n- Add polish and refinement\n- Simplify UI/UX\n- Make things clean, minimal, fast\n- Make things delightful\n- Make things stupid! We don't need to be self-serious\n- animations are good?\n\nAvoid:\n\n- Transform hover effects\n- Shadows--things should be generally flat\n\n## Implementation Guidelines\n\n1. **Explore first** - Read components to understand current UI patterns\n2. **Stay consistent** - Match existing styles and conventions\n3. **Make it subtle** - Good UI changes often go unnoticed\n4. **Test your changes:**\n   - Run the build to verify no errors\n   - Check in browser using Playwright if possible\n5. **Commit:** `ui: [description]`\n6. **If the build fails**, revert and try something else\n\nBegin by exploring the frontend components.",
+  "custom_prompt": "Use Playwright to explore this app's UI/UX and performance, identify areas for improvement, and implement fixes.",
   "max_items": 10,
   "only_new": false,
   "permission_mode": null,
   "allowed_tools": null,
   "max_turns": null,
   "model": null,
-  "cli_type": null
+  "cli_type": "claude"
 }

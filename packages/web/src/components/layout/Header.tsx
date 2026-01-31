@@ -13,13 +13,17 @@ export function Header() {
   };
 
   return (
-    <header className="h-14 bg-bg-surface border-b border-text-secondary/10 flex items-center px-6" role="banner">
-      <h1 className="text-lg font-semibold text-text-primary">{getTitle()}</h1>
+    <header className="h-14 bg-bg-surface border-b border-subtle flex items-center px-4 sm:px-6" role="banner" aria-label="Site header">
+      <div className="flex items-center gap-2.5">
+        <span className="text-lg font-bold text-accent-primary tracking-tight" aria-hidden="true">Pulp</span>
+        <span className="text-text-secondary/40 text-sm font-light hidden sm:inline" aria-hidden="true">/</span>
+        <h1 className="text-sm sm:text-lg font-semibold text-text-primary">{getTitle()}</h1>
+      </div>
 
-      <div className="ml-auto flex items-center gap-4">
+      <nav className="ml-auto flex items-center gap-4" aria-label="Header controls">
         <ConnectionStatus />
         <ThemeToggle />
-      </div>
+      </nav>
     </header>
   );
 }
@@ -47,7 +51,7 @@ function ThemeToggle() {
   return (
     <button
       onClick={toggleTheme}
-      className="min-w-[44px] min-h-[44px] w-10 h-10 rounded-xl flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep/80 active:scale-95 transition-all duration-150 relative overflow-hidden"
+      className="min-w-[44px] min-h-[44px] w-10 h-10 rounded-xl flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep/80 active:scale-95 transition-[color,background-color,transform] duration-150 relative overflow-hidden focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface"
       title="Toggle theme"
       aria-label={`Switch to ${isLight ? 'dark' : 'light'} mode`}
       data-testid="theme-toggle"
@@ -61,7 +65,7 @@ function ThemeToggle() {
         stroke="currentColor"
         strokeWidth="2"
         aria-hidden="true"
-        className={`absolute transition-all duration-300 ease-out ${
+        className={`absolute transition-[transform,opacity] duration-300 ease-out ${
           isLight
             ? 'opacity-0 rotate-90 scale-50'
             : 'opacity-100 rotate-0 scale-100'
@@ -86,7 +90,7 @@ function ThemeToggle() {
         stroke="currentColor"
         strokeWidth="2"
         aria-hidden="true"
-        className={`absolute transition-all duration-300 ease-out ${
+        className={`absolute transition-[transform,opacity] duration-300 ease-out ${
           isLight
             ? 'opacity-100 rotate-0 scale-100'
             : 'opacity-0 -rotate-90 scale-50'

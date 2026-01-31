@@ -3,7 +3,7 @@
   "name": "Incremental improvements",
   "description": null,
   "status": "paused",
-  "cron_expression": "*/15 * * * *",
+  "cron_expression": "0 * * * *",
   "timezone": "Australia/Melbourne",
   "target_type": "custom",
   "filter_query": "state:open",

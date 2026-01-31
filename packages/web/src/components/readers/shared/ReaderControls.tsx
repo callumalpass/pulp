@@ -270,6 +270,7 @@ export function ReaderControls({
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={handleSearchKeyDown}
               placeholder="Search in document..."
+              aria-label="Search in document"
               className="flex-1 h-10 px-3 text-sm bg-bg-deep border border-text-secondary/20 rounded-lg text-text-primary focus:outline-none focus:border-accent-primary"
               autoFocus
             />
@@ -758,7 +759,7 @@ export function ReaderControls({
             aria-label={`Reading progress: ${Math.round((currentPage / totalPages) * 100)}%`}
           >
             <div
-              className="h-full bg-accent-primary transition-all duration-300"
+              className="h-full bg-accent-primary transition-[width] duration-300 will-change-[width]"
               style={{ width: `${(currentPage / totalPages) * 100}%` }}
             />
           </div>

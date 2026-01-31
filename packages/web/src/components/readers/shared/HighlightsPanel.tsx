@@ -160,7 +160,7 @@ export function HighlightsPanel({
         </div>
         <button
           onClick={onClose}
-          className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-colors"
+          className="min-w-[44px] min-h-[44px] w-11 h-11 md:w-8 md:h-8 md:min-w-[32px] md:min-h-[32px] flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-colors"
           aria-label="Close highlights panel"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -189,12 +189,13 @@ export function HighlightsPanel({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search highlights..."
-            className="w-full h-8 pl-8 pr-3 text-sm bg-bg-deep border border-text-secondary/20 rounded text-text-primary focus:outline-none focus:border-accent-primary"
+            aria-label="Search highlights"
+            className="w-full min-h-[44px] md:min-h-[32px] pl-8 pr-3 text-sm bg-bg-deep border border-text-secondary/20 rounded text-text-primary focus:outline-none focus:border-accent-primary"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary"
+              className="absolute right-0 top-1/2 -translate-y-1/2 min-w-[44px] min-h-[44px] md:min-w-[32px] md:min-h-[32px] flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors"
               aria-label="Clear search"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -212,7 +213,7 @@ export function HighlightsPanel({
       />
 
       {/* Highlights list */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto" tabIndex={0} role="region" aria-label="Highlights list">
         {filteredHighlights.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
             <svg
@@ -267,6 +268,8 @@ export function HighlightsPanel({
                               className="w-3 h-3 rounded-sm flex-shrink-0 mt-0.5"
                               style={{ backgroundColor: getCategoryColor(highlight.category) }}
                               title={getCategoryLabel(highlight.category)}
+                              role="img"
+                              aria-label={`Category: ${getCategoryLabel(highlight.category)}`}
                             />
                             <span className="text-sm text-text-primary leading-snug">
                               {truncateText(highlight.text)}
@@ -302,7 +305,7 @@ export function HighlightsPanel({
                         {/* Delete button */}
                         <button
                           onClick={() => setHighlightToDelete(highlight)}
-                          className="opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center text-text-secondary hover:text-red-500 transition-all"
+                          className="min-w-[44px] min-h-[44px] w-11 h-11 md:opacity-0 md:group-hover:opacity-100 md:w-7 md:h-7 md:min-w-[28px] md:min-h-[28px] flex items-center justify-center text-text-secondary hover:text-red-500 transition-[color,opacity] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary rounded"
                           aria-label={`Delete highlight: ${truncateText(highlight.text, 30)}`}
                         >
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -376,11 +379,14 @@ function CategoryFilterPills({ categoryFilter, onCategoryChange }: CategoryFilte
     }
   }, [categoryFilter]);
 
-  // Also update on mount and resize
+  // Also update on mount and resize via ResizeObserver (avoids global
+  // resize listener and forced reflows across unrelated components)
   useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
     const updateIndicator = () => {
       const activeButton = buttonRefs.current.get(categoryFilter);
-      const container = containerRef.current;
       if (activeButton && container) {
         const containerRect = container.getBoundingClientRect();
         const buttonRect = activeButton.getBoundingClientRect();
@@ -394,8 +400,9 @@ function CategoryFilterPills({ categoryFilter, onCategoryChange }: CategoryFilte
     // Initial position after render
     requestAnimationFrame(updateIndicator);
 
-    window.addEventListener('resize', updateIndicator);
-    return () => window.removeEventListener('resize', updateIndicator);
+    const observer = new ResizeObserver(updateIndicator);
+    observer.observe(container);
+    return () => observer.disconnect();
   }, [categoryFilter]);
 
   return (
@@ -403,9 +410,9 @@ function CategoryFilterPills({ categoryFilter, onCategoryChange }: CategoryFilte
       <div ref={containerRef} className="flex gap-1.5 pb-0.5 relative">
         {/* Sliding indicator */}
         <div
-          className="absolute top-0 h-full rounded-full bg-accent-primary/20 transition-all duration-200 ease-out pointer-events-none"
+          className="absolute top-0 left-0 h-full rounded-full bg-accent-primary/20 transition-[transform,width,opacity] duration-200 ease-out pointer-events-none"
           style={{
-            left: indicatorStyle.left,
+            transform: `translateX(${indicatorStyle.left}px)`,
             width: indicatorStyle.width,
             opacity: indicatorStyle.width > 0 ? 1 : 0,
           }}

@@ -11,6 +11,8 @@
   --color-text-primary: #dfe6e9;
   --color-text-secondary: #b2bec3;
 
+  --color-border-subtle: rgba(255, 255, 255, 0.08);
+
   --font-body: 'Nunito', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 
@@ -20,12 +22,17 @@
 }
 
 [data-theme="light"] {
-  --color-bg-deep: #fdfbf7;
+  --color-bg-deep: #f5f2ed;
   --color-bg-surface: #ffffff;
   --color-accent-primary: #6c5ce7;
   --color-accent-secondary: #00b894;
   --color-text-primary: #2d3436;
-  --color-text-secondary: #636e72;
+  --color-text-secondary: #3d4f54;
+  --color-border-subtle: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] header {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 /* Thin scrollbar utility */
@@ -62,11 +69,24 @@ html {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Smooth theme transitions — colors crossfade when toggling light/dark */
+/* Smooth theme transitions — colors crossfade when toggling light/dark.
+   Scoped to key surface elements to avoid forcing style recalc on every DOM node. */
 html.theme-transitioning,
-html.theme-transitioning *,
-html.theme-transitioning *::before,
-html.theme-transitioning *::after {
+html.theme-transitioning body,
+html.theme-transitioning header,
+html.theme-transitioning main,
+html.theme-transitioning nav,
+html.theme-transitioning .library-page-container,
+html.theme-transitioning .library-page-main,
+html.theme-transitioning [class*="bg-bg-"],
+html.theme-transitioning [class*="text-text-"],
+html.theme-transitioning [class*="border-"],
+html.theme-transitioning .filter-btn-group,
+html.theme-transitioning .filter-btn-active,
+html.theme-transitioning input[type="search"],
+html.theme-transitioning button,
+html.theme-transitioning .library-card,
+html.theme-transitioning svg {
   transition: background-color 400ms ease, color 400ms ease, border-color 400ms ease, fill 400ms ease, stroke 400ms ease !important;
 }
 
@@ -104,17 +124,13 @@ body {
 /* Utility classes */
 @layer utilities {
   .transition-smooth {
-    transition: all var(--transition-base);
+    transition: color var(--transition-base), background-color var(--transition-base), border-color var(--transition-base), opacity var(--transition-base), transform var(--transition-base), box-shadow var(--transition-base);
   }
 
-  /* Theme-aware subtle border */
+  /* Theme-aware subtle border — uses CSS variable so no light-mode override needed */
   .border-subtle {
-    border-color: rgba(255, 255, 255, 0.08);
+    border-color: var(--color-border-subtle);
   }
-}
-
-[data-theme="light"] .border-subtle {
-  border-color: rgba(0, 0, 0, 0.1);
 }
 
 /* PDF.js Text Layer Styles */
@@ -234,6 +250,7 @@ body {
   flex-shrink: 0;
   transition: width 200ms cubic-bezier(0.25, 0.8, 0.25, 1),
               height 200ms cubic-bezier(0.25, 0.8, 0.25, 1);
+  contain: layout style;
 }
 
 /* PDF Dark Mode Filter */
@@ -379,26 +396,6 @@ body {
 .pdf-search-highlight.current {
   background-color: rgba(255, 152, 0, 0.7);
   box-shadow: 0 0 4px rgba(255, 152, 0, 0.5);
-}
-
-/* Search Input Animation */
-@keyframes search-expand {
-  from {
-    width: 0;
-    opacity: 0;
-  }
-  to {
-    width: 200px;
-    opacity: 1;
-  }
-}
-
-.search-input-container {
-  overflow: hidden;
-}
-
-.search-input-container.open {
-  animation: search-expand 200ms ease-out forwards;
 }
 
 /* Presentation Mode */
@@ -606,6 +603,12 @@ body {
   outline: none;
   font-family: var(--font-mono);
   font-size: 12px;
+}
+
+.markdown-editor-panel .cm-vim-panel input:focus-visible {
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 /* E-ink Markdown Panel */
@@ -941,14 +944,14 @@ body {
   box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
   max-height: 80vh;
   overflow-y: auto;
-  z-index: 100;
+  z-index: 110;
 }
 
 .mobile-bottom-sheet-backdrop {
   position: fixed;
   inset: 0;
   background-color: rgba(0, 0, 0, 0.5);
-  z-index: 99;
+  z-index: 105;
 }
 
 /* Mobile Full-Screen Modal */
@@ -979,7 +982,7 @@ body {
   align-items: center;
   justify-content: center;
   border-radius: 12px;
-  transition: all 150ms ease-out;
+  transition: color 150ms ease-out, background-color 150ms ease-out, transform 150ms ease-out, opacity 150ms ease-out;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
@@ -1078,29 +1081,65 @@ body {
     rgba(255, 255, 255, 0.15) 50%,
     transparent 100%
   );
-  animation: shimmer 2s ease-in-out infinite;
+  /* Defer animation creation to hover to avoid idle GPU/animation overhead */
+  animation: none;
+  opacity: 0;
 }
 
-/* Library card performance optimizations */
+/* Only run shimmer on hover to avoid many concurrent GPU layers */
+.group:hover .progress-shimmer::after {
+  animation: shimmer 2s ease-in-out infinite;
+  opacity: 1;
+}
+
+/* Library card performance optimizations.
+   contain-intrinsic-size values should approximate the rendered card height
+   (cover aspect-ratio 2:3 + ~136px text area) to prevent scroll jumps. */
 .library-card {
   content-visibility: auto;
-  contain-intrinsic-size: 240px 360px;
-  /* Prevent layout recalculations during animations */
-  contain: layout style;
-  /* GPU acceleration for smooth hover transitions */
-  will-change: transform;
-  transform: translateZ(0);
-  backface-visibility: hidden;
+  contain-intrinsic-size: auto 150px auto 370px;
 }
 
-/* Remove will-change after hover completes to free GPU memory */
-.library-card:not(:hover) {
-  will-change: auto;
+@media (min-width: 640px) {
+  .library-card {
+    contain-intrinsic-size: auto 180px auto 400px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .library-card {
+    contain-intrinsic-size: auto 220px auto 440px;
+  }
+}
+
+/* Only promote to GPU layer on hover to avoid reserving memory for all cards */
+.library-card:hover {
+  will-change: transform;
 }
 
 /* Optimize grid layout for large lists */
 .library-grid-optimized {
   contain: layout style;
+}
+
+/* Isolate each library card to prevent sibling reflows */
+.library-card {
+  contain: layout style paint;
+}
+
+/* Fade-right mask for horizontally scrollable stat bars */
+.mask-fade-right {
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 32px), transparent 100%);
+  mask-image: linear-gradient(to right, black calc(100% - 32px), transparent 100%);
+}
+
+/* Remove fade mask when content wraps instead of scrolling (md+) */
+@media (min-width: 768px) {
+  .mask-fade-right {
+    -webkit-mask-image: none;
+    mask-image: none;
+    padding-right: 0;
+  }
 }
 
 /* Disable browser pinch-zoom to allow custom handling */
@@ -1121,11 +1160,9 @@ body {
 .skeleton {
   background: linear-gradient(
     90deg,
-    var(--color-bg-surface) 0%,
-    rgba(255, 255, 255, 0.05) 20%,
-    rgba(255, 255, 255, 0.1) 50%,
-    rgba(255, 255, 255, 0.05) 80%,
-    var(--color-bg-surface) 100%
+    var(--color-bg-surface) 25%,
+    rgba(255, 255, 255, 0.08) 50%,
+    var(--color-bg-surface) 75%
   );
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.5s ease-in-out infinite;
@@ -1210,10 +1247,6 @@ body {
   }
 }
 
-.animate-gradient-x {
-  background-size: 200% 200%;
-  animation: gradient-x 3s ease infinite;
-}
 
 /* Continue reading card glow */
 .continue-reading-glow {
@@ -1231,8 +1264,15 @@ body {
   );
   background-size: 200% 100%;
   border-radius: 18px;
-  opacity: 0.3;
+  opacity: 0;
   z-index: -1;
+  /* Defer animation creation until hover to avoid idle GPU work */
+  animation: none;
+  transition: opacity 0.3s ease;
+}
+
+.continue-reading-glow:hover::before {
+  opacity: 0.3;
   animation: gradient-x 4s linear infinite;
 }
 
@@ -1259,7 +1299,16 @@ body {
   border-radius: 50%;
   background: var(--color-accent-primary);
   animation: pulse-ring 2s ease-out infinite;
+  animation-play-state: paused;
   z-index: -1;
+  /* Only allocate GPU layer when animation is running */
+  will-change: auto;
+}
+
+.group:hover .play-button-pulse::before,
+.play-button-pulse:hover::before {
+  animation-play-state: running;
+  will-change: transform, opacity;
 }
 
 /* Card entrance animation */
@@ -1274,8 +1323,11 @@ body {
   }
 }
 
+/* will-change is omitted here — the animation is short (300ms) and one-shot,
+   so the compositor overhead of permanently reserving a GPU layer for every
+   card outweighs the brief benefit during the entrance animation. */
 .card-enter {
-  animation: card-enter 0.4s ease-out forwards;
+  animation: card-enter 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
   opacity: 0;
 }
 
@@ -1293,19 +1345,19 @@ body {
   animation: view-switch-enter 200ms ease-out forwards;
 }
 
-/* Staggered card animations */
+/* Staggered card animations (limited to first 12 items) */
 .card-stagger-1 { animation-delay: 0ms; }
-.card-stagger-2 { animation-delay: 40ms; }
-.card-stagger-3 { animation-delay: 80ms; }
-.card-stagger-4 { animation-delay: 120ms; }
-.card-stagger-5 { animation-delay: 160ms; }
-.card-stagger-6 { animation-delay: 200ms; }
-.card-stagger-7 { animation-delay: 240ms; }
-.card-stagger-8 { animation-delay: 280ms; }
-.card-stagger-9 { animation-delay: 320ms; }
-.card-stagger-10 { animation-delay: 360ms; }
-.card-stagger-11 { animation-delay: 400ms; }
-.card-stagger-12 { animation-delay: 440ms; }
+.card-stagger-2 { animation-delay: 30ms; }
+.card-stagger-3 { animation-delay: 60ms; }
+.card-stagger-4 { animation-delay: 90ms; }
+.card-stagger-5 { animation-delay: 120ms; }
+.card-stagger-6 { animation-delay: 150ms; }
+.card-stagger-7 { animation-delay: 180ms; }
+.card-stagger-8 { animation-delay: 210ms; }
+.card-stagger-9 { animation-delay: 240ms; }
+.card-stagger-10 { animation-delay: 270ms; }
+.card-stagger-11 { animation-delay: 300ms; }
+.card-stagger-12 { animation-delay: 330ms; }
 
 /* Completion badge animation - celebration for finishing a book! */
 @keyframes completion-celebrate {
@@ -1350,8 +1402,13 @@ body {
   inset: -2px;
   border-radius: 50%;
   background: rgba(22, 163, 74, 0.4);
-  animation: completion-ring 2s ease-out infinite;
+  /* Defer animation to hover to avoid idle GPU reservation */
+  animation: none;
   z-index: -1;
+}
+
+.group:hover .completion-badge::before {
+  animation: completion-ring 2s ease-out infinite;
 }
 
 /* Hover celebration effect */
@@ -1361,9 +1418,8 @@ body {
 
 /* Improved filter button styling */
 .filter-btn-group {
-  background: linear-gradient(135deg, var(--color-bg-surface) 0%, rgba(45, 52, 54, 0.8) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  background: linear-gradient(135deg, var(--color-bg-surface) 0%, var(--color-bg-deep) 100%);
+  border: 1px solid var(--color-border-subtle);
 }
 
 .filter-btn {
@@ -1375,7 +1431,7 @@ body {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, transparent 0%, rgba(255, 255, 255, 0.03) 100%);
+  background: linear-gradient(135deg, transparent 0%, rgba(255, 255, 255, 0.06) 100%);
   opacity: 0;
   transition: opacity 150ms ease;
 }
@@ -1385,8 +1441,8 @@ body {
 }
 
 .filter-btn-active {
-  background: linear-gradient(135deg, rgba(162, 155, 254, 0.25) 0%, rgba(162, 155, 254, 0.15) 100%);
-  box-shadow: inset 0 0 12px rgba(162, 155, 254, 0.2);
+  background: linear-gradient(135deg, rgba(162, 155, 254, 0.35) 0%, rgba(162, 155, 254, 0.22) 100%);
+  border: 1px solid rgba(162, 155, 254, 0.25);
 }
 
 /* Collection dropdown styling */
@@ -1397,7 +1453,7 @@ body {
   background-position: right 10px center;
   padding-right: 32px;
   cursor: pointer;
-  transition: all 150ms ease;
+  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
 }
 
 .collection-select:hover {
@@ -1415,18 +1471,17 @@ body {
    ================================================ */
 
 [data-theme="light"] .filter-btn-group {
-  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  background: linear-gradient(135deg, var(--color-bg-surface) 0%, #f8f9fa 100%);
   border: 1px solid rgba(0, 0, 0, 0.1);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 [data-theme="light"] .filter-btn::after {
-  background: linear-gradient(135deg, transparent 0%, rgba(0, 0, 0, 0.02) 100%);
+  background: linear-gradient(135deg, transparent 0%, rgba(0, 0, 0, 0.04) 100%);
 }
 
 [data-theme="light"] .filter-btn-active {
-  background: linear-gradient(135deg, rgba(108, 92, 231, 0.15) 0%, rgba(108, 92, 231, 0.08) 100%);
-  box-shadow: inset 0 0 8px rgba(108, 92, 231, 0.15);
+  background: linear-gradient(135deg, rgba(108, 92, 231, 0.22) 0%, rgba(108, 92, 231, 0.12) 100%);
+  border: 1px solid rgba(108, 92, 231, 0.18);
 }
 
 [data-theme="light"] .collection-select {
@@ -1444,12 +1499,19 @@ body {
 [data-theme="light"] .skeleton {
   background: linear-gradient(
     90deg,
-    #f0f0f0 0%,
-    #e8e8e8 20%,
-    #e0e0e0 50%,
-    #e8e8e8 80%,
-    #f0f0f0 100%
+    #ebe8e2 25%,
+    #ddd9d2 50%,
+    #ebe8e2 75%
   );
+  background-size: 200% 100%;
+}
+
+/* Hide native search input clear button — app provides its own */
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
 }
 
 /* Light mode search input */
@@ -1468,28 +1530,29 @@ body {
 }
 
 /* Light mode continue reading card */
-[data-theme="light"] .continue-reading-glow::before {
-  opacity: 0.2;
+[data-theme="light"] .continue-reading-glow:hover::before {
+  opacity: 0.35;
 }
 
-/* Light mode card surfaces */
-[data-theme="light"] .bg-bg-surface {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+/* Light mode card surfaces — scoped to library cards to reduce box-shadow count */
+[data-theme="light"] .library-card {
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.07);
 }
 
-/* Light mode empty state */
+[data-theme="light"] .library-card:hover {
+  border-color: rgba(108, 92, 231, 0.35);
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.14), 0 0 0 1px rgba(108, 92, 231, 0.2);
+}
+
+/* Light mode default cover — darken the background slightly so gradients are visible */
+[data-theme="light"] .library-card .bg-bg-deep {
+  background-color: #ebe8e2;
+}
+
+/* Light mode empty state — reuse pulse-glow with lighter initial shadow */
 [data-theme="light"] .animate-pulse-glow {
   box-shadow: 0 0 20px rgba(108, 92, 231, 0.1);
-  animation: pulse-glow-light 2s ease-in-out infinite;
-}
-
-@keyframes pulse-glow-light {
-  0%, 100% {
-    box-shadow: 0 0 20px rgba(108, 92, 231, 0.1);
-  }
-  50% {
-    box-shadow: 0 0 30px rgba(108, 92, 231, 0.2);
-  }
 }
 
 /* Light mode hover lift shadow */
@@ -1561,23 +1624,27 @@ body {
 /* Reduce paint on frequently animated elements */
 .perf-optimize {
   contain: layout style;
-  will-change: transform, opacity;
 }
 
-/* High-performance hover transitions using only transform/opacity */
+/* High-performance hover transitions using only transform/opacity.
+   box-shadow transitions are limited to border-color to reduce paint;
+   the shadow itself jumps on hover to avoid per-frame paint.
+   will-change is promoted only on hover to avoid reserving GPU memory
+   for every card in the library. */
 .hover-lift {
   transition: transform 200ms cubic-bezier(0.25, 0.8, 0.25, 1),
-              box-shadow 200ms ease-out;
+              border-color 200ms ease-out;
 }
 
 .hover-lift:hover {
-  transform: translateY(-4px) scale(1.01);
+  will-change: transform;
+  transform: translateY(-4px) scale(1.015);
   box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.25);
 }
 
 .hover-lift:active {
-  transform: translateY(-2px) scale(0.99);
-  transition-duration: 50ms;
+  transform: translateY(-2px) scale(0.98);
+  transition-duration: 75ms;
 }
 
 /* Confirm Dialog Animations */
@@ -1629,23 +1696,6 @@ body {
   animation: dialog-panel-out 150ms ease-in forwards;
 }
 
-/* GPU-accelerated fade animations */
-.fade-in-up {
-  animation: fade-in-up 300ms cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
-  will-change: transform, opacity;
-}
-
-@keyframes fade-in-up {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 /* Save indicator checkmark draw animation */
 .save-indicator-checkmark {
   stroke-dasharray: 24;
@@ -1676,8 +1726,7 @@ body {
   }
 
   .library-card {
-    will-change: auto;
-    transform: none;
+    content-visibility: visible;
   }
 
   .progress-shimmer::after {
@@ -1685,9 +1734,15 @@ body {
   }
 
   .animate-float,
-  .animate-pulse-glow,
-  .animate-gradient-x {
+  .animate-pulse-glow {
     animation: none;
+  }
+
+  /* Remove GPU layer hints when animations are disabled */
+  .hover-lift,
+  .card-enter,
+  .will-change-transform {
+    will-change: auto;
   }
 }
 
@@ -1717,24 +1772,32 @@ body {
               0 0 0 4px var(--color-accent-primary);
 }
 
+/* Global focus-visible fallback for interactive elements that lack
+   explicit focus styles. Uses :where() for zero specificity so any
+   component-level focus-visible styles will override it. */
+:where(a, button, input, select, textarea, [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: 3px;
+}
+
 /* Skip link for keyboard navigation */
 .skip-link {
-  position: absolute;
-  top: -100px;
+  position: fixed;
+  top: 16px;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%) translateY(-150px);
   z-index: 1000;
   padding: 12px 24px;
-  background: var(--color-accent-primary);
-  color: var(--color-bg-deep);
+  background: #5b4cdb;
+  color: #ffffff;
   border-radius: 8px;
   font-weight: 600;
   text-decoration: none;
-  transition: top 150ms ease;
+  transition: transform 150ms ease;
 }
 
 .skip-link:focus {
-  top: 16px;
+  transform: translateX(-50%) translateY(0);
 }
 
 /* ================================================
@@ -1783,7 +1846,7 @@ body {
 
 /* Card action buttons with better hover effects */
 .card-action-btn {
-  transition: all 200ms cubic-bezier(0.25, 0.8, 0.25, 1);
+  transition: transform 200ms cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 200ms cubic-bezier(0.25, 0.8, 0.25, 1), color 200ms cubic-bezier(0.25, 0.8, 0.25, 1), background-color 200ms cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 .card-action-btn:hover {
@@ -1855,31 +1918,6 @@ body {
    Loading States
    ================================================ */
 
-/* Pulse loading animation */
-.loading-pulse {
-  animation: loading-pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes loading-pulse {
-  0%, 100% {
-    opacity: 0.5;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-/* Smooth content loading */
-.content-loading {
-  opacity: 0;
-  animation: content-appear 200ms ease-out forwards;
-}
-
-@keyframes content-appear {
-  to {
-    opacity: 1;
-  }
-}
 
 /* ================================================
    Metadata Pane
@@ -1894,6 +1932,7 @@ body {
 .library-page-main {
   flex: 1;
   min-width: 0;
+  max-width: 1800px;
   overflow-x: hidden;
 }
 
@@ -1996,10 +2035,10 @@ body {
 
 .metadata-close-btn {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  width: 32px;
-  height: 32px;
+  top: 8px;
+  right: 8px;
+  width: 44px;
+  height: 44px;
   border-radius: 8px;
   display: flex;
   align-items: center;
@@ -2008,7 +2047,17 @@ body {
   border: none;
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: all 150ms ease;
+  transition: color 150ms ease, background-color 150ms ease, transform 150ms ease;
+}
+
+/* Desktop can use smaller visual size */
+@media (hover: hover) and (pointer: fine) {
+  .metadata-close-btn {
+    top: 12px;
+    right: 12px;
+    width: 32px;
+    height: 32px;
+  }
 }
 
 .metadata-close-btn:hover {
@@ -2155,7 +2204,7 @@ body {
   border: none;
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: all 150ms ease;
+  transition: color 150ms ease, background-color 150ms ease;
 }
 
 .metadata-copy-btn:hover {

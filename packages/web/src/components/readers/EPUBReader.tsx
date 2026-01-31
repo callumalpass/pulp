@@ -952,7 +952,7 @@ export function EPUBReader({ note }: EPUBReaderProps) {
         aria-hidden={!headerVisible}
       >
         <div
-          className="h-full bg-current/40 transition-all duration-300"
+          className="h-full bg-current/40 transition-[width] duration-300 will-change-[width]"
           style={{ width: `${progress}%` }}
         />
       </div>

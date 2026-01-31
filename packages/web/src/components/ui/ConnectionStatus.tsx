@@ -16,13 +16,16 @@ export function ConnectionStatus() {
     >
       {status === 'connecting' ? (
         <>
-          <span className="w-1.5 h-1.5 rounded-full bg-yellow-500/80 animate-pulse" />
+          <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
           <span className="text-text-secondary">Connecting...</span>
         </>
       ) : (
         <>
-          <span className="w-1.5 h-1.5 rounded-full bg-red-400/80" />
-          <span className="text-text-secondary">Offline</span>
+          <span className="relative flex w-2 h-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+            <span className="relative inline-flex rounded-full w-2 h-2 bg-red-400" />
+          </span>
+          <span className="text-red-400">Offline</span>
         </>
       )}
     </div>

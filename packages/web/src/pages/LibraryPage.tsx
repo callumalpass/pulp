@@ -50,8 +50,8 @@ const SORT_FILTER_OPTIONS: FilterOption<SortOption>[] = (
 ).map((key) => ({ value: key, label: SORT_LABELS[key] }));
 
 const SEARCH_MODE_OPTIONS: FilterOption<SearchMode>[] = [
-  { value: 'title', label: <><TitleIcon className="w-4 h-4" /><span className="hidden sm:inline">Title</span></>, ariaLabel: 'Search by title' },
-  { value: 'content', label: <><ContentIcon className="w-4 h-4" /><span className="hidden sm:inline">Content</span></>, ariaLabel: 'Search document contents' },
+  { value: 'title', label: <><TitleIcon className="w-4 h-4" /><span className="hidden sm:inline">Title</span></>, ariaLabel: 'Title search mode' },
+  { value: 'content', label: <><ContentIcon className="w-4 h-4" /><span className="hidden sm:inline">Content</span></>, ariaLabel: 'Content search mode' },
 ];
 
 const VIEW_MODE_OPTIONS: FilterOption<ViewMode>[] = [
@@ -212,10 +212,12 @@ function LibraryPageContent() {
     return excludeContinueReadingBook(filteredNotes, continueReadingBook);
   }, [filteredNotes, showContinueReading, continueReadingBook]);
 
-  // Show connection error when disconnected and fetching or no data
-  const showConnectionError = connectionStatus === 'disconnected' && (isFetching || !notes);
+  // Show connection error when disconnected and we have no cached data to display.
+  // During the initial load (isLoading), always prefer the skeleton so users see
+  // a loading state rather than an immediate "Connection Lost" message.
+  const showConnectionError = connectionStatus === 'disconnected' && !notes && !isLoading;
 
-  if (isLoading && !showConnectionError) {
+  if (isLoading) {
     return (
       <div className="p-6 page-transition" role="status" aria-label="Loading library">
         <span className="sr-only">Loading your library...</span>
@@ -223,24 +225,31 @@ function LibraryPageContent() {
         <div className="flex flex-col gap-4 mb-6">
           <div className="flex gap-2">
             <div className="flex-1 h-11 skeleton rounded-xl" />
-            <div className="w-28 h-11 skeleton rounded-xl" />
+            {/* Search mode toggle skeleton (Title / Content) */}
+            <div className="w-40 h-11 skeleton rounded-xl" />
           </div>
           {/* Filter row skeleton — matches the two-row Type/Status + Sort layout */}
           {!isMobile && (
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3 gap-y-3">
               {/* Type label + buttons */}
               <div className="w-8 h-4 skeleton rounded" />
               <div className="w-32 h-9 skeleton rounded-xl" />
               {/* Status label + buttons */}
               <div className="w-10 h-4 skeleton rounded" />
               <div className="w-48 h-9 skeleton rounded-xl" />
-              <div className="flex-1" />
+              {/* Collection dropdown */}
+              <div className="w-16 h-4 skeleton rounded" />
+              <div className="w-24 h-9 skeleton rounded-xl" />
+              <div className="flex-1 min-w-[2rem]" />
               {/* View toggle */}
               <div className="w-8 h-4 skeleton rounded" />
               <div className="w-20 h-9 skeleton rounded-xl" />
-              {/* Sort buttons */}
+              {/* Sort buttons + order toggle */}
               <div className="w-8 h-4 skeleton rounded" />
               <div className="w-64 h-9 skeleton rounded-xl" />
+              <div className="w-11 h-9 skeleton rounded-xl" />
+              {/* Keyboard shortcuts */}
+              <div className="w-11 h-9 skeleton rounded-lg" />
             </div>
           )}
         </div>
@@ -312,7 +321,7 @@ function LibraryPageContent() {
         <p className="text-text-secondary text-center max-w-md mb-2 leading-relaxed">
           Start building your reading collection by adding literature notes with linked PDFs or EPUBs.
         </p>
-        <p className="text-text-secondary/60 text-sm text-center max-w-md mb-8 leading-relaxed">
+        <p className="text-text-secondary text-sm text-center max-w-md mb-8 leading-relaxed">
           Place your markdown files in your configured library folder and link them to documents using the <code className="px-1.5 py-0.5 rounded-md bg-bg-surface text-accent-secondary text-xs font-mono">source</code> frontmatter key.
         </p>
         <Button variant="secondary" onClick={() => refetch()}>
@@ -336,6 +345,8 @@ function LibraryPageContent() {
               type="search"
               placeholder={searchMode === 'title' ? 'Search by title...' : 'Search document contents...'}
               aria-label={searchMode === 'title' ? 'Search by title' : 'Search document contents'}
+              aria-describedby="search-shortcut-hint"
+              aria-keyshortcuts="/"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -343,20 +354,21 @@ function LibraryPageContent() {
                   searchInputRef.current?.blur();
                 }
               }}
-              className="w-full pl-10 pr-10 py-2.5 bg-bg-surface border border-subtle rounded-xl text-text-primary placeholder:text-text-secondary/60 focus:outline-none focus:ring-2 focus:ring-accent-primary/30 focus:border-accent-primary/50 transition-[border-color,box-shadow] duration-200 hover:border-text-secondary/30"
+              className="w-full pl-10 pr-12 py-2.5 bg-bg-surface border border-subtle rounded-xl text-text-primary placeholder:text-text-secondary/60 focus:outline-none focus:ring-2 focus:ring-accent-primary/30 focus:border-accent-primary/50 focus-visible:ring-2 focus-visible:ring-accent-primary/40 focus-visible:border-accent-primary/50 transition-[border-color,box-shadow] duration-200 hover:border-text-secondary/30"
             />
             {/* Keyboard shortcut hint */}
+            <span id="search-shortcut-hint" className="sr-only">Press / to focus search</span>
             {!searchQuery && (
-              <kbd className="absolute right-3 top-1/2 -translate-y-1/2 hidden sm:flex items-center justify-center w-5 h-5 text-[10px] font-mono text-text-secondary/50 border border-text-secondary/20 rounded group-focus-within/search:opacity-0 transition-opacity duration-150 pointer-events-none">/</kbd>
+              <kbd className="absolute right-3 top-1/2 -translate-y-1/2 hidden sm:flex items-center justify-center w-5 h-5 text-xs font-mono text-text-secondary/50 border border-text-secondary/20 rounded group-focus-within/search:opacity-0 transition-opacity duration-150 pointer-events-none" aria-hidden="true">/</kbd>
             )}
             <button
               onClick={() => setSearchQuery('')}
               type="button"
               aria-label="Clear search"
-              className={`absolute right-1 top-1/2 -translate-y-1/2 min-w-[44px] min-h-[44px] w-11 h-11 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-deep/50 transition-[color,background-color,opacity,transform] duration-150 ${
+              className={`absolute right-1 top-1/2 -translate-y-1/2 z-10 w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-deep/50 transition-[color,background-color,opacity] duration-150 ${
                 searchQuery
-                  ? 'opacity-100 scale-100'
-                  : 'opacity-0 scale-75 pointer-events-none'
+                  ? 'opacity-100'
+                  : 'opacity-0 pointer-events-none'
               }`}
               tabIndex={searchQuery ? 0 : -1}
             >
@@ -439,10 +451,10 @@ function LibraryPageContent() {
             </div>
           ) : (
             /* Desktop: Inline filters */
-            <div className="flex flex-wrap items-center gap-3 gap-y-2">
+            <div className="flex flex-wrap items-center gap-3 gap-y-3">
               {/* Type filter */}
               <div className="flex items-center gap-1.5">
-                <span className="text-xs text-text-secondary/70 uppercase tracking-wider font-medium">Type</span>
+                <span className="text-xs text-text-secondary uppercase tracking-wider font-medium">Type</span>
                 <FilterButtonGroup
                   options={TYPE_FILTER_OPTIONS}
                   value={typeFilter}
@@ -452,7 +464,7 @@ function LibraryPageContent() {
 
               {/* Progress filter */}
               <div className="flex items-center gap-1.5">
-                <span className="text-xs text-text-secondary/70 uppercase tracking-wider font-medium">Status</span>
+                <span className="text-xs text-text-secondary uppercase tracking-wider font-medium">Status</span>
                 <FilterButtonGroup
                   options={PROGRESS_FILTER_OPTIONS}
                   value={progressFilter}
@@ -463,11 +475,12 @@ function LibraryPageContent() {
               {/* Collection filter */}
               {availableCollections.length > 0 && (
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-text-secondary/70 uppercase tracking-wider font-medium">Collection</span>
+                  <span className="text-xs text-text-secondary uppercase tracking-wider font-medium">Collection</span>
                   <select
                     value={collectionFilter || ''}
                     onChange={(e) => setCollectionFilter(e.target.value || null)}
-                    className="collection-select px-3 py-2 text-sm bg-bg-surface border border-subtle rounded-xl text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50 focus-visible:border-accent-primary/50 min-h-[38px]"
+                    aria-label="Filter by collection"
+                    className="collection-select px-3 py-2 text-sm bg-bg-surface border border-subtle rounded-xl text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50 focus-visible:border-accent-primary/50 min-h-[44px]"
                   >
                     <option value="">All</option>
                     {availableCollections.map((collection) => (
@@ -479,12 +492,13 @@ function LibraryPageContent() {
                 </div>
               )}
 
-              {/* Spacer */}
-              <div className="flex-1" />
+              {/* Spacer — flexible so right-side controls align right; on narrow
+                   widths this collapses, allowing items to wrap naturally. */}
+              <div className="flex-1 min-w-[2rem]" />
 
               {/* View mode toggle */}
               <div className="flex items-center gap-1.5">
-                <span className="text-xs text-text-secondary/70 uppercase tracking-wider font-medium">View</span>
+                <span className="text-xs text-text-secondary uppercase tracking-wider font-medium">View</span>
                 <FilterButtonGroup
                   options={VIEW_MODE_OPTIONS}
                   value={viewMode}
@@ -494,7 +508,7 @@ function LibraryPageContent() {
 
               {/* Sort controls */}
               <div className="flex items-center gap-1.5">
-                <span className="text-xs text-text-secondary/70 uppercase tracking-wider font-medium">Sort</span>
+                <span className="text-xs text-text-secondary uppercase tracking-wider font-medium">Sort</span>
                 <FilterButtonGroup
                   options={SORT_FILTER_OPTIONS}
                   value={sort}
@@ -503,8 +517,12 @@ function LibraryPageContent() {
                 <button
                   onClick={toggleSortOrder}
                   type="button"
-                  className="w-10 h-10 flex items-center justify-center rounded-xl filter-btn-group text-text-secondary hover:text-accent-primary hover:bg-bg-deep transition-[color,background-color,transform] duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
-                  title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+                  className={`w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl filter-btn-group hover:text-accent-primary hover:bg-bg-deep transition-[color,background-color,transform] duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary ${
+                    sortOrder === 'asc'
+                      ? 'text-accent-primary bg-accent-primary/10'
+                      : 'text-text-secondary'
+                  }`}
+                  title={sortOrder === 'asc' ? 'Sort ascending — click to switch to descending' : 'Sort descending — click to switch to ascending'}
                   aria-label={`Sort order: ${sortOrder === 'asc' ? 'ascending' : 'descending'}`}
                   aria-pressed={sortOrder === 'asc'}
                 >
@@ -520,7 +538,7 @@ function LibraryPageContent() {
               <button
                 onClick={() => setShowShortcuts(true)}
                 type="button"
-                className="w-10 h-10 flex items-center justify-center rounded-lg text-text-secondary/50 hover:text-text-secondary hover:bg-bg-deep transition-[color,background-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+                className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-text-secondary/70 hover:text-text-primary hover:bg-bg-deep transition-[color,background-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
                 title="Keyboard shortcuts (?)"
                 aria-label="Show keyboard shortcuts"
               >
@@ -539,7 +557,7 @@ function LibraryPageContent() {
               <button
                 onClick={handleClearFilters}
                 type="button"
-                className="text-accent-primary hover:underline transition-colors"
+                className="text-accent-primary hover:underline transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-deep rounded"
               >
                 Clear filters
               </button>
@@ -696,9 +714,9 @@ const FilterButtonGroup = memo(function FilterButtonGroup<T extends string>({
     <div ref={containerRef} className="flex rounded-xl filter-btn-group overflow-hidden relative">
       {/* Sliding indicator */}
       <div
-        className="absolute top-0 h-full filter-btn-active rounded-xl transition-[left,width,opacity] duration-200 ease-out pointer-events-none"
+        className="absolute top-0 left-0 h-full filter-btn-active rounded-xl transition-[transform,width,opacity] duration-200 ease-out pointer-events-none"
         style={{
-          left: indicatorStyle.left,
+          transform: `translateX(${indicatorStyle.left}px)`,
           width: indicatorStyle.width,
           opacity: indicatorStyle.width > 0 ? 1 : 0,
         }}
@@ -712,7 +730,7 @@ const FilterButtonGroup = memo(function FilterButtonGroup<T extends string>({
           aria-pressed={value === opt.value}
           aria-label={opt.ariaLabel}
           title={opt.ariaLabel}
-          className={`filter-btn ${opt.iconOnly ? 'p-2.5 min-h-[44px] min-w-[44px] sm:min-h-[38px] sm:min-w-[38px] flex items-center justify-center' : 'px-3.5 py-2 min-h-[44px] sm:min-h-[38px] flex items-center gap-1.5'} text-sm transition-colors duration-150 select-none relative z-[1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-inset rounded-xl ${
+          className={`filter-btn ${opt.iconOnly ? 'p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center' : 'px-3.5 py-2 min-h-[44px] flex items-center gap-1.5'} text-sm transition-colors duration-150 select-none relative z-[1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-inset rounded-xl ${
             value === opt.value
               ? 'text-accent-primary font-semibold'
               : 'text-text-secondary font-medium hover:text-text-primary'
@@ -741,11 +759,11 @@ const FilteredEmptyState = memo(function FilteredEmptyState({
       <div className="relative mb-5">
         <div className="absolute -inset-4 bg-accent-primary/5 rounded-full blur-xl" />
         <div className="relative p-4 bg-bg-surface rounded-2xl border border-subtle animate-search-peek">
-          <SearchIcon className="w-10 h-10 text-text-secondary/50" />
+          <SearchIcon className="w-10 h-10 text-text-secondary" />
         </div>
       </div>
       <p className="text-lg font-semibold text-text-primary mb-1">Nothing here</p>
-      <p className="text-sm text-text-secondary/70 mb-6 text-center max-w-xs">
+      <p className="text-sm text-text-secondary mb-6 text-center max-w-xs">
         {query
           ? <>No books matching <span className="text-text-primary font-medium">"{query}"</span>. Maybe it's on your to-read list?</>
           : 'No books match these filters. Try loosening things up.'}
@@ -860,7 +878,7 @@ const SectionHeader = memo(function SectionHeader({ children, icon }: { children
       {icon && (
         <span className="text-accent-primary/70">{icon}</span>
       )}
-      <h2 className="text-xs font-semibold tracking-wider text-text-secondary uppercase">
+      <h2 className="text-[0.8125rem] font-semibold tracking-wider text-text-secondary uppercase">
         {children}
       </h2>
     </div>

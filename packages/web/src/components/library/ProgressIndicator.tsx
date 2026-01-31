@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { clsx } from 'clsx';
 
 interface ProgressIndicatorProps {
@@ -13,7 +13,7 @@ interface ProgressIndicatorProps {
   variant?: 'primary' | 'gradient';
 }
 
-export function ProgressIndicator({
+export const ProgressIndicator = memo(function ProgressIndicator({
   progress,
   showLabel = false,
   className,
@@ -44,10 +44,10 @@ export function ProgressIndicator({
       aria-valuemax={100}
       aria-label={isComplete ? 'Completed' : `${Math.round(percentage)}% complete`}
     >
-      <div className={clsx('flex-1 bg-bg-deep/80 rounded-full overflow-hidden', height)}>
+      <div className={clsx('flex-1 rounded-full overflow-hidden', height === 'h-2' ? 'bg-text-secondary/15' : 'bg-text-secondary/10', height)}>
         <div
           className={clsx(
-            'h-full rounded-full transition-all duration-500 ease-out relative overflow-hidden',
+            'h-full rounded-full transition-[width] duration-500 ease-out relative overflow-hidden',
             variant === 'gradient'
               ? 'bg-gradient-to-r from-accent-primary to-accent-secondary'
               : isComplete
@@ -55,7 +55,7 @@ export function ProgressIndicator({
                 : 'bg-accent-primary',
             !isComplete && 'progress-shimmer'
           )}
-          style={{ width: `${displayedProgress}%` }}
+          style={{ width: `${displayedProgress}%`, minWidth: displayedProgress > 0 ? (height === 'h-2' ? '16px' : '12px') : 0 }}
         />
       </div>
       {showLabel && (
@@ -71,4 +71,4 @@ export function ProgressIndicator({
       )}
     </div>
   );
-}
+});

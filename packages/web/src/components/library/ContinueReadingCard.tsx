@@ -30,20 +30,16 @@ export function ContinueReadingCard({ note }: ContinueReadingCardProps) {
       aria-label={`Continue reading ${note.title}. ${Math.round(note.progress)}% complete${estimatedTime ? `, ${estimatedTime} remaining` : ''}`}
       className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-deep rounded-2xl block"
     >
-      <div className="relative flex gap-4 p-4 bg-bg-surface rounded-2xl border border-accent-primary/20 hover:border-accent-primary/40 transition-all duration-200 group overflow-hidden hover:shadow-lg hover:shadow-black/20 continue-reading-glow active:scale-[0.99] active:transition-transform active:duration-75">
-        {/* Animated gradient border effect */}
-        <div className="absolute -inset-[1px] bg-gradient-to-r from-accent-primary/30 via-accent-secondary/30 to-accent-primary/30 rounded-2xl opacity-50 blur-sm group-hover:opacity-80 transition-opacity animate-gradient-x" />
-        <div className="absolute inset-0 bg-bg-surface rounded-2xl" />
-        {/* Subtle gradient accent */}
-        <div className="absolute inset-0 bg-gradient-to-r from-accent-primary/5 via-transparent to-accent-secondary/5 opacity-50 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl" />
+      <div className="relative flex gap-3 sm:gap-5 p-3 sm:p-5 bg-bg-surface rounded-2xl border border-accent-primary/20 hover:border-accent-primary/40 transition-[border-color,box-shadow,transform] duration-200 group overflow-hidden hover:shadow-lg hover:shadow-black/20 continue-reading-glow active:scale-[0.99] active:transition-transform active:duration-75 max-w-2xl">
 
         {/* Cover thumbnail */}
-        <div className="relative w-16 h-24 flex-shrink-0 bg-bg-deep rounded-xl overflow-hidden shadow-md shadow-black/20 group-hover:shadow-lg transition-shadow">
+        <div className="relative w-14 sm:w-20 h-[84px] sm:h-[120px] flex-shrink-0 bg-bg-surface rounded-xl overflow-hidden shadow-md shadow-black/10 group-hover:shadow-lg transition-shadow border border-subtle">
           {note.cover && !imageError ? (
             <img
               src={api.covers.getUrl(note.id)}
               alt={note.title}
               className={`w-full h-full object-cover transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+              loading="eager"
               onLoad={() => setImageLoaded(true)}
               onError={() => setImageError(true)}
             />
@@ -66,7 +62,7 @@ export function ContinueReadingCard({ note }: ContinueReadingCardProps) {
 
         {/* Book info */}
         <div className="relative flex-1 min-w-0 flex flex-col justify-center">
-          <h3 className="text-base font-semibold text-text-primary line-clamp-2 sm:line-clamp-1 group-hover:text-accent-primary transition-colors leading-tight">
+          <h3 className="text-sm sm:text-base font-semibold text-text-primary line-clamp-2 group-hover:text-accent-primary transition-colors leading-tight">
             {note.title}
           </h3>
           {note.author && (
@@ -76,13 +72,13 @@ export function ContinueReadingCard({ note }: ContinueReadingCardProps) {
           )}
 
           {/* Progress bar */}
-          <div className="mt-3">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs font-medium text-text-secondary tabular-nums">
+          <div className="mt-2 sm:mt-3">
+            <div className="flex items-baseline justify-between gap-2 mb-1">
+              <span className="text-xs font-medium text-text-secondary tabular-nums whitespace-nowrap">
                 {animatedProgress}% complete
               </span>
               {estimatedTime && (
-                <span className="text-xs font-medium text-accent-secondary">
+                <span className="text-xs font-medium text-accent-secondary whitespace-nowrap">
                   {estimatedTime} left
                 </span>
               )}
@@ -93,21 +89,21 @@ export function ContinueReadingCard({ note }: ContinueReadingCardProps) {
           {/* Stats row */}
           <div className="flex items-center gap-3 mt-2.5 text-xs text-text-secondary">
             {bookStats && bookStats.totalReadingTimeMs > 0 && (
-              <span className="flex items-center gap-1.5">
-                <ClockIcon className="w-3.5 h-3.5" />
+              <span className="flex items-center gap-1.5 whitespace-nowrap">
+                <ClockIcon className="w-3.5 h-3.5 shrink-0" />
                 {getFormattedReadingTime(bookStats.totalReadingTimeMs)} read
               </span>
             )}
             {note.lastRead && (
-              <span className="opacity-70">Last read {formatLastRead(note.lastRead)}</span>
+              <span className="opacity-70 whitespace-nowrap">Last read {formatLastRead(note.lastRead)}</span>
             )}
           </div>
         </div>
 
         {/* Continue button */}
-        <div className="relative flex items-center">
-          <div className="play-button-pulse w-12 h-12 flex items-center justify-center rounded-full bg-accent-primary text-bg-deep group-hover:scale-105 transition-all duration-200">
-            <PlayIcon className="w-5 h-5 ml-0.5" />
+        <div className="relative flex items-center shrink-0" aria-hidden="true">
+          <div className="play-button-pulse w-9 h-9 sm:w-12 sm:h-12 flex items-center justify-center rounded-full bg-accent-primary text-bg-deep group-hover:scale-105 transition-transform duration-200">
+            <PlayIcon className="w-3.5 h-3.5 sm:w-5 sm:h-5 ml-0.5" />
           </div>
         </div>
       </div>
@@ -134,9 +130,9 @@ function PlayIcon({ className }: { className?: string }) {
 
 export function ContinueReadingCardSkeleton() {
   return (
-    <div className="flex gap-4 p-4 bg-bg-surface rounded-2xl border border-white/[0.05]">
+    <div className="flex gap-5 p-5 bg-bg-surface rounded-2xl border border-accent-primary/20">
       {/* Cover thumbnail skeleton */}
-      <div className="w-16 h-24 flex-shrink-0 skeleton rounded-xl" />
+      <div className="w-20 h-[120px] flex-shrink-0 skeleton rounded-xl" />
 
       {/* Book info skeleton */}
       <div className="flex-1 min-w-0 flex flex-col justify-center">

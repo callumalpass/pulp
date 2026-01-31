@@ -119,17 +119,18 @@ describe('useAnimatedCounter', () => {
   });
 
   describe('initial state', () => {
-    it('initializes count to 0', () => {
+    it('initializes count to safeTarget', () => {
       useAnimatedCounter(100);
 
-      expect(mockUseState).toHaveBeenCalledWith(0);
+      expect(mockUseState).toHaveBeenCalledWith(100);
     });
 
-    it('creates refs for startTime and raf id', () => {
+    it('creates refs for startTime, raf id, and target', () => {
       useAnimatedCounter(100);
 
       expect(mockUseRef).toHaveBeenCalledWith(null);
-      expect(mockUseRef).toHaveBeenCalledTimes(2);
+      expect(mockUseRef).toHaveBeenCalledWith(100);
+      expect(mockUseRef).toHaveBeenCalledTimes(3);
     });
   });
 
@@ -412,14 +413,14 @@ describe('useAnimatedCounter', () => {
       expect(stateValue).toBe(-100);
     });
 
-    it('returns 0 when count becomes NaN somehow', () => {
-      // The hook has a safety check: Number.isFinite(count) ? count : 0
+    it('returns safeTarget when count becomes NaN somehow', () => {
+      // The hook has a safety check: Number.isFinite(count) ? count : safeTarget
       // This test verifies that behavior by checking the return value
       const result = useAnimatedCounter(100);
 
-      // The initial return value should be a number (0)
+      // The initial return value should be the safeTarget (100)
       expect(Number.isFinite(result)).toBe(true);
-      expect(result).toBe(0);
+      expect(result).toBe(100);
     });
   });
 

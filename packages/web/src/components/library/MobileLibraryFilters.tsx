@@ -95,7 +95,7 @@ export function MobileLibraryFilters({
         id={dialogId}
         role="dialog"
         aria-modal="true"
-        aria-label="Library filters"
+        aria-labelledby={`${dialogId}-title`}
       >
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
@@ -104,11 +104,11 @@ export function MobileLibraryFilters({
 
         {/* Header with title and close button */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-text-secondary/10">
-          <h2 className="text-base font-semibold text-text-primary">Filters</h2>
+          <h2 id={`${dialogId}-title`} className="text-base font-semibold text-text-primary">Filters</h2>
           <button
             onClick={onClose}
             type="button"
-            className="px-4 py-1.5 text-sm font-semibold bg-accent-primary text-white rounded-lg transition-all duration-150 hover:bg-accent-primary/90 active:scale-95"
+            className="px-4 py-1.5 text-sm font-semibold bg-accent-primary text-white rounded-lg transition-[background-color,transform] duration-150 hover:bg-accent-primary/90 active:scale-95"
             aria-label="Close filters"
           >
             Done
@@ -130,6 +130,14 @@ export function MobileLibraryFilters({
               <FilterButton
                 active={typeFilter === 'all'}
                 onClick={() => handleTypeSelect('all')}
+                icon={
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="3" y="3" width="7" height="7" rx="1" />
+                    <rect x="14" y="3" width="7" height="7" rx="1" />
+                    <rect x="3" y="14" width="7" height="7" rx="1" />
+                    <rect x="14" y="14" width="7" height="7" rx="1" />
+                  </svg>
+                }
               >
                 All
               </FilterButton>
@@ -205,7 +213,7 @@ export function MobileLibraryFilters({
             <button
               onClick={onSortOrderToggle}
               type="button"
-              className="mt-3 w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-bg-surface border border-subtle text-text-primary transition-all duration-150 active:scale-[0.98] active:bg-accent-primary/10"
+              className="mt-3 w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-bg-surface border border-subtle text-text-primary transition-[background-color,transform] duration-150 active:scale-[0.98] active:bg-accent-primary/10"
               aria-label={`Sort order: ${sortOrder === 'asc' ? 'ascending' : 'descending'}`}
             >
               {sortOrder === 'asc' ? (
@@ -231,7 +239,7 @@ export function MobileLibraryFilters({
             <button
               onClick={handleClearAndClose}
               type="button"
-              className="w-full py-3.5 px-4 rounded-xl bg-accent-primary/20 text-accent-primary font-semibold text-sm transition-all duration-150 active:scale-[0.98] active:bg-accent-primary/30 border border-accent-primary/30"
+              className="w-full py-3.5 px-4 rounded-xl bg-accent-primary/20 text-accent-primary font-semibold text-sm transition-[background-color,transform] duration-150 active:scale-[0.98] active:bg-accent-primary/30 border border-accent-primary/30"
             >
               Clear All Filters
             </button>
@@ -255,7 +263,7 @@ function FilterButton({ children, onClick, active, icon }: FilterButtonProps) {
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`touch-target flex flex-col items-center justify-center gap-1 p-3 rounded-xl transition-all duration-150 select-none active:scale-95 ${
+      className={`touch-target flex flex-col items-center justify-center gap-1 p-3 rounded-xl transition-[color,background-color,transform] duration-150 select-none active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-deep ${
         active
           ? 'bg-accent-primary/20 text-accent-primary'
           : 'bg-bg-deep text-text-primary hover:bg-bg-deep/80 active:bg-accent-primary/10'

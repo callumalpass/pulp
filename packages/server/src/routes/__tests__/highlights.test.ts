@@ -1643,4 +1643,538 @@ describe('highlights routes', () => {
       expect(body.content).toContain(`**Note:** ${samplePDFHighlight.note}`);
     });
   });
+
+  describe('PATCH /api/library/:id/highlights/:highlightId - cache edge cases', () => {
+    it('succeeds even when highlight is not in in-memory cache', async () => {
+      // Simulate cache desync: highlightWriter.update returns a result,
+      // but the highlight ID doesn't exist in note.highlights array
+      const updatedResult = {
+        ...samplePDFHighlight,
+        id: 'ghost-highlight',
+        note: 'Updated ghost',
+        updatedAt: new Date().toISOString(),
+      };
+      vi.mocked(mockHighlightWriter.update).mockResolvedValueOnce(updatedResult);
+
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/highlights/ghost-highlight',
+        payload: { note: 'Updated ghost' },
+      });
+
+      // Route should still succeed - just the cache update is skipped
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.success).toBe(true);
+      expect(body.highlight.note).toBe('Updated ghost');
+
+      // In-memory cache should be unchanged (no entry with this ID exists)
+      const note = testNotes.get('test-note')!;
+      expect(note.highlights.find(h => h.id === 'ghost-highlight')).toBeUndefined();
+      // Original highlights should remain untouched
+      expect(note.highlights).toHaveLength(2);
+    });
+
+    it('handles PATCH with empty body', async () => {
+      const response = await fastify.inject({
+        method: 'PATCH',
+        url: '/api/library/test-note/highlights/h1',
+        payload: {},
+      });
+
+      // Schema allows empty object since all body properties are optional
+      expect(response.statusCode).toBe(200);
+      expect(mockHighlightWriter.update).toHaveBeenCalledWith(
+        expect.anything(),
+        'h1',
+        expect.objectContaining({}),
+      );
+    });
+  });
+
+  describe('GET /api/library/:id/highlights/export - sorting edge cases', () => {
+    it('sorts two EPUB highlights by creation date', async () => {
+      const epubOld: EPUBHighlight = {
+        id: 'epub-old',
+        type: 'epub',
+        cfi: 'epubcfi(/6/4!/4/2:0)',
+        text: 'Old EPUB text',
+        createdAt: '2024-01-01T10:00:00Z',
+      };
+      const epubNew: EPUBHighlight = {
+        id: 'epub-new',
+        type: 'epub',
+        cfi: 'epubcfi(/6/8!/4/2:0)',
+        text: 'New EPUB text',
+        createdAt: '2024-02-01T10:00:00Z',
+      };
+      // Insert in reverse order to verify sorting
+      testNotes.set('epub-sort', createTestNote({
+        id: 'epub-sort',
+        title: 'EPUB Sort',
+        sourceType: 'epub',
+        highlights: [epubNew, epubOld],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/epub-sort/highlights/export?format=plaintext',
+      });
+
+      const body = JSON.parse(response.body);
+      const idxOld = body.content.indexOf('Old EPUB text');
+      const idxNew = body.content.indexOf('New EPUB text');
+      expect(idxOld).toBeLessThan(idxNew);
+    });
+
+    it('sorts PDF-then-EPUB by date when types differ', async () => {
+      const pdf: PDFHighlight = {
+        id: 'pdf-later',
+        type: 'pdf',
+        page: 1,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: 'PDF from later',
+        createdAt: '2024-02-01T10:00:00Z',
+      };
+      const epub: EPUBHighlight = {
+        id: 'epub-earlier',
+        type: 'epub',
+        cfi: 'epubcfi(/6/4!/4/2:0)',
+        text: 'EPUB from earlier',
+        createdAt: '2024-01-01T10:00:00Z',
+      };
+      testNotes.set('cross-type', createTestNote({
+        id: 'cross-type',
+        title: 'Cross Type Sort',
+        highlights: [pdf, epub],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/cross-type/highlights/export?format=plaintext',
+      });
+
+      const body = JSON.parse(response.body);
+      // EPUB (Jan 1) should come before PDF (Feb 1) because cross-type uses createdAt
+      const idxEpub = body.content.indexOf('EPUB from earlier');
+      const idxPdf = body.content.indexOf('PDF from later');
+      expect(idxEpub).toBeLessThan(idxPdf);
+    });
+
+    it('sorts same-date highlights stably', async () => {
+      const h1: PDFHighlight = {
+        id: 'same-date-1',
+        type: 'pdf',
+        page: 5,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: 'Page five highlight',
+        createdAt: '2024-01-15T10:00:00Z',
+      };
+      const h2: PDFHighlight = {
+        id: 'same-date-2',
+        type: 'pdf',
+        page: 3,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: 'Page three highlight',
+        createdAt: '2024-01-15T10:00:00Z',
+      };
+      testNotes.set('same-date', createTestNote({
+        id: 'same-date',
+        title: 'Same Date',
+        highlights: [h1, h2],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/same-date/highlights/export?format=plaintext',
+      });
+
+      const body = JSON.parse(response.body);
+      // Both are PDF, so sorted by page: page 3 before page 5
+      const idx3 = body.content.indexOf('Page three highlight');
+      const idx5 = body.content.indexOf('Page five highlight');
+      expect(idx3).toBeLessThan(idx5);
+    });
+  });
+
+  describe('GET /api/library/:id/highlights/export - JSON exportedAt and structure', () => {
+    it('JSON export contains valid exportedAt ISO timestamp', async () => {
+      const before = new Date().toISOString();
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/highlights/export?format=json',
+      });
+
+      const after = new Date().toISOString();
+      const body = JSON.parse(response.body);
+      const exported = JSON.parse(body.content);
+
+      expect(exported.exportedAt).toBeDefined();
+      // Verify it's a valid ISO date between before and after
+      const exportedDate = new Date(exported.exportedAt);
+      expect(exportedDate.getTime()).toBeGreaterThanOrEqual(new Date(before).getTime());
+      expect(exportedDate.getTime()).toBeLessThanOrEqual(new Date(after).getTime());
+    });
+
+    it('JSON export produces valid parseable JSON string', async () => {
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/test-note/highlights/export?format=json',
+      });
+
+      const body = JSON.parse(response.body);
+      // Should not throw when parsed
+      const exported = JSON.parse(body.content);
+      expect(typeof exported).toBe('object');
+      expect(Array.isArray(exported.highlights)).toBe(true);
+    });
+
+    it('JSON export omits pageLabel when not present on PDF highlight', async () => {
+      const noLabel: PDFHighlight = {
+        id: 'json-no-label',
+        type: 'pdf',
+        page: 42,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: 'No label text',
+        createdAt: '2024-01-15T10:00:00Z',
+      };
+      testNotes.set('json-no-label', createTestNote({
+        id: 'json-no-label',
+        title: 'No Label JSON',
+        highlights: [noLabel],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/json-no-label/highlights/export?format=json',
+      });
+
+      const body = JSON.parse(response.body);
+      const exported = JSON.parse(body.content);
+      const h = exported.highlights[0];
+      expect(h.page).toBe(42);
+      expect(h.pageLabel).toBeUndefined();
+    });
+  });
+
+  describe('GET /api/library/:id/highlights/export - CSV note field edge cases', () => {
+    it('CSV export outputs empty string for undefined note', async () => {
+      const noNote: PDFHighlight = {
+        id: 'h-no-note',
+        type: 'pdf',
+        page: 1,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: 'No note here',
+        createdAt: '2024-01-15T10:00:00Z',
+      };
+      testNotes.set('csv-no-note', createTestNote({
+        id: 'csv-no-note',
+        title: 'CSV No Note',
+        highlights: [noNote],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/csv-no-note/highlights/export?format=csv&includeNotes=true&includeCategories=false&includeTimestamps=false',
+      });
+
+      const body = JSON.parse(response.body);
+      const lines = body.content.split('\n');
+      // Header: Text,Type,Location,Note
+      expect(lines[0]).toBe('Text,Type,Location,Note');
+      // Data row should end with empty note field
+      const dataRow = lines[1];
+      // "No note here,pdf,Page 1," — trailing comma for empty note
+      expect(dataRow).toMatch(/,$/);
+    });
+
+    it('CSV export escapes note field containing special characters', async () => {
+      const specialNote: PDFHighlight = {
+        id: 'h-special-note',
+        type: 'pdf',
+        page: 1,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: 'Simple text',
+        note: 'Note with "quotes" and, commas',
+        createdAt: '2024-01-15T10:00:00Z',
+      };
+      testNotes.set('csv-special-note', createTestNote({
+        id: 'csv-special-note',
+        title: 'Special Note CSV',
+        highlights: [specialNote],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/csv-special-note/highlights/export?format=csv&includeNotes=true&includeCategories=false&includeTimestamps=false',
+      });
+
+      const body = JSON.parse(response.body);
+      expect(body.content).toContain('"Note with ""quotes"" and, commas"');
+    });
+  });
+
+  describe('GET /api/library/:id/highlights/export - markdown flat view with mixed categories', () => {
+    it('shows category badges inline in flat view (groupByCategory=false)', async () => {
+      const important: PDFHighlight = {
+        id: 'h-imp',
+        type: 'pdf',
+        page: 1,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: 'Important text',
+        category: 'important',
+        createdAt: '2024-01-15T10:00:00Z',
+      };
+      const noCat: PDFHighlight = {
+        id: 'h-nocat-flat',
+        type: 'pdf',
+        page: 2,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: 'No category text',
+        createdAt: '2024-01-16T10:00:00Z',
+      };
+      const question: EPUBHighlight = {
+        id: 'h-q-flat',
+        type: 'epub',
+        cfi: 'epubcfi(/6/4!/4/2:0)',
+        text: 'Question text',
+        category: 'question',
+        createdAt: '2024-01-17T10:00:00Z',
+      };
+      testNotes.set('flat-mixed', createTestNote({
+        id: 'flat-mixed',
+        title: 'Flat Mixed Categories',
+        highlights: [important, noCat, question],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/flat-mixed/highlights/export?format=markdown&includeCategories=true&groupByCategory=false',
+      });
+
+      const body = JSON.parse(response.body);
+      // Flat view should NOT have ## category headings
+      expect(body.content).not.toContain('## Important');
+      expect(body.content).not.toContain('## Question');
+      // But should have inline category badges
+      expect(body.content).toContain('[Important]');
+      expect(body.content).toContain('[Question]');
+      // Uncategorized highlight should NOT have a badge
+      const lines = body.content.split('\n');
+      const noCatLine = lines.find((l: string) => l.includes('Page 2'));
+      expect(noCatLine).toBeDefined();
+      expect(noCatLine).not.toMatch(/\[.*\]/);
+    });
+  });
+
+  describe('GET /api/library/:id/highlights/export - filename edge cases', () => {
+    it('handles title with unicode characters by stripping them', async () => {
+      testNotes.set('unicode-title', createTestNote({
+        id: 'unicode-title',
+        title: 'Café résumé naïve',
+        highlights: [samplePDFHighlight],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/unicode-title/highlights/export?format=markdown',
+      });
+
+      const body = JSON.parse(response.body);
+      // The regex [^a-zA-Z0-9\s-] strips non-ASCII, so accented chars are removed
+      expect(body.filename).toBe('Caf-rsum-nave-highlights.md');
+    });
+
+    it('handles title that is exactly 50 characters after sanitization', async () => {
+      // Create a title that is exactly 50 alphanumeric chars
+      const title50 = 'A'.repeat(50);
+      testNotes.set('exact-50', createTestNote({
+        id: 'exact-50',
+        title: title50,
+        highlights: [samplePDFHighlight],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/exact-50/highlights/export?format=csv',
+      });
+
+      const body = JSON.parse(response.body);
+      const safeTitle = body.filename.replace('-highlights.csv', '');
+      expect(safeTitle).toBe('A'.repeat(50));
+    });
+
+    it('truncates title longer than 50 characters after sanitization', async () => {
+      const title60 = 'B'.repeat(60);
+      testNotes.set('over-50', createTestNote({
+        id: 'over-50',
+        title: title60,
+        highlights: [samplePDFHighlight],
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/over-50/highlights/export?format=json',
+      });
+
+      const body = JSON.parse(response.body);
+      const safeTitle = body.filename.replace('-highlights.json', '');
+      expect(safeTitle).toBe('B'.repeat(50));
+      expect(safeTitle.length).toBe(50);
+    });
+  });
+
+  describe('POST /api/library/:id/highlights - schema validation edge cases', () => {
+    it('rejects request missing required text field', async () => {
+      const response = await fastify.inject({
+        method: 'POST',
+        url: '/api/library/test-note/highlights',
+        payload: {
+          type: 'pdf',
+          page: 10,
+          selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 20 },
+          // Missing 'text' field
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('rejects request missing required type field', async () => {
+      const response = await fastify.inject({
+        method: 'POST',
+        url: '/api/library/test-note/highlights',
+        payload: {
+          page: 10,
+          selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 20 },
+          text: 'Some text',
+          // Missing 'type' field
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('rejects request with invalid type enum value', async () => {
+      const response = await fastify.inject({
+        method: 'POST',
+        url: '/api/library/test-note/highlights',
+        payload: {
+          type: 'docx',
+          text: 'Some text',
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+    });
+  });
+
+  describe('DELETE /api/library/:id/highlights/:highlightId - cache consistency', () => {
+    it('does not modify cache when highlightWriter.delete returns false', async () => {
+      vi.mocked(mockHighlightWriter.delete).mockResolvedValueOnce(false);
+
+      const note = testNotes.get('test-note')!;
+      const originalHighlights = [...note.highlights];
+
+      await fastify.inject({
+        method: 'DELETE',
+        url: '/api/library/test-note/highlights/h1',
+      });
+
+      // Cache should remain unchanged since delete returned false
+      // (the route returns 404 before reaching splice)
+      expect(note.highlights).toHaveLength(originalHighlights.length);
+    });
+
+    it('does not modify cache when highlightWriter.delete throws', async () => {
+      vi.mocked(mockHighlightWriter.delete).mockRejectedValueOnce(new Error('Disk error'));
+
+      const note = testNotes.get('test-note')!;
+      const originalHighlights = [...note.highlights];
+
+      await fastify.inject({
+        method: 'DELETE',
+        url: '/api/library/test-note/highlights/h1',
+      });
+
+      // Cache should remain unchanged since delete threw
+      expect(note.highlights).toHaveLength(originalHighlights.length);
+      expect(note.highlights[0].id).toBe(originalHighlights[0].id);
+    });
+  });
+
+  describe('GET /api/library/:id/highlights/export - many highlights', () => {
+    it('exports a large number of highlights correctly', async () => {
+      const manyHighlights: PDFHighlight[] = Array.from({ length: 50 }, (_, i) => ({
+        id: `h-bulk-${i}`,
+        type: 'pdf' as const,
+        page: i + 1,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: `Highlight number ${i + 1}`,
+        createdAt: `2024-01-${String(15).padStart(2, '0')}T10:00:00Z`,
+      }));
+      testNotes.set('bulk-note', createTestNote({
+        id: 'bulk-note',
+        title: 'Bulk Test',
+        highlights: manyHighlights,
+      }));
+
+      // JSON
+      const jsonResp = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/bulk-note/highlights/export?format=json',
+      });
+      const jsonExported = JSON.parse(JSON.parse(jsonResp.body).content);
+      expect(jsonExported.highlightCount).toBe(50);
+      expect(jsonExported.highlights).toHaveLength(50);
+
+      // CSV
+      const csvResp = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/bulk-note/highlights/export?format=csv',
+      });
+      const csvLines = JSON.parse(csvResp.body).content.split('\n');
+      expect(csvLines).toHaveLength(51); // header + 50 rows
+
+      // Plaintext
+      const txtResp = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/bulk-note/highlights/export?format=plaintext',
+      });
+      const txtContent = JSON.parse(txtResp.body).content;
+      expect(txtContent).toContain('[1]');
+      expect(txtContent).toContain('[50]');
+    });
+
+    it('sorts many PDF highlights by page number in export', async () => {
+      // Create highlights in reverse page order
+      const reversedHighlights: PDFHighlight[] = Array.from({ length: 10 }, (_, i) => ({
+        id: `h-rev-${i}`,
+        type: 'pdf' as const,
+        page: 10 - i,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 },
+        text: `Page ${10 - i} text`,
+        createdAt: '2024-01-15T10:00:00Z',
+      }));
+      testNotes.set('reversed-note', createTestNote({
+        id: 'reversed-note',
+        title: 'Reversed Pages',
+        highlights: reversedHighlights,
+      }));
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: '/api/library/reversed-note/highlights/export?format=plaintext',
+      });
+
+      const body = JSON.parse(response.body);
+      // Verify pages appear in ascending order
+      for (let i = 1; i <= 9; i++) {
+        const idxCurrent = body.content.indexOf(`Page ${i} text`);
+        const idxNext = body.content.indexOf(`Page ${i + 1} text`);
+        expect(idxCurrent).toBeLessThan(idxNext);
+      }
+    });
+  });
 });

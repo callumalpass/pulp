@@ -55,8 +55,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         aria-busy={loading}
         aria-disabled={isDisabled}
         className={clsx(
-          'inline-flex items-center justify-center font-semibold gap-2',
-          'transition-all duration-200 ease-out',
+          'relative inline-flex items-center justify-center font-semibold gap-2',
+          'transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-200 ease-out',
           'focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-deep',
           'select-none touch-manipulation',
           '-webkit-tap-highlight-color-transparent',
@@ -84,17 +84,19 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         {...props}
       >
         {loading && (
-          <LoadingSpinner className={clsx(
-            size === 'sm' && 'w-4 h-4',
-            size === 'md' && 'w-5 h-5',
-            size === 'lg' && 'w-6 h-6'
-          )} />
+          <span className="absolute inset-0 flex items-center justify-center">
+            <LoadingSpinner className={clsx(
+              size === 'sm' && 'w-4 h-4',
+              size === 'md' && 'w-5 h-5',
+              size === 'lg' && 'w-6 h-6'
+            )} />
+            <span className="sr-only">Loading...</span>
+          </span>
         )}
         {!loading && icon && iconPosition === 'left' && (
           <span className="flex-shrink-0">{icon}</span>
         )}
-        <span className={loading ? 'opacity-0 absolute' : undefined}>{children}</span>
-        {loading && <span className="sr-only">Loading...</span>}
+        <span className={loading ? 'invisible' : undefined}>{children}</span>
         {!loading && icon && iconPosition === 'right' && (
           <span className="flex-shrink-0">{icon}</span>
         )}

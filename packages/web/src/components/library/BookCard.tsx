@@ -12,9 +12,11 @@ import { formatLastRead, getEstimatedTimeRemaining, formatEstimatedCompletion } 
 
 interface BookCardProps {
   note: LiteratureNoteSummary;
+  /** When true, eagerly load the cover image (use for above-the-fold cards). */
+  priority?: boolean;
 }
 
-export const BookCard = memo(function BookCard({ note }: BookCardProps) {
+export const BookCard = memo(function BookCard({ note, priority }: BookCardProps) {
   const [imageError, setImageError] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [showRatingMenu, setShowRatingMenu] = useState(false);
@@ -172,22 +174,23 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
     <Link
       ref={cardRef}
       to={`/read/${note.id}`}
-      className="group block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-deep rounded-xl"
+      className="group block h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-deep rounded-xl scroll-mt-4"
       aria-label={accessibleLabel}
+      data-testid="book-card"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       onTouchMove={handleTouchMove}
       onKeyDown={handleKeyDown}
     >
-      <Card hover className="library-card flex flex-col relative active:scale-[0.98]">
+      <Card hover className="library-card flex flex-col h-full relative active:scale-[0.98]">
         <div className="aspect-[2/3] bg-bg-deep relative overflow-hidden rounded-t-xl">
           {note.cover && !imageError ? (
             <img
               src={api.covers.getUrl(note.id)}
               alt={note.title}
               className={`w-full h-full object-cover transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
-              loading="lazy"
-              decoding="async"
+              loading={priority ? 'eager' : 'lazy'}
+              decoding={priority ? 'sync' : 'async'}
               onLoad={() => setImageLoaded(true)}
               onError={() => setImageError(true)}
             />
@@ -200,7 +203,7 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
             onClick={handleInfoClick}
             type="button"
             aria-label="Show metadata"
-            className="absolute top-1 left-1 min-w-[44px] min-h-[44px] w-9 h-9 md:w-8 md:h-8 md:min-w-[32px] md:min-h-[32px] flex items-center justify-center rounded-lg bg-bg-surface/80 backdrop-blur-sm transition-all duration-200 focus-visible:ring-2 focus-visible:ring-accent-primary/60 hover:bg-bg-surface hover:shadow-lg hover:scale-110 active:scale-95 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 border border-white/10"
+            className="absolute top-1 left-1 w-[44px] h-[44px] flex items-center justify-center rounded-lg bg-bg-surface/90 transition-[opacity,transform] duration-200 focus-visible:ring-2 focus-visible:ring-accent-primary/60 hover:bg-bg-surface hover:shadow-lg hover:scale-110 active:scale-95 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 border border-white/10"
             title="Show metadata (i)"
           >
             <InfoIcon />
@@ -212,7 +215,7 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
             type="button"
             aria-label={note.pinned ? 'Unpin' : 'Pin'}
             aria-pressed={note.pinned}
-            className={`absolute top-1 right-1 min-w-[44px] min-h-[44px] w-9 h-9 md:w-8 md:h-8 md:min-w-[32px] md:min-h-[32px] flex items-center justify-center rounded-lg bg-bg-surface/80 backdrop-blur-sm transition-all duration-200 focus-visible:ring-2 focus-visible:ring-accent-primary/60 hover:bg-bg-surface hover:shadow-lg hover:scale-110 active:scale-95 border border-white/10 ${
+            className={`absolute top-1 right-1 w-[44px] h-[44px] flex items-center justify-center rounded-lg bg-bg-surface/90 transition-[opacity,transform] duration-200 focus-visible:ring-2 focus-visible:ring-accent-primary/60 hover:bg-bg-surface hover:shadow-lg hover:scale-110 active:scale-95 border border-white/10 ${
               note.pinned ? 'opacity-100 shadow-md border-accent-primary/30' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
             }`}
             title={note.pinned ? 'Unpin' : 'Pin'}
@@ -223,17 +226,17 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
           {/* Completed badge */}
           {note.progress === 100 && note.dateFinished && (
             <div
-              className="completion-badge absolute bottom-2 right-2 p-1.5 rounded-full bg-green-600/90 backdrop-blur-sm"
+              className="completion-badge absolute bottom-2 right-2 p-1.5 rounded-full bg-green-600/90"
               title={`Completed ${formatDateFinished(note.dateFinished)}`}
             >
               <CheckIcon />
             </div>
           )}
 
-          {/* Estimated time remaining badge - visible on mobile, hover-only on desktop */}
+          {/* Estimated time remaining badge - positioned bottom-left to avoid overlapping info button */}
           {estimatedTime && (
             <div
-              className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-bg-surface/80 backdrop-blur-sm text-xs text-text-primary md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+              className="absolute bottom-3 left-2 px-1.5 py-0.5 rounded bg-bg-surface/90 text-xs text-text-primary md:opacity-0 md:group-hover:opacity-100 transition-opacity"
               title={estimatedCompletion ? `Est. finish: ${estimatedCompletion}` : 'Time remaining'}
             >
               {estimatedTime}
@@ -241,21 +244,21 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
             </div>
           )}
 
-          {/* Pages badge for unread books - always visible */}
+          {/* Pages badge for unread books */}
           {note.progress === 0 && note.totalPages && (
-            <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-bg-surface/80 backdrop-blur-sm text-xs text-text-secondary md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+            <div className="absolute bottom-3 left-2 px-1.5 py-0.5 rounded bg-bg-surface/90 text-xs text-text-secondary md:opacity-0 md:group-hover:opacity-100 transition-opacity">
               {note.totalPages} pages
             </div>
           )}
 
           {note.progress > 0 && (
             <div className="absolute bottom-0 left-0 right-0">
-              <ProgressIndicator progress={note.progress} />
+              <ProgressIndicator progress={note.progress} animateOnMount={false} />
             </div>
           )}
         </div>
 
-        <div className="p-3 flex-1 flex flex-col">
+        <div className="p-3 flex-1 flex flex-col min-h-[7rem]">
           <h3 className="text-sm font-medium text-text-primary line-clamp-2 leading-tight">
             {note.title}
           </h3>
@@ -266,12 +269,12 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
           )}
           {/* Show current chapter for in-progress books */}
           {note.currentChapter && note.progress > 0 && note.progress < 100 && (
-            <p className="text-xs text-text-secondary/70 line-clamp-1 mt-0.5 italic">
+            <p className="text-xs text-text-secondary line-clamp-1 mt-0.5 italic">
               {note.currentChapter}
             </p>
           )}
-          <div className="flex items-center gap-2 mt-auto pt-1.5 flex-wrap">
-            <span className="text-xs text-text-secondary uppercase">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-auto pt-1.5 min-h-[44px] overflow-hidden">
+            <span className="text-xs text-text-secondary uppercase shrink-0">
               {note.sourceType}
             </span>
             {/* Rating display */}
@@ -280,7 +283,7 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
               onClick={handleRatingClick}
               onKeyDown={handleRatingKeyDown}
               type="button"
-              className={`flex items-center gap-0.5 text-xs hover:bg-bg-deep rounded px-1 py-0.5 -mx-1 -my-0.5 transition-colors focus-visible:ring-2 focus-visible:ring-accent-primary/60 ${isRatingPending ? 'opacity-50' : ''}`}
+              className={`flex items-center justify-center gap-0.5 text-xs hover:bg-bg-deep rounded px-1.5 py-1 -mx-1.5 -my-1 min-h-[44px] min-w-[44px] touch-action-manipulation transition-colors focus-visible:ring-2 focus-visible:ring-accent-primary/60 ${isRatingPending ? 'opacity-50' : ''}`}
               title={note.rating ? `Rating: ${note.rating}/5` : 'Add rating'}
               aria-label={note.rating ? `Rating: ${note.rating} out of 5 stars. Press to change.` : 'Add rating'}
               aria-haspopup="true"
@@ -290,7 +293,7 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
               {note.rating ? (
                 <StarRating rating={note.rating} size={10} />
               ) : (
-                <span className="text-text-secondary opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+                <span className="text-text-secondary opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity" aria-hidden="true">
                   Rate
                 </span>
               )}
@@ -311,7 +314,7 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
               </span>
             )}
             {note.lastRead && (
-              <span className="text-xs text-text-secondary">
+              <span className="text-xs text-text-secondary shrink-0">
                 {formatLastRead(note.lastRead)}
               </span>
             )}
@@ -333,7 +336,7 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
                 <button
                   key={star}
                   onClick={(e) => handleSetRating(e, star)}
-                  className={`p-1.5 rounded transition-all duration-150 rating-star-btn ${
+                  className={`p-1.5 rounded transition-[transform,box-shadow,background-color] duration-150 rating-star-btn ${
                     focusedStar === star
                       ? 'ring-2 ring-accent-primary bg-bg-deep scale-110'
                       : 'hover:bg-bg-deep hover:scale-110'
@@ -352,7 +355,7 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
                     fill={note.rating && star <= note.rating ? 'currentColor' : (focusedStar && star <= focusedStar ? 'currentColor' : 'none')}
                     stroke="currentColor"
                     strokeWidth="2"
-                    className={`transition-all duration-150 ${
+                    className={`transition-colors duration-150 ${
                       note.rating && star <= note.rating
                         ? 'text-yellow-500 drop-shadow-[0_0_3px_rgba(234,179,8,0.5)]'
                         : focusedStar && star <= focusedStar
@@ -375,7 +378,7 @@ export const BookCard = memo(function BookCard({ note }: BookCardProps) {
                 Remove rating
               </button>
             )}
-            <p className="text-xs text-text-secondary/60 text-center mt-1.5">
+            <p className="text-xs text-text-secondary text-center mt-1.5">
               Use arrow keys to select
             </p>
           </div>
@@ -424,21 +427,31 @@ function InfoIcon() {
   );
 }
 
+// Simple hash for deterministic color selection per title
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+const COVER_PALETTES = [
+  { from: 'from-violet-500/30', to: 'to-indigo-500/20', hoverFrom: 'group-hover:from-violet-500/40', hoverTo: 'group-hover:to-indigo-500/25' },
+  { from: 'from-emerald-500/30', to: 'to-teal-500/20', hoverFrom: 'group-hover:from-emerald-500/40', hoverTo: 'group-hover:to-teal-500/25' },
+  { from: 'from-amber-500/30', to: 'to-orange-500/20', hoverFrom: 'group-hover:from-amber-500/40', hoverTo: 'group-hover:to-orange-500/25' },
+  { from: 'from-rose-500/30', to: 'to-pink-500/20', hoverFrom: 'group-hover:from-rose-500/40', hoverTo: 'group-hover:to-pink-500/25' },
+  { from: 'from-sky-500/30', to: 'to-cyan-500/20', hoverFrom: 'group-hover:from-sky-500/40', hoverTo: 'group-hover:to-cyan-500/25' },
+  { from: 'from-fuchsia-500/30', to: 'to-purple-500/20', hoverFrom: 'group-hover:from-fuchsia-500/40', hoverTo: 'group-hover:to-purple-500/25' },
+];
+
 function DefaultCover({ title, type }: { title: string; type: 'pdf' | 'epub' }) {
+  const palette = COVER_PALETTES[hashString(title) % COVER_PALETTES.length];
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-gradient-to-br from-accent-primary/20 via-bg-deep to-accent-secondary/10 relative overflow-hidden group-hover:from-accent-primary/25 group-hover:to-accent-secondary/15 transition-all duration-300">
-      {/* Decorative pattern */}
-      <div className="absolute inset-0 opacity-[0.03] group-hover:opacity-[0.05] transition-opacity duration-300" style={{
-        backgroundImage: `radial-gradient(circle at 2px 2px, currentColor 1px, transparent 0)`,
-        backgroundSize: '16px 16px'
-      }} />
-
-      {/* Animated glow effect on hover */}
-      <div className="absolute inset-0 bg-gradient-to-t from-accent-primary/0 via-accent-primary/5 to-accent-primary/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-
-      <div className="relative p-4 rounded-2xl bg-bg-surface/70 backdrop-blur-sm mb-3 shadow-lg shadow-black/10 border border-white/[0.05] group-hover:shadow-xl group-hover:shadow-accent-primary/20 group-hover:scale-110 group-hover:border-accent-primary/20 transition-all duration-300 ease-out">
+    <div className={`w-full h-full flex flex-col items-center justify-center p-4 gap-3 bg-gradient-to-br ${palette.from} via-bg-deep ${palette.to} ${palette.hoverFrom} ${palette.hoverTo} transition-colors duration-300`}>
+      <div className="p-3 rounded-2xl bg-bg-surface/90 shadow-lg shadow-black/10 border border-subtle group-hover:shadow-xl group-hover:shadow-accent-primary/20 group-hover:scale-110 group-hover:border-accent-primary/20 transition-[transform,box-shadow,border-color] duration-300 ease-out">
         {type === 'pdf' ? (
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent-primary group-hover:text-accent-secondary transition-colors duration-300">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent-primary group-hover:text-accent-secondary transition-colors duration-300">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14 2 14 8 20 8" />
             <line x1="16" y1="13" x2="8" y2="13" />
@@ -446,7 +459,7 @@ function DefaultCover({ title, type }: { title: string; type: 'pdf' | 'epub' }) 
             <line x1="10" y1="9" x2="8" y2="9" />
           </svg>
         ) : (
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent-primary group-hover:text-accent-secondary transition-colors duration-300">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent-primary group-hover:text-accent-secondary transition-colors duration-300">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
             <line x1="8" y1="6" x2="16" y2="6" />
@@ -454,29 +467,43 @@ function DefaultCover({ title, type }: { title: string; type: 'pdf' | 'epub' }) 
           </svg>
         )}
       </div>
-      <p className="relative text-xs text-center text-text-primary/90 line-clamp-3 font-medium leading-snug px-2 group-hover:text-text-primary transition-colors duration-200">{title}</p>
+      <span className="text-xs text-text-secondary/70 text-center line-clamp-2 px-2 leading-tight font-medium uppercase tracking-wide">
+        {type}
+      </span>
     </div>
   );
 }
 
+const STAR_POINTS = '12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2';
+
 function StarRating({ rating, size = 12 }: { rating: number; size?: number }) {
+  const gap = 1;
+  const totalWidth = size * 5 + gap * 4;
   return (
-    <div className="flex items-center gap-px">
-      {[1, 2, 3, 4, 5].map((star) => (
-        <svg
-          key={star}
-          width={size}
-          height={size}
-          viewBox="0 0 24 24"
-          fill={star <= rating ? 'currentColor' : 'none'}
-          stroke="currentColor"
-          strokeWidth="2"
-          className={star <= rating ? 'text-yellow-500' : 'text-text-secondary/30'}
-        >
-          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-        </svg>
-      ))}
-    </div>
+    <svg
+      width={totalWidth}
+      height={size}
+      viewBox={`0 0 ${totalWidth} ${size}`}
+      aria-hidden="true"
+      className="flex-shrink-0"
+    >
+      {[0, 1, 2, 3, 4].map((i) => {
+        const filled = i < rating;
+        return (
+          <g key={i} transform={`translate(${i * (size + gap)}, 0)`}>
+            <svg viewBox="0 0 24 24" width={size} height={size}>
+              <polygon
+                points={STAR_POINTS}
+                fill={filled ? '#eab308' : 'none'}
+                stroke={filled ? '#eab308' : 'currentColor'}
+                strokeWidth="2"
+                className={!filled ? 'text-text-secondary/30' : undefined}
+              />
+            </svg>
+          </g>
+        );
+      })}
+    </svg>
   );
 }
 

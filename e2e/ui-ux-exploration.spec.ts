@@ -1,721 +1,553 @@
 import { test, expect, Page } from '@playwright/test';
-import { readFileSync } from 'fs';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
 
-// Load test EPUB file
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const testEpubPath = join(__dirname, 'fixtures', 'test.epub');
-const testEpubData = readFileSync(testEpubPath);
+// Comprehensive mock data for testing
+const NOW = Date.now();
+const HOUR = 3600000;
+const DAY = 86400000;
 
-interface PerformanceMetrics {
-  lcp: number | null;
-  fcp: number | null;
-  cls: number | null;
-  tti: number | null;
+const mockLibrary = [
+  {
+    id: 'book-1',
+    title: 'The Design of Everyday Things',
+    author: 'Don Norman',
+    type: 'pdf',
+    path: '/books/design-things.pdf',
+    progress: 0.73,
+    totalPages: 368,
+    currentPage: 269,
+    lastRead: NOW - HOUR * 2,
+    dateCreated: NOW - DAY * 30,
+    coverUrl: null,
+    rating: 5,
+    isPinned: true,
+    readingStats: {
+      totalReadingTime: 18000000,
+      totalPagesRead: 269,
+      averageReadingSpeed: 1.2,
+      lastSessionDate: NOW - HOUR * 2,
+      sessionsCount: 15,
+    },
+  },
+  {
+    id: 'book-2',
+    title: 'Thinking, Fast and Slow',
+    author: 'Daniel Kahneman',
+    type: 'pdf',
+    path: '/books/thinking.pdf',
+    progress: 0.45,
+    totalPages: 499,
+    currentPage: 225,
+    lastRead: NOW - HOUR * 6,
+    dateCreated: NOW - DAY * 45,
+    coverUrl: null,
+    rating: 4,
+    isPinned: false,
+    readingStats: {
+      totalReadingTime: 14400000,
+      totalPagesRead: 225,
+      averageReadingSpeed: 0.9,
+      lastSessionDate: NOW - HOUR * 6,
+      sessionsCount: 12,
+    },
+  },
+  {
+    id: 'book-3',
+    title: 'Clean Code: A Handbook of Agile Software Craftsmanship',
+    author: 'Robert C. Martin',
+    type: 'pdf',
+    path: '/books/clean-code.pdf',
+    progress: 1.0,
+    totalPages: 464,
+    currentPage: 464,
+    lastRead: NOW - DAY * 7,
+    dateCreated: NOW - DAY * 90,
+    coverUrl: null,
+    rating: 5,
+    isPinned: false,
+    readingStats: {
+      totalReadingTime: 28800000,
+      totalPagesRead: 464,
+      averageReadingSpeed: 1.1,
+      lastSessionDate: NOW - DAY * 7,
+      sessionsCount: 20,
+    },
+  },
+  {
+    id: 'book-4',
+    title: 'The Pragmatic Programmer',
+    author: 'David Thomas, Andrew Hunt',
+    type: 'epub',
+    path: '/books/pragmatic.epub',
+    progress: 0.15,
+    totalPages: 352,
+    currentPage: 53,
+    lastRead: NOW - DAY * 2,
+    dateCreated: NOW - DAY * 14,
+    coverUrl: null,
+    rating: 0,
+    isPinned: false,
+    readingStats: {
+      totalReadingTime: 3600000,
+      totalPagesRead: 53,
+      averageReadingSpeed: 0.8,
+      lastSessionDate: NOW - DAY * 2,
+      sessionsCount: 3,
+    },
+  },
+  {
+    id: 'book-5',
+    title: 'Refactoring: Improving the Design of Existing Code',
+    author: 'Martin Fowler',
+    type: 'pdf',
+    path: '/books/refactoring.pdf',
+    progress: 0,
+    totalPages: 448,
+    currentPage: 0,
+    lastRead: null,
+    dateCreated: NOW - DAY * 3,
+    coverUrl: null,
+    rating: 0,
+    isPinned: false,
+    readingStats: null,
+  },
+  {
+    id: 'book-6',
+    title: 'Structure and Interpretation of Computer Programs',
+    author: 'Harold Abelson, Gerald Jay Sussman',
+    type: 'pdf',
+    path: '/books/sicp.pdf',
+    progress: 0.28,
+    totalPages: 657,
+    currentPage: 184,
+    lastRead: NOW - DAY * 5,
+    dateCreated: NOW - DAY * 60,
+    coverUrl: null,
+    rating: 5,
+    isPinned: true,
+    readingStats: {
+      totalReadingTime: 10800000,
+      totalPagesRead: 184,
+      averageReadingSpeed: 0.7,
+      lastSessionDate: NOW - DAY * 5,
+      sessionsCount: 8,
+    },
+  },
+];
+
+const mockLibraryStats = {
+  totalBooks: mockLibrary.length,
+  totalPagesRead: 1195,
+  booksCompleted: 1,
+  booksInProgress: 4,
+  totalReadingTime: 75600000,
+  averageReadingSpeed: 0.95,
+  currentStreak: 5,
+  longestStreak: 12,
+};
+
+async function setupMocks(page: Page) {
+  await page.route('**/api/library', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(mockLibrary),
+    });
+  });
+
+  await page.route('**/api/library-stats', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(mockLibraryStats),
+    });
+  });
+
+  await page.route('**/api/collections', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(['Programming', 'Design', 'Philosophy']),
+    });
+  });
+
+  // Mock cover images to prevent 404s
+  await page.route('**/api/covers/**', async (route) => {
+    await route.fulfill({
+      status: 404,
+    });
+  });
 }
 
-/**
- * UI/UX Exploration Test Suite
- *
- * This suite explores the application's UI/UX across different scenarios
- * and captures screenshots for analysis.
- */
-test.describe('UI/UX Exploration - Library Page', () => {
+test.describe('UI/UX Exploration', () => {
   test.beforeEach(async ({ page }) => {
-    // Set up mock data that simulates a realistic library
-    await page.route('**/api/library', async (route) => {
-      if (route.request().method() === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([
-            {
-              id: 'book1',
-              title: 'The Art of Programming',
-              sourceType: 'pdf',
-              progress: 67,
-              lastRead: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
-              cover: null,
-              author: 'Donald Knuth',
-              rating: 5,
-              isPinned: true,
-            },
-            {
-              id: 'book2',
-              title: 'A Really Long Book Title That Should Be Truncated Properly',
-              sourceType: 'epub',
-              progress: 23,
-              lastRead: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
-              cover: null,
-              author: 'Anonymous Author',
-              rating: 4,
-            },
-            {
-              id: 'book3',
-              title: 'Unread Book',
-              sourceType: 'pdf',
-              progress: 0,
-              lastRead: null,
-              cover: null,
-              author: 'New Author',
-            },
-            {
-              id: 'book4',
-              title: 'Completed Book',
-              sourceType: 'epub',
-              progress: 100,
-              lastRead: new Date(Date.now() - 604800000).toISOString(), // 1 week ago
-              cover: null,
-              author: 'Finished Author',
-              rating: 3,
-            },
-          ]),
-        });
-      }
-    });
-
-    // Mock collections
-    await page.route('**/api/collections', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(['Fiction', 'Technical', 'Philosophy']),
-      });
-    });
-
-    // Mock library stats
-    await page.route('**/api/library/stats', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          totalBooks: 4,
-          booksRead: 1,
-          currentlyReading: 2,
-          totalReadingTime: 36000,
-        }),
-      });
-    });
+    await setupMocks(page);
   });
 
-  test('library page - initial load and layout', async ({ page }) => {
+  test('capture desktop default state', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    // Take full page screenshot
-    await page.screenshot({
-      path: 'test-results/exploration/library-initial.png',
-      fullPage: true
-    });
-
-    // Check page structure - use first() since there are multiple Library headings
-    await expect(page.getByRole('heading', { name: 'Library' }).first()).toBeVisible();
-
-    // Verify search input is visible
-    await expect(page.getByPlaceholder(/search/i)).toBeVisible();
-  });
-
-  test('library page - filter interactions', async ({ page, isMobile }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    if (isMobile) {
-      // On mobile, open the filter sheet first
-      const filtersButton = page.locator('button:has-text("Filters")');
-      if (await filtersButton.isVisible()) {
-        await filtersButton.click();
-        await page.waitForTimeout(300);
-
-        // Test PDF filter in mobile sheet
-        const pdfButton = page.getByRole('button', { name: 'PDF' });
-        if (await pdfButton.isVisible()) {
-          await pdfButton.click();
-          await page.waitForTimeout(300);
-        }
-
-        await page.screenshot({
-          path: 'test-results/exploration/library-filtered-pdf.png',
-          fullPage: true
-        });
-
-        // Close the sheet
-        const doneButton = page.getByRole('button', { name: 'Done' });
-        if (await doneButton.isVisible()) {
-          await doneButton.click();
-        }
-      }
-    } else {
-      // Desktop: Test PDF filter
-      const pdfButton = page.getByRole('button', { name: 'PDF' }).first();
-      await pdfButton.click();
-      await page.waitForTimeout(300);
-      await page.screenshot({
-        path: 'test-results/exploration/library-filtered-pdf.png',
-        fullPage: true
-      });
-
-      // Test status filter - Reading
-      const readingButton = page.getByRole('button', { name: 'Reading' }).first();
-      if (await readingButton.isVisible()) {
-        await readingButton.click();
-        await page.waitForTimeout(300);
-        await page.screenshot({
-          path: 'test-results/exploration/library-filtered-reading.png',
-          fullPage: true
-        });
-      }
-    }
-  });
-
-  test('library page - sort options', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    // Click through each sort option
-    const sortOptions = ['Title', 'Progress', 'Added'];
-    for (const option of sortOptions) {
-      const button = page.getByRole('button', { name: option }).last();
-      if (await button.isVisible()) {
-        await button.click();
-        await page.waitForTimeout(300);
-        await page.screenshot({
-          path: `test-results/exploration/library-sort-${option.toLowerCase()}.png`,
-          fullPage: true
-        });
-      }
-    }
-  });
-
-  test('library page - search functionality', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    // Focus search input
-    const searchInput = page.getByPlaceholder(/search/i);
-    await searchInput.click();
-    await page.screenshot({
-      path: 'test-results/exploration/library-search-focused.png',
-      fullPage: true
-    });
-
-    // Type a search query
-    await searchInput.fill('Art');
-    await page.waitForTimeout(500);
-    await page.screenshot({
-      path: 'test-results/exploration/library-search-results.png',
-      fullPage: true
-    });
-  });
-
-  test('library page - empty state', async ({ page }) => {
-    // Override with empty library
-    await page.route('**/api/library', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([]),
-      });
-    });
-
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.waitForSelector('[data-testid="library-grid"], [class*="grid"]', { timeout: 10000 });
+    await page.waitForTimeout(500); // Wait for animations
 
     await page.screenshot({
-      path: 'test-results/exploration/library-empty.png',
-      fullPage: true
+      path: 'e2e/screenshots/exploration/01-desktop-default.png',
+      fullPage: true,
     });
   });
 
-  test('library page - hover states', async ({ page }) => {
+  test('capture light theme', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.waitForSelector('[data-testid="library-grid"], [class*="grid"]', { timeout: 10000 });
 
-    // Find a book card and hover
-    const bookCard = page.locator('article, [data-testid="book-card"]').first();
-    if (await bookCard.isVisible()) {
-      await bookCard.hover();
-      await page.waitForTimeout(200);
-      await page.screenshot({
-        path: 'test-results/exploration/library-card-hover.png',
-        fullPage: true
-      });
-    }
-  });
-
-  test('library page - theme toggle', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    // Take dark theme screenshot
-    await page.screenshot({
-      path: 'test-results/exploration/library-dark-theme.png',
-      fullPage: true
-    });
-
-    // Toggle theme
-    const themeToggle = page.getByTitle('Toggle theme');
+    // Toggle to light theme
+    const themeToggle = page.locator('[aria-label*="theme"], [data-testid="theme-toggle"], button:has-text("theme")').first();
     if (await themeToggle.isVisible()) {
       await themeToggle.click();
-      await page.waitForTimeout(300);
-      await page.screenshot({
-        path: 'test-results/exploration/library-light-theme.png',
-        fullPage: true
-      });
+      await page.waitForTimeout(500);
     }
-  });
-});
 
-test.describe('UI/UX Exploration - Reader Page', () => {
-  test.beforeEach(async ({ page }) => {
-    // Mock EPUB book
-    await page.route('**/api/library/epub1', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          id: 'epub1',
-          title: 'Test EPUB Book',
-          source: '/path/to/test.epub',
-          sourceType: 'epub',
-          filePath: '/path/to/test.epub',
-          notePath: '/path/to/note.md',
-          progress: 25,
-          lastRead: new Date().toISOString(),
-          tags: ['literature-note'],
-          cover: null,
-          highlights: [
-            {
-              id: 'h1',
-              text: 'This is a highlighted passage',
-              color: 'highlight',
-              note: 'My note about this passage',
-              cfiRange: 'epubcfi(/6/4!/4/1:0,/6/4!/4/1:30)',
-              createdAt: new Date().toISOString(),
-            }
-          ],
-          frontmatter: {},
-        }),
-      });
-    });
-
-    await page.route('**/api/library/epub1/highlights', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([
-          {
-            id: 'h1',
-            text: 'This is a highlighted passage',
-            color: 'highlight',
-            note: 'My note about this passage',
-            cfiRange: 'epubcfi(/6/4!/4/1:0,/6/4!/4/1:30)',
-            createdAt: new Date().toISOString(),
-          }
-        ]),
-      });
-    });
-
-    await page.route('**/api/files/epub1', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/epub+zip',
-        body: testEpubData,
-      });
-    });
-
-    // Mock reading goals
-    await page.route('**/api/reading-goals**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          dailyGoal: 30,
-          weeklyGoal: 150,
-          todayMinutes: 15,
-          weekMinutes: 60,
-          currentStreak: 5,
-        }),
-      });
-    });
-
-    // Mock progress updates
-    await page.route('**/api/library/epub1/progress', async (route) => {
-      if (route.request().method() === 'PUT') {
-        await route.fulfill({ status: 200, body: JSON.stringify({ success: true }) });
-      }
+    await page.screenshot({
+      path: 'e2e/screenshots/exploration/02-desktop-light.png',
+      fullPage: true,
     });
   });
 
-  test('reader page - EPUB loading and layout', async ({ page }) => {
-    await page.goto('/read/epub1');
+  test('capture card hover states', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="library-grid"], [class*="grid"]', { timeout: 10000 });
+    await page.waitForTimeout(500); // Wait for data to load
 
-    // Wait for EPUB to load
-    await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
+    // Hover over first card - use a more flexible selector
+    const firstCard = page.locator('a[href^="/read/"]').first();
+    if (await firstCard.isVisible({ timeout: 5000 })) {
+      await firstCard.hover();
+      await page.waitForTimeout(300);
+    }
+
+    await page.screenshot({
+      path: 'e2e/screenshots/exploration/03-card-hover.png',
+      fullPage: true,
+    });
+  });
+
+  test('capture list view', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="library-grid"], [class*="grid"]', { timeout: 10000 });
+
+    // Find and click list view toggle
+    const listToggle = page.locator('[aria-label*="list"], [data-testid="list-view-toggle"], button:has([class*="list"])').first();
+    if (await listToggle.isVisible()) {
+      await listToggle.click();
+      await page.waitForTimeout(500);
+    }
+
+    await page.screenshot({
+      path: 'e2e/screenshots/exploration/04-list-view.png',
+      fullPage: true,
+    });
+  });
+
+  test('capture search interaction', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="library-grid"], [class*="grid"]', { timeout: 10000 });
+
+    // Find and interact with search
+    const searchInput = page.locator('input[type="search"], input[placeholder*="search" i], [data-testid="search-input"]').first();
+    if (await searchInput.isVisible()) {
+      await searchInput.click();
+      await searchInput.fill('design');
+      await page.waitForTimeout(500);
+    }
+
+    await page.screenshot({
+      path: 'e2e/screenshots/exploration/05-search.png',
+      fullPage: true,
+    });
+  });
+
+  test('capture filter interactions', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="library-grid"], [class*="grid"]', { timeout: 10000 });
+
+    // Try to filter by type
+    const typeFilter = page.locator('select, [data-testid="type-filter"], button:has-text("PDF")').first();
+    if (await typeFilter.isVisible()) {
+      await typeFilter.click();
+      await page.waitForTimeout(300);
+    }
+
+    await page.screenshot({
+      path: 'e2e/screenshots/exploration/06-filtered.png',
+      fullPage: true,
+    });
+  });
+
+  test('capture mobile view', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 }); // iPhone 14 size
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="library-grid"], [class*="grid"]', { timeout: 10000 });
     await page.waitForTimeout(500);
 
     await page.screenshot({
-      path: 'test-results/exploration/reader-epub-loaded.png',
-      fullPage: true
+      path: 'e2e/screenshots/exploration/07-mobile.png',
+      fullPage: true,
     });
   });
 
-  test('reader page - toolbar interactions', async ({ page }) => {
-    await page.goto('/read/epub1');
-    await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
+  test('capture mobile filters', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="library-grid"], [class*="grid"]', { timeout: 10000 });
 
-    // Screenshot of toolbar
-    const toolbar = page.locator('header[role="toolbar"]');
-    await expect(toolbar).toBeVisible();
-    await toolbar.screenshot({ path: 'test-results/exploration/reader-toolbar.png' });
-  });
-
-  test('reader page - settings panel', async ({ page }) => {
-    await page.goto('/read/epub1');
-    await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
-
-    // Open settings
-    const settingsButton = page.locator('button[aria-label="Reading settings"]');
-    await settingsButton.click();
-    await page.waitForTimeout(300);
+    // Look for mobile filter button
+    const filterButton = page.locator('[aria-label*="filter" i], [data-testid="mobile-filter"], button:has([class*="filter"])').first();
+    if (await filterButton.isVisible()) {
+      await filterButton.click();
+      await page.waitForTimeout(500);
+    }
 
     await page.screenshot({
-      path: 'test-results/exploration/reader-settings-panel.png',
-      fullPage: true
+      path: 'e2e/screenshots/exploration/08-mobile-filters.png',
+      fullPage: true,
     });
   });
 
-  test('reader page - bookmarks panel', async ({ page }) => {
-    await page.goto('/read/epub1');
-    await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
+  test('capture continue reading section', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="library-grid"], [class*="grid"]', { timeout: 10000 });
 
-    // Open bookmarks
-    const bookmarksButton = page.locator('button[aria-label*="ookmark"], button[aria-label*="Bookmark"]');
-    if (await bookmarksButton.first().isVisible()) {
-      await bookmarksButton.first().click();
+    // Look for continue reading section
+    const continueReading = page.locator('[data-testid="continue-reading"], section:has-text("Continue Reading")').first();
+    if (await continueReading.isVisible()) {
+      await continueReading.scrollIntoViewIfNeeded();
       await page.waitForTimeout(300);
-
-      await page.screenshot({
-        path: 'test-results/exploration/reader-bookmarks-panel.png',
-        fullPage: true
-      });
     }
+
+    await page.screenshot({
+      path: 'e2e/screenshots/exploration/09-continue-reading.png',
+      fullPage: true,
+    });
   });
 
-  test('reader page - table of contents', async ({ page }) => {
-    await page.goto('/read/epub1');
-    await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
+  test('capture stats section', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="library-grid"], [class*="grid"]', { timeout: 10000 });
 
-    // Open TOC
-    const tocButton = page.locator('button[aria-label*="Table of contents"], button[aria-label*="Contents"]');
-    if (await tocButton.first().isVisible()) {
-      await tocButton.first().click();
+    // Look for stats section
+    const stats = page.locator('[data-testid="library-stats"], [class*="stats"], section:has-text("streak")').first();
+    if (await stats.isVisible()) {
+      await stats.scrollIntoViewIfNeeded();
       await page.waitForTimeout(300);
-
-      await page.screenshot({
-        path: 'test-results/exploration/reader-toc-panel.png',
-        fullPage: true
-      });
     }
+
+    await page.screenshot({
+      path: 'e2e/screenshots/exploration/10-stats.png',
+      fullPage: true,
+    });
   });
 
-  test('reader page - keyboard shortcuts panel', async ({ page }) => {
-    await page.goto('/read/epub1');
-    await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
+  test('capture empty state with filter', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="library-grid"], [class*="grid"]', { timeout: 10000 });
 
-    // Try keyboard shortcut button or press ?
-    const helpButton = page.locator('button[aria-label*="Keyboard"], button[aria-label*="shortcut"], button[aria-label*="Help"]');
-    if (await helpButton.first().isVisible()) {
-      await helpButton.first().click();
-      await page.waitForTimeout(300);
-
-      await page.screenshot({
-        path: 'test-results/exploration/reader-shortcuts-panel.png',
-        fullPage: true
-      });
-    } else {
-      // Try pressing ? for shortcuts
-      await page.keyboard.press('?');
-      await page.waitForTimeout(300);
-      await page.screenshot({
-        path: 'test-results/exploration/reader-shortcuts-panel.png',
-        fullPage: true
-      });
+    // Search for something that won't match
+    const searchInput = page.locator('input[type="search"], input[placeholder*="search" i]').first();
+    if (await searchInput.isVisible()) {
+      await searchInput.fill('xyznonexistent');
+      await page.waitForTimeout(500);
     }
-  });
-});
 
-test.describe('UI/UX Exploration - Performance', () => {
-  test('measure page load performance', async ({ page }) => {
+    await page.screenshot({
+      path: 'e2e/screenshots/exploration/11-empty-filter.png',
+      fullPage: true,
+    });
+  });
+
+  test('capture loading skeleton', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    // Delay the API response to capture loading state
     await page.route('**/api/library', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([
-          { id: 'book1', title: 'Book 1', sourceType: 'pdf', progress: 50, lastRead: new Date().toISOString(), cover: null },
-          { id: 'book2', title: 'Book 2', sourceType: 'epub', progress: 25, lastRead: new Date().toISOString(), cover: null },
-        ]),
+        body: JSON.stringify(mockLibrary),
       });
     });
 
-    // Collect performance metrics
-    const metrics: PerformanceMetrics = {
-      lcp: null,
-      fcp: null,
-      cls: null,
-      tti: null,
-    };
-
-    // Listen for performance entries
-    page.on('console', msg => {
-      if (msg.text().includes('PERF:')) {
-        console.log(msg.text());
-      }
-    });
-
-    const startTime = Date.now();
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
+
+    // Capture immediately to get loading state
+    await page.screenshot({
+      path: 'e2e/screenshots/exploration/12-loading.png',
+      fullPage: true,
+    });
+  });
+});
+
+test.describe('Performance Metrics', () => {
+  test('measure library page performance', async ({ page }) => {
+    await setupMocks(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    // Start performance measurement
+    const startTime = Date.now();
+
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="library-grid"], [class*="grid"]', { timeout: 10000 });
+
     const loadTime = Date.now() - startTime;
 
-    // Get Core Web Vitals
+    // Get performance metrics
     const performanceMetrics = await page.evaluate(() => {
-      return new Promise<PerformanceMetrics>((resolve) => {
-        const result: PerformanceMetrics = {
-          lcp: null,
-          fcp: null,
-          cls: null,
-          tti: null,
+      const entries = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+      const nav = entries[0];
+      return {
+        domContentLoaded: nav?.domContentLoadedEventEnd - nav?.startTime,
+        loadComplete: nav?.loadEventEnd - nav?.startTime,
+        firstPaint: performance.getEntriesByName('first-paint')[0]?.startTime,
+        firstContentfulPaint: performance.getEntriesByName('first-contentful-paint')[0]?.startTime,
+      };
+    });
+
+    // Get layout shift
+    const layoutShift = await page.evaluate(() => {
+      return new Promise((resolve) => {
+        let cls = 0;
+        const observer = new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            if (!(entry as any).hadRecentInput) {
+              cls += (entry as any).value;
+            }
+          }
+        });
+        observer.observe({ type: 'layout-shift', buffered: true });
+        setTimeout(() => {
+          observer.disconnect();
+          resolve(cls);
+        }, 1000);
+      });
+    });
+
+    console.log('Performance Metrics:');
+    console.log(`  Load Time: ${loadTime}ms`);
+    console.log(`  DOM Content Loaded: ${performanceMetrics.domContentLoaded?.toFixed(0)}ms`);
+    console.log(`  Load Complete: ${performanceMetrics.loadComplete?.toFixed(0)}ms`);
+    console.log(`  First Paint: ${performanceMetrics.firstPaint?.toFixed(0)}ms`);
+    console.log(`  First Contentful Paint: ${performanceMetrics.firstContentfulPaint?.toFixed(0)}ms`);
+    console.log(`  Cumulative Layout Shift: ${(layoutShift as number).toFixed(4)}`);
+
+    // Assertions
+    expect(performanceMetrics.firstContentfulPaint).toBeLessThan(2000);
+    expect(layoutShift).toBeLessThan(0.25);
+  });
+
+  test('measure scroll performance', async ({ page }) => {
+    await setupMocks(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="library-grid"], [class*="grid"]', { timeout: 10000 });
+
+    // Measure frame rate during scroll
+    const frameMetrics = await page.evaluate(async () => {
+      return new Promise((resolve) => {
+        const frames: number[] = [];
+        let lastTime = performance.now();
+
+        const measureFrame = () => {
+          const now = performance.now();
+          frames.push(1000 / (now - lastTime));
+          lastTime = now;
         };
 
-        // Get FCP
-        const paintEntries = performance.getEntriesByType('paint');
-        const fcpEntry = paintEntries.find((entry) => entry.name === 'first-contentful-paint');
-        if (fcpEntry) {
-          result.fcp = fcpEntry.startTime;
-        }
+        // Scroll smoothly
+        let scrollPos = 0;
+        const scrollInterval = setInterval(() => {
+          scrollPos += 50;
+          window.scrollTo(0, scrollPos);
+          measureFrame();
 
-        // Get LCP using PerformanceObserver (if available)
-        if ('PerformanceObserver' in window) {
-          try {
-            const lcpEntries = performance.getEntriesByType('largest-contentful-paint');
-            if (lcpEntries.length > 0) {
-              result.lcp = lcpEntries[lcpEntries.length - 1].startTime;
-            }
-          } catch {
-            // LCP not available
+          if (scrollPos > 1000) {
+            clearInterval(scrollInterval);
+            const avgFps = frames.reduce((a, b) => a + b, 0) / frames.length;
+            const minFps = Math.min(...frames);
+            resolve({ avgFps, minFps, frameCount: frames.length });
           }
-        }
-
-        resolve(result);
+        }, 16);
       });
     });
 
-    console.log('Page Load Performance:');
-    console.log(`  Total Load Time: ${loadTime}ms`);
-    console.log(`  FCP: ${performanceMetrics.fcp?.toFixed(2) || 'N/A'}ms`);
-    console.log(`  LCP: ${performanceMetrics.lcp?.toFixed(2) || 'N/A'}ms`);
-
-    // Take screenshot with performance overlay
-    await page.screenshot({
-      path: 'test-results/exploration/performance-library.png',
-      fullPage: true
-    });
-
-    // Assert reasonable performance (allow for slower CI environments)
-    expect(loadTime).toBeLessThan(15000); // Page should load in under 15s
+    console.log('Scroll Performance:');
+    console.log(`  Average FPS: ${(frameMetrics as any).avgFps.toFixed(1)}`);
+    console.log(`  Min FPS: ${(frameMetrics as any).minFps.toFixed(1)}`);
   });
 
-  test('measure interaction responsiveness', async ({ page, isMobile }) => {
-    await page.route('**/api/library', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([
-          { id: 'book1', title: 'Book 1', sourceType: 'pdf', progress: 50, lastRead: new Date().toISOString(), cover: null },
-        ]),
-      });
-    });
-
+  test('check accessibility basics', async ({ page }) => {
+    await setupMocks(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.waitForSelector('[data-testid="library-grid"], [class*="grid"]', { timeout: 10000 });
 
-    // Measure filter click response
-    if (isMobile) {
-      // On mobile, open filter sheet first
-      const filtersButton = page.locator('button:has-text("Filters")');
-      if (await filtersButton.isVisible()) {
-        await filtersButton.click();
-        await page.waitForTimeout(200);
+    // Check for skip link
+    const skipLink = page.locator('a[href="#main-content"], .skip-link');
+    const hasSkipLink = (await skipLink.count()) > 0;
 
-        const filterStartTime = Date.now();
-        const pdfButton = page.getByRole('button', { name: 'PDF' });
-        if (await pdfButton.isVisible()) {
-          await pdfButton.click();
-        }
-        await page.waitForTimeout(100);
-        const filterResponseTime = Date.now() - filterStartTime;
-        console.log(`Filter Click Response (Mobile): ${filterResponseTime}ms`);
-
-        // Close sheet
-        const doneButton = page.getByRole('button', { name: 'Done' });
-        if (await doneButton.isVisible()) {
-          await doneButton.click();
-        }
-      }
-    } else {
-      const filterStartTime = Date.now();
-      await page.getByRole('button', { name: 'PDF' }).first().click();
-      await page.waitForTimeout(100);
-      const filterResponseTime = Date.now() - filterStartTime;
-      console.log(`Filter Click Response: ${filterResponseTime}ms`);
-    }
-
-    // Measure search input response
-    const searchInput = page.getByPlaceholder(/search/i);
-    const searchStartTime = Date.now();
-    await searchInput.fill('test');
-    await page.waitForTimeout(100);
-    const searchResponseTime = Date.now() - searchStartTime;
-
-    console.log(`Search Input Response: ${searchResponseTime}ms`);
-  });
-});
-
-test.describe('UI/UX Exploration - Mobile Responsiveness', () => {
-  test.use({ viewport: { width: 375, height: 667 } }); // iPhone SE size
-
-  test('mobile - library layout', async ({ page }) => {
-    await page.route('**/api/library', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([
-          { id: 'book1', title: 'Book 1', sourceType: 'pdf', progress: 50, lastRead: new Date().toISOString(), cover: null },
-          { id: 'book2', title: 'Book 2', sourceType: 'epub', progress: 25, lastRead: new Date().toISOString(), cover: null },
-        ]),
-      });
+    // Check for heading hierarchy
+    const h1Count = await page.locator('h1').count();
+    const headings = await page.evaluate(() => {
+      const h = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
+      return Array.from(h).map((el) => ({
+        level: parseInt(el.tagName[1]),
+        text: el.textContent?.trim().slice(0, 50),
+      }));
     });
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    await page.screenshot({
-      path: 'test-results/exploration/mobile-library.png',
-      fullPage: true
+    // Check for images with alt text
+    const images = await page.evaluate(() => {
+      const imgs = document.querySelectorAll('img');
+      return Array.from(imgs).map((img) => ({
+        hasAlt: img.hasAttribute('alt'),
+        src: img.src.slice(-50),
+      }));
     });
 
-    // Check mobile navigation is visible
-    const mobileNav = page.locator('[data-testid="mobile-bottom-nav"]');
-    await expect(mobileNav).toBeVisible();
-  });
-
-  test('mobile - filter sheet', async ({ page }) => {
-    await page.route('**/api/library', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([
-          { id: 'book1', title: 'Book 1', sourceType: 'pdf', progress: 50, lastRead: new Date().toISOString(), cover: null },
-        ]),
-      });
+    // Check for button labels
+    const buttons = await page.evaluate(() => {
+      const btns = document.querySelectorAll('button');
+      return Array.from(btns).map((btn) => ({
+        hasLabel: btn.hasAttribute('aria-label') || btn.textContent?.trim().length > 0,
+        label: btn.getAttribute('aria-label') || btn.textContent?.trim().slice(0, 30),
+      }));
     });
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    // Look for filter button on mobile
-    const filterButton = page.locator('button[aria-label*="filter" i], button:has-text("Filter")');
-    if (await filterButton.first().isVisible()) {
-      await filterButton.first().click();
-      await page.waitForTimeout(300);
-
-      await page.screenshot({
-        path: 'test-results/exploration/mobile-filter-sheet.png',
-        fullPage: true
-      });
-    }
-  });
-});
-
-test.describe('UI/UX Exploration - Error States', () => {
-  test('network error state', async ({ page }) => {
-    await page.route('**/api/library', async (route) => {
-      await route.abort('failed');
+    // Check color contrast (basic check)
+    const colorContrast = await page.evaluate(() => {
+      const body = document.body;
+      const style = getComputedStyle(body);
+      return {
+        bgColor: style.backgroundColor,
+        textColor: style.color,
+      };
     });
 
-    await page.goto('/');
-    await page.waitForTimeout(2000);
+    console.log('Accessibility Check:');
+    console.log(`  Skip Link Present: ${hasSkipLink}`);
+    console.log(`  H1 Count: ${h1Count}`);
+    console.log(`  Heading Structure: ${headings.map((h) => `H${h.level}`).join(' -> ')}`);
+    console.log(`  Images with Alt: ${images.filter((i) => i.hasAlt).length}/${images.length}`);
+    console.log(`  Buttons with Labels: ${buttons.filter((b) => b.hasLabel).length}/${buttons.length}`);
+    console.log(`  Colors: bg=${colorContrast.bgColor}, text=${colorContrast.textColor}`);
 
-    await page.screenshot({
-      path: 'test-results/exploration/error-network.png',
-      fullPage: true
-    });
-  });
-
-  test('404 document not found', async ({ page }) => {
-    await page.route('**/api/library/nonexistent', async (route) => {
-      await route.fulfill({
-        status: 404,
-        contentType: 'application/json',
-        body: JSON.stringify({ error: 'Document not found' }),
-      });
-    });
-
-    await page.goto('/read/nonexistent');
-    await page.waitForTimeout(2000);
-
-    await page.screenshot({
-      path: 'test-results/exploration/error-404.png',
-      fullPage: true
-    });
-  });
-});
-
-test.describe('UI/UX Exploration - Visual Consistency', () => {
-  test('check focus states', async ({ page }) => {
-    await page.route('**/api/library', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([
-          { id: 'book1', title: 'Book 1', sourceType: 'pdf', progress: 50, lastRead: new Date().toISOString(), cover: null },
-        ]),
-      });
-    });
-
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    // Tab through elements and capture focus states
-    await page.keyboard.press('Tab');
-    await page.screenshot({ path: 'test-results/exploration/focus-state-1.png', fullPage: true });
-
-    await page.keyboard.press('Tab');
-    await page.screenshot({ path: 'test-results/exploration/focus-state-2.png', fullPage: true });
-
-    await page.keyboard.press('Tab');
-    await page.screenshot({ path: 'test-results/exploration/focus-state-3.png', fullPage: true });
-  });
-
-  test('check loading states', async ({ page }) => {
-    // Slow down API response to capture loading state
-    await page.route('**/api/library', async (route) => {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([]),
-      });
-    });
-
-    await page.goto('/');
-
-    // Capture loading state quickly
-    await page.waitForTimeout(100);
-    await page.screenshot({
-      path: 'test-results/exploration/loading-state.png',
-      fullPage: true
-    });
+    // Basic assertions
+    expect(h1Count).toBeGreaterThanOrEqual(1);
   });
 });

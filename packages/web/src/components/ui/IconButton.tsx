@@ -35,7 +35,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         className={clsx(
           // Base styles
           'relative inline-flex items-center justify-center rounded-lg',
-          'transition-all duration-150 ease-out',
+          'transition-[color,background-color,border-color,opacity] duration-150 ease-out',
           'select-none touch-manipulation',
           '-webkit-tap-highlight-color-transparent',
 
@@ -45,12 +45,8 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
           // Touch target - always at least 44x44 on touch devices
           'min-w-[44px] min-h-[44px]',
 
-          // Visual sizes (actual visual appearance)
-          {
-            'w-8 h-8 md:min-w-[32px] md:min-h-[32px]': size === 'sm',
-            'w-10 h-10 md:min-w-[40px] md:min-h-[40px]': size === 'md',
-            'w-12 h-12 md:min-w-[48px] md:min-h-[48px]': size === 'lg',
-          },
+          // Visual sizes - all maintain 44px minimum touch target
+          size === 'lg' ? 'w-12 h-12' : 'w-11 h-11',
 
           // Variant styles
           {

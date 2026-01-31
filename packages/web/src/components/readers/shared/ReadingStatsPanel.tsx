@@ -102,7 +102,7 @@ export function ReadingStatsPanel({ noteId, currentPage, totalPages, dateFinishe
               </div>
               <div className="w-full h-2 bg-bg-surface rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-accent-primary transition-all duration-300"
+                  className="h-full bg-accent-primary transition-[width,height] duration-300"
                   style={{ width: `${progress}%` }}
                 />
               </div>
@@ -284,7 +284,7 @@ function ReadingHistoryChart({ history, sessionDuration, getFormattedReadingTime
               title={`${formatChartDate(day.date)}: ${getFormattedReadingTime(day.durationMs)}`}
             >
               <div
-                className={`w-full rounded-t transition-all duration-300 ${
+                className={`w-full rounded-t transition-[width,height] duration-300 ${
                   hasActivity
                     ? isToday
                       ? 'bg-accent-primary'
@@ -431,7 +431,7 @@ function ReadingPaceChart({ paceData, trend, currentPace, overallAverage }: Read
                   title={`${formatChartDate(point.date)}: ${point.pagesPerHour} pg/hr (${point.pagesRead} pages)`}
                 >
                   <div
-                    className={`w-full max-w-3 rounded-t transition-all ${
+                    className={`w-full max-w-3 rounded-t transition-[height,width] ${
                       isLatest ? 'bg-accent-primary' : 'bg-accent-primary/50'
                     }`}
                     style={{ height: `${height}%`, minHeight: '4px' }}
@@ -514,7 +514,7 @@ function TimeOfDayChart({ patterns, preferredTime }: TimeOfDayChartProps) {
               </div>
               <div className="flex-1 h-4 bg-bg-surface rounded overflow-hidden">
                 <div
-                  className={`h-full rounded transition-all ${
+                  className={`h-full rounded transition-[height,width] ${
                     isPeak ? 'bg-accent-primary' : 'bg-accent-primary/40'
                   }`}
                   style={{ width: `${width}%`, minWidth: period.sessions > 0 ? '4px' : '0' }}

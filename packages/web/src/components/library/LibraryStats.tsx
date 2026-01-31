@@ -18,40 +18,40 @@ export function LibraryStats() {
   const progressPercent = Math.min(100, Math.round((todayMs / goalMs) * 100));
 
   return (
-    <div className="flex items-center gap-4 text-sm flex-wrap">
+    <div className="flex items-center gap-2 sm:gap-3 md:gap-5 text-sm overflow-x-auto scrollbar-thin pb-1 -mb-1 flex-nowrap min-w-0 max-w-full mask-fade-right md:flex-wrap md:overflow-x-visible min-h-[44px] scroll-smooth pr-12 md:pr-0" tabIndex={0} role="region" aria-label="Library statistics">
       {/* Today's reading time */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 shrink-0">
         <div className="flex items-center gap-1.5 text-text-secondary">
           {/* Clock icon */}
           <svg
-            width="14"
-            height="14"
+            width="15"
+            height="15"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
             strokeWidth="2"
-            className="opacity-70"
+            className="opacity-80"
           >
             <circle cx="12" cy="12" r="10" />
             <polyline points="12 6 12 12 16 14" />
           </svg>
-          <span className="text-xs">Today</span>
+          <span className="text-xs font-medium">Today</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className={`font-medium ${goalMet ? 'text-green-500' : 'text-text-primary'}`}>
+          <span className={`font-semibold tabular-nums ${goalMet ? 'text-green-500' : 'text-text-primary'}`}>
             {formatReadingTime(todayMs, { showSeconds: false })}
           </span>
           {!goalMet && (
-            <span className="text-text-secondary/60 text-xs">/ {goals.dailyGoalMinutes}m</span>
+            <span className="text-text-secondary/60 text-xs font-medium">/ {goals.dailyGoalMinutes}m</span>
           )}
           {goalMet && (
             <svg
-              width="14"
-              height="14"
+              width="15"
+              height="15"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
+              strokeWidth="2.5"
               className="text-green-500"
             >
               <path d="M20 6L9 17l-5-5" />
@@ -65,13 +65,14 @@ export function LibraryStats() {
       </div>
 
       {/* Divider */}
-      <div className="h-4 w-px bg-text-secondary/20" />
+      <div className="h-4 w-px bg-text-secondary/20 shrink-0" />
 
       {/* Streak indicator */}
-      <div className="flex items-center gap-1.5">
-        <span className={`${streak.currentStreak > 0 ? '' : 'grayscale opacity-50'}`}>
+      <div className="flex items-center gap-1.5 shrink-0">
+        <span className={`${streak.currentStreak > 0 ? '' : 'grayscale opacity-50'}`} aria-hidden="true">
           {streak.currentStreak > 0 ? '🔥' : '💤'}
         </span>
+        <span className="sr-only">{streak.currentStreak > 0 ? 'Active streak' : 'No active streak'}</span>
         <AnimatedStat
           value={streak.currentStreak}
           className={`font-medium ${streak.currentStreak > 0 ? 'text-text-primary' : 'text-text-secondary'}`}
@@ -94,14 +95,16 @@ export function LibraryStats() {
       {/* Streak at-risk warning */}
       {data.streakAtRisk?.isAtRisk && streak.currentStreak > 0 && !data.streakAtRisk?.isFreezeDay && (
         <>
-          <div className="h-4 w-px bg-text-secondary/20" />
+          <div className="h-4 w-px bg-text-secondary/20 shrink-0" />
           <div
-            className="flex items-center gap-1.5 text-amber-500"
+            className="flex items-center gap-1.5 text-amber-500 shrink-0"
+            role="status"
+            aria-live="polite"
             title={`Read ${data.streakAtRisk.minutesRemaining}m more to keep your streak! ${data.streakAtRisk.hoursUntilMidnight.toFixed(1)}h until midnight.${data.streakAtRisk.graceDaysRemaining > 0 ? ` ${data.streakAtRisk.graceDaysRemaining} grace day${data.streakAtRisk.graceDaysRemaining === 1 ? '' : 's'} remaining.` : ''}`}
           >
             <WarningIcon className="w-3.5 h-3.5" />
-            <span className="text-xs font-medium">
-              {data.streakAtRisk.minutesRemaining}m to go
+            <span className="text-xs font-medium whitespace-nowrap">
+              {data.streakAtRisk.minutesRemaining}m left
             </span>
             {data.streakAtRisk.hoursUntilMidnight <= 2 && (
               <span className="text-xs text-amber-400/80">
@@ -115,31 +118,31 @@ export function LibraryStats() {
       {/* Freeze day indicator */}
       {data.streakAtRisk?.isFreezeDay && (
         <>
-          <div className="h-4 w-px bg-text-secondary/20" />
-          <div className="flex items-center gap-1.5 text-blue-400">
-            <span>❄️</span>
+          <div className="h-4 w-px bg-text-secondary/20 shrink-0" />
+          <div className="flex items-center gap-1.5 text-blue-400 shrink-0">
+            <span aria-hidden="true">❄️</span>
             <span className="text-xs">Freeze day</span>
           </div>
         </>
       )}
 
       {/* Library stats (if available) */}
-      {libraryStats && (
+      {libraryStats && typeof libraryStats.totalBooks === 'number' && Number.isFinite(libraryStats.totalBooks) && libraryStats.totalBooks >= 0 && (
         <>
-          <div className="h-4 w-px bg-text-secondary/20" />
+          <div className="h-4 w-px bg-text-secondary/20 shrink-0" />
 
           {/* Total books */}
-          <div className="flex items-center gap-1.5" title={`${libraryStats.booksCompleted} completed, ${libraryStats.booksInProgress} in progress, ${libraryStats.booksUnread} unread`}>
+          <div className="flex items-center gap-1.5 shrink-0" title={`${libraryStats.booksCompleted ?? 0} completed, ${libraryStats.booksInProgress ?? 0} in progress, ${libraryStats.booksUnread ?? 0} unread`}>
             <BookIcon className="w-3.5 h-3.5 text-text-secondary opacity-70" />
             <AnimatedStat value={libraryStats.totalBooks} className="font-medium text-text-primary" />
             <span className="text-text-secondary text-xs">books</span>
           </div>
 
-          {/* Total reading time */}
+          {/* Total reading time — hide on very small screens */}
           {libraryStats.totalReadingTimeMs > 0 && (
             <>
-              <div className="h-4 w-px bg-text-secondary/20" />
-              <div className="flex items-center gap-1.5" title="Total reading time across all books">
+              <div className="h-4 w-px bg-text-secondary/20 shrink-0 hidden sm:block" />
+              <div className="items-center gap-1.5 shrink-0 hidden sm:flex" title="Total reading time across all books">
                 <span className="font-medium text-accent-primary">
                   {formatReadingTime(libraryStats.totalReadingTimeMs, { showSeconds: false })}
                 </span>
@@ -151,8 +154,8 @@ export function LibraryStats() {
           {/* Total highlights */}
           {libraryStats.totalHighlights > 0 && (
             <>
-              <div className="h-4 w-px bg-text-secondary/20" />
-              <div className="flex items-center gap-1.5" title="Total highlights across all books">
+              <div className="h-4 w-px bg-text-secondary/20 shrink-0 hidden md:block" />
+              <div className="items-center gap-1.5 shrink-0 hidden md:flex" title="Total highlights across all books">
                 <HighlightIcon className="w-3.5 h-3.5 text-text-secondary opacity-70" />
                 <AnimatedStat value={libraryStats.totalHighlights} className="font-medium text-text-primary" />
                 <span className="text-text-secondary text-xs">highlights</span>
@@ -161,10 +164,10 @@ export function LibraryStats() {
           )}
 
           {/* Books completed this year */}
-          {libraryStats.booksCompletedThisYear > 0 && (
+          {typeof libraryStats.booksCompletedThisYear === 'number' && libraryStats.booksCompletedThisYear > 0 && (
             <>
-              <div className="h-4 w-px bg-text-secondary/20" />
-              <div className="flex items-center gap-1.5" title={`${libraryStats.booksCompletedThisYear} book${libraryStats.booksCompletedThisYear === 1 ? '' : 's'} completed in ${libraryStats.currentYear}`}>
+              <div className="h-4 w-px bg-text-secondary/20 shrink-0 hidden md:block" />
+              <div className="items-center gap-1.5 shrink-0 hidden md:flex" title={`${libraryStats.booksCompletedThisYear} book${libraryStats.booksCompletedThisYear === 1 ? '' : 's'} completed in ${libraryStats.currentYear}`}>
                 <AnimatedStat value={libraryStats.booksCompletedThisYear} className="font-medium text-green-500" />
                 <span className="text-text-secondary text-xs">in {libraryStats.currentYear}</span>
               </div>
@@ -177,17 +180,22 @@ export function LibraryStats() {
 }
 
 function AnimatedStat({ value, className }: { value: number; className?: string }) {
-  const animated = useAnimatedCounter(value, 600);
-  return <span className={`tabular-nums ${className ?? ''}`}>{animated}</span>;
+  const safeValue = Number.isFinite(value) ? value : 0;
+  const animated = useAnimatedCounter(safeValue, 600);
+  // Belt-and-suspenders: ensure displayed value is always a valid integer
+  const displayValue = Number.isFinite(animated) ? animated : safeValue;
+  return <span className={`tabular-nums ${className ?? ''}`}>{String(displayValue)}</span>;
 }
 
 function AnimatedProgressBar({ percent }: { percent: number }) {
-  const animatedPercent = useAnimatedCounter(percent, 600);
+  const safePercent = Number.isFinite(percent) ? Math.min(100, Math.max(0, percent)) : 0;
+  const animatedPercent = useAnimatedCounter(safePercent, 600);
+  const displayPercent = Number.isFinite(animatedPercent) ? animatedPercent : safePercent;
   return (
-    <div className="w-12 h-1.5 bg-bg-deep rounded-full overflow-hidden">
+    <div className="w-14 h-1.5 bg-bg-deep rounded-full overflow-hidden">
       <div
         className="h-full bg-accent-primary transition-[background-color] duration-300"
-        style={{ width: `${animatedPercent}%` }}
+        style={{ width: `${displayPercent}%` }}
       />
     </div>
   );
@@ -223,7 +231,7 @@ function WarningIcon({ className }: { className?: string }) {
 
 function LibraryStatsSkeleton() {
   return (
-    <div className="flex items-center gap-4 text-sm flex-wrap">
+    <div className="flex items-center gap-3 md:gap-5 text-sm flex-wrap min-h-[44px]">
       {/* Today's reading time skeleton */}
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-1.5">
@@ -235,7 +243,7 @@ function LibraryStatsSkeleton() {
       </div>
 
       {/* Divider */}
-      <div className="h-4 w-px bg-text-secondary/20" />
+      <div className="h-4 w-px bg-text-secondary/20 shrink-0" />
 
       {/* Streak skeleton */}
       <div className="flex items-center gap-1.5">
@@ -245,7 +253,7 @@ function LibraryStatsSkeleton() {
       </div>
 
       {/* Divider */}
-      <div className="h-4 w-px bg-text-secondary/20" />
+      <div className="h-4 w-px bg-text-secondary/20 shrink-0" />
 
       {/* Books skeleton */}
       <div className="flex items-center gap-1.5">

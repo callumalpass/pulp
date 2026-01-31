@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Link } from 'react-router-dom';
 import type { SearchResult, SearchMatch } from '@pulp/shared';
 
@@ -38,7 +39,7 @@ export function SearchResults({ results, query, isLoading }: SearchResultsProps)
   return (
     <div className="space-y-4">
       <div className="text-sm text-text-secondary mb-4" role="status" aria-live="polite">
-        Found {results.reduce((sum, r) => sum + r.totalMatches, 0)} matches in {results.length} document{results.length !== 1 ? 's' : ''}
+        Found {results.reduce((sum, r) => sum + (r.totalMatches || r.matches.length), 0)} matches in {results.length} document{results.length !== 1 ? 's' : ''}
       </div>
 
       {results.map((result) => (
@@ -55,7 +56,7 @@ function SearchResultCard({ result, query }: { result: SearchResult; query: stri
       <div className="px-4 py-3 border-b border-text-secondary/10 flex items-center justify-between">
         <Link
           to={`/read/${result.noteId}`}
-          className="font-medium text-text-primary hover:text-accent-primary transition-colors"
+          className="font-medium text-text-primary hover:text-accent-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface rounded"
           aria-label={`Open ${result.title}`}
         >
           {result.title}
@@ -65,7 +66,7 @@ function SearchResultCard({ result, query }: { result: SearchResult; query: stri
             {result.sourceType}
           </span>
           <span className="text-xs text-text-secondary">
-            {result.totalMatches} match{result.totalMatches !== 1 ? 'es' : ''}
+            {result.totalMatches || result.matches.length} match{(result.totalMatches || result.matches.length) !== 1 ? 'es' : ''}
           </span>
         </div>
       </div>
@@ -84,7 +85,7 @@ function SearchResultCard({ result, query }: { result: SearchResult; query: stri
       </div>
 
       {/* Show more link if there are more matches */}
-      {result.totalMatches > result.matches.length && (
+      {(result.totalMatches || 0) > result.matches.length && (
         <div className="px-4 py-2 bg-bg-deep text-center">
           <Link
             to={`/read/${result.noteId}`}
@@ -115,9 +116,6 @@ function MatchRow({
     ? `/read/${noteId}?page=${match.page}`
     : `/read/${noteId}`;
 
-  // Highlight the query in the match text
-  const highlightedText = highlightQuery(match.text, query);
-
   const locationLabel = sourceType === 'pdf'
     ? `Page ${match.pageLabel || match.page}`
     : match.chapter || 'Chapter';
@@ -125,7 +123,7 @@ function MatchRow({
   return (
     <Link
       to={link}
-      className="block px-4 py-3 hover:bg-bg-deep/50 active:bg-bg-deep transition-all duration-150"
+      className="block px-4 py-3 hover:bg-bg-deep/50 active:bg-bg-deep transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-primary"
       aria-label={`Match on ${locationLabel}: ${match.text.substring(0, 50)}...`}
     >
       <div className="flex items-start gap-3">
@@ -145,35 +143,34 @@ function MatchRow({
         </div>
 
         {/* Match text */}
-        <p
-          className="text-sm text-text-primary leading-relaxed flex-1"
-          dangerouslySetInnerHTML={{ __html: highlightedText }}
-        />
+        <p className="text-sm text-text-primary leading-relaxed flex-1">
+          <HighlightedText text={match.text} query={query} />
+        </p>
       </div>
     </Link>
   );
 }
 
-function highlightQuery(text: string, query: string): string {
-  if (!query.trim()) return escapeHtml(text);
+const HighlightedText = memo(function HighlightedText({ text, query }: { text: string; query: string }) {
+  if (!query.trim()) return <>{text}</>;
 
   const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const regex = new RegExp(`(${escapedQuery})`, 'gi');
+  const splitRegex = new RegExp(`(${escapedQuery})`, 'gi');
+  const parts = text.split(splitRegex);
+  const lowerQuery = query.toLowerCase();
 
-  return escapeHtml(text).replace(
-    regex,
-    '<mark class="bg-yellow-400/40 text-text-primary px-0.5 rounded">$1</mark>'
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.toLowerCase() === lowerQuery ? (
+          <mark key={i} className="bg-yellow-400/40 text-text-primary px-0.5 rounded" aria-label="search match">{part}</mark>
+        ) : (
+          part
+        )
+      )}
+    </>
   );
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
+});
 
 function SearchResultSkeleton({ matchCount }: { matchCount: number }) {
   return (

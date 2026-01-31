@@ -113,7 +113,7 @@ export function BookmarksPanel({
         <h2 className="text-sm font-semibold text-text-primary">Bookmarks</h2>
         <button
           onClick={onClose}
-          className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-colors"
+          className="min-w-[44px] min-h-[44px] w-11 h-11 md:w-8 md:h-8 md:min-w-[32px] md:min-h-[32px] flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-colors"
           aria-label="Close bookmarks panel"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -133,13 +133,14 @@ export function BookmarksPanel({
               onChange={(e) => setNewLabel(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={currentPage ? `Page ${pageLabels?.[currentPage - 1] ?? currentPage}` : 'Bookmark name'}
-              className="flex-1 h-8 px-2 text-sm bg-bg-deep border border-text-secondary/20 rounded text-text-primary focus:outline-none focus:border-accent-primary"
+              aria-label="Bookmark name"
+              className="flex-1 min-h-[44px] md:min-h-[32px] px-2 text-sm bg-bg-deep border border-text-secondary/20 rounded text-text-primary focus:outline-none focus:border-accent-primary"
               disabled={isSaving}
             />
             <button
               onClick={handleAddBookmark}
               disabled={isSaving}
-              className="px-3 h-8 text-sm bg-accent-primary text-white rounded hover:bg-accent-primary/90 transition-colors disabled:opacity-50"
+              className="px-3 min-h-[44px] md:min-h-[32px] text-sm bg-accent-primary text-white rounded hover:bg-accent-primary/90 transition-colors disabled:opacity-50"
             >
               {isSaving ? '...' : 'Add'}
             </button>
@@ -148,7 +149,7 @@ export function BookmarksPanel({
                 setIsAddingMode(false);
                 setNewLabel('');
               }}
-              className="w-8 h-8 flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep rounded transition-colors"
+              className="min-w-[44px] min-h-[44px] w-11 h-11 md:w-8 md:h-8 md:min-w-[32px] md:min-h-[32px] flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep rounded transition-colors"
               aria-label="Cancel"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -159,7 +160,7 @@ export function BookmarksPanel({
         ) : (
           <button
             onClick={() => setIsAddingMode(true)}
-            className="w-full flex items-center justify-center gap-2 h-9 text-sm text-accent-primary border border-accent-primary/30 rounded-lg hover:bg-accent-primary/10 transition-colors"
+            className="w-full flex items-center justify-center gap-2 min-h-[44px] md:min-h-[36px] text-sm text-accent-primary border border-accent-primary/30 rounded-lg hover:bg-accent-primary/10 transition-colors"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M12 5v14M5 12h14" />
@@ -170,7 +171,7 @@ export function BookmarksPanel({
       </div>
 
       {/* Bookmarks list */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto" tabIndex={0} role="region" aria-label="Bookmarks list">
         {isLoading ? (
           <div className="flex items-center justify-center h-full">
             <div className="w-6 h-6 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" />
@@ -207,7 +208,7 @@ export function BookmarksPanel({
                   </button>
                   <button
                     onClick={() => setBookmarkToDelete(bookmark)}
-                    className="opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center text-text-secondary hover:text-red-500 transition-all"
+                    className="min-w-[44px] min-h-[44px] w-11 h-11 md:opacity-0 md:group-hover:opacity-100 md:w-7 md:h-7 md:min-w-[28px] md:min-h-[28px] flex items-center justify-center text-text-secondary hover:text-red-500 transition-[color,opacity] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary rounded"
                     aria-label={`Remove bookmark: ${bookmark.label}`}
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

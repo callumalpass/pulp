@@ -323,7 +323,7 @@ function CircularProgress({ progress, size, strokeWidth, goalMet, children }: Ci
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           strokeLinecap="round"
-          className={`transition-all duration-500 ${goalMet ? 'text-green-500' : 'text-accent-primary'}`}
+          className={`transition-colors duration-500 ${goalMet ? 'text-green-500' : 'text-accent-primary'}`}
         />
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
