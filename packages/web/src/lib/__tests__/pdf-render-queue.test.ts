@@ -1980,3 +1980,547 @@ describe('PdfRenderQueue - additional edge cases', () => {
     });
   });
 });
+
+// ============================================================================
+// Deeper edge-case coverage for queue internals, cache behavior, and cancel flows
+// ============================================================================
+
+describe('PdfRenderQueue - queue processing edge cases', () => {
+  let queue: PdfRenderQueue;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // Re-stub idle callbacks (vi.useRealTimers in previous suite's afterEach may clear them)
+    vi.stubGlobal('requestIdleCallback', vi.fn((cb: IdleRequestCallback) => {
+      const id = Math.random();
+      cb({ didTimeout: false, timeRemaining: () => 50 } as IdleDeadline);
+      return id;
+    }));
+    vi.stubGlobal('cancelIdleCallback', vi.fn());
+    mockWorkerInstance = null as unknown as MockWorker;
+    queue = new PdfRenderQueue(5, 5);
+  });
+
+  afterEach(() => {
+    queue.destroy();
+    vi.useRealTimers();
+  });
+
+  describe('processQueue without PDF URL', () => {
+    it('does not send any render requests when URL is never set', () => {
+      // Queue pages without ever calling setPdfUrl — the returned promise
+      // will never resolve (no URL means processQueue exits early), so we
+      // just verify no messages were posted synchronously.
+      queue.renderVisible([1, 2, 3], 1.0);
+
+      // No messages should be posted — processQueue exits early
+      const renderCalls = mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === undefined
+      );
+      expect(renderCalls).toHaveLength(0);
+    });
+
+    it('begins processing once URL is set before queuing', async () => {
+      // Set URL first then render
+      queue.setPdfUrl('http://example.com/test.pdf');
+      const promise = queue.renderVisible([1], 1.0);
+
+      const renderCalls = mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === undefined
+      );
+      expect(renderCalls).toHaveLength(1);
+
+      // Complete the render
+      const req = renderCalls[0][0];
+      mockWorkerInstance.onmessage?.({
+        data: { id: req.id, pageNum: 1, bitmap: createMockBitmap(), scale: 1.0 },
+      } as MessageEvent);
+
+      const result = await promise;
+      expect(result.size).toBe(1);
+    });
+  });
+
+  describe('cancel queued (not yet pending) tasks', () => {
+    it('rejects queued tasks with Cancelled error when cancelled before being sent to worker', async () => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+
+      // Fill up the 4 concurrent slots
+      const blockingPromises: Promise<Map<number, ImageBitmap>>[] = [];
+      blockingPromises.push(queue.renderVisible([1, 2, 3, 4], 1.0));
+
+      // Pages 5, 6 should be in the queue (not yet sent to worker)
+      const renderCalls = () => mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === undefined
+      );
+      expect(renderCalls()).toHaveLength(4);
+
+      // Queue more pages — they'll be held in the queue
+      const extraPromise = queue.renderVisible([5, 6], 1.0);
+
+      // Cancel pages 5 and 6 while they're still queued
+      queue.cancel([5, 6]);
+
+      // Complete the blocking renders
+      for (const call of renderCalls()) {
+        const req = call[0];
+        mockWorkerInstance.onmessage?.({
+          data: { id: req.id, pageNum: req.pageNum, bitmap: createMockBitmap(), scale: 1.0 },
+        } as MessageEvent);
+      }
+
+      const results = await blockingPromises[0];
+      expect(results.size).toBe(4);
+
+      // The extra promise should resolve with empty map (both pages cancelled)
+      const extraResults = await extraPromise;
+      expect(extraResults.size).toBe(0);
+    });
+  });
+
+  describe('worker error response for specific request', () => {
+    it('rejects only the specific task on error, not all pending tasks', async () => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+
+      const promise1 = queue.renderVisible([1], 1.0);
+      const promise2 = queue.renderVisible([2], 1.0);
+
+      const renderCalls = mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === undefined
+      );
+
+      // Send error for page 1
+      const req1 = renderCalls[0][0];
+      mockWorkerInstance.onmessage?.({
+        data: { id: req1.id, error: 'Page load failed' },
+      } as MessageEvent);
+
+      // Send success for page 2
+      const req2 = renderCalls[1][0];
+      mockWorkerInstance.onmessage?.({
+        data: { id: req2.id, pageNum: 2, bitmap: createMockBitmap(), scale: 1.0 },
+      } as MessageEvent);
+
+      // Promise 1 should resolve with empty map (page 1 errored silently)
+      const result1 = await promise1;
+      expect(result1.size).toBe(0);
+
+      // Promise 2 should have page 2
+      const result2 = await promise2;
+      expect(result2.size).toBe(1);
+      expect(result2.has(2)).toBe(true);
+    });
+  });
+
+  describe('priority ordering in processQueue', () => {
+    it('dispatches high-priority tasks before low-priority tasks when slots open', async () => {
+      // Override requestIdleCallback to NOT fire immediately — we want buffer
+      // pages to sit in the queue so processQueue can prioritize them.
+      vi.stubGlobal('requestIdleCallback', vi.fn(() => 999));
+
+      queue.setPdfUrl('http://example.com/test.pdf');
+
+      // Fill all 4 concurrent slots
+      queue.renderVisible([1, 2, 3, 4], 1.0);
+
+      // Queue low-priority buffer pages (idle callback won't fire)
+      queue.renderBuffer([10, 11], 1.0);
+
+      // Queue high-priority visible pages
+      const highPromise = queue.renderVisible([5, 6], 1.0);
+
+      // Only the initial 4 should have been dispatched so far
+      const firstBatch = mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === undefined
+      );
+      expect(firstBatch).toHaveLength(4);
+
+      // Complete the first 4 renders to free slots — processQueue will run
+      // and should pick high-priority (5, 6) before low-priority (10, 11)
+      for (const call of firstBatch) {
+        const req = call[0];
+        mockWorkerInstance.onmessage?.({
+          data: { id: req.id, pageNum: req.pageNum, bitmap: createMockBitmap(), scale: 1.0 },
+        } as MessageEvent);
+      }
+      await Promise.resolve();
+
+      const allCalls = mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === undefined
+      );
+      const dispatchedAfterFirstBatch = allCalls.slice(4).map((c) => c[0].pageNum);
+
+      // Pages 5 and 6 (high priority) should appear before 10 and 11 (low)
+      const indexOf5 = dispatchedAfterFirstBatch.indexOf(5);
+      const indexOf10 = dispatchedAfterFirstBatch.indexOf(10);
+
+      expect(indexOf5).toBeGreaterThanOrEqual(0);
+      if (indexOf10 >= 0) {
+        expect(indexOf5).toBeLessThan(indexOf10);
+      }
+
+      // Complete remaining renders
+      const remainingCalls = allCalls.slice(4);
+      for (const call of remainingCalls) {
+        const req = call[0];
+        mockWorkerInstance.onmessage?.({
+          data: { id: req.id, pageNum: req.pageNum, bitmap: createMockBitmap(), scale: 1.0 },
+        } as MessageEvent);
+      }
+
+      const result = await highPromise;
+      expect(result.has(5)).toBe(true);
+      expect(result.has(6)).toBe(true);
+    });
+  });
+
+  describe('text content callback error isolation', () => {
+    it('continues notifying subsequent callbacks even when one throws', async () => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const callback1 = vi.fn(() => { throw new Error('callback boom'); });
+      const callback2 = vi.fn();
+      const callback3 = vi.fn();
+
+      queue.onTextContent(callback1);
+      queue.onTextContent(callback2);
+      queue.onTextContent(callback3);
+
+      const promise = queue.renderVisible([1], 1.0, true);
+
+      const req = mockWorkerInstance.postMessage.mock.calls.find(
+        (c) => c[0].type === undefined
+      )![0];
+
+      const textContent = { items: [], width: 100, height: 200 };
+      mockWorkerInstance.onmessage?.({
+        data: { id: req.id, pageNum: 1, bitmap: createMockBitmap(), scale: 1.0, textContent },
+      } as MessageEvent);
+
+      await promise;
+
+      // All 3 callbacks should have been invoked despite callback1 throwing
+      expect(callback1).toHaveBeenCalledWith(1, textContent);
+      expect(callback2).toHaveBeenCalledWith(1, textContent);
+      expect(callback3).toHaveBeenCalledWith(1, textContent);
+
+      // Error should have been logged
+      expect(consoleSpy).toHaveBeenCalledWith('Text content callback error:', expect.any(Error));
+
+      consoleSpy.mockRestore();
+    });
+  });
+
+  describe('renderVisible with includeText=true', () => {
+    it('passes includeText=true in the render request', () => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+      queue.renderVisible([1], 1.0, true);
+
+      const renderCalls = mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === undefined
+      );
+      expect(renderCalls).toHaveLength(1);
+      expect(renderCalls[0][0].includeText).toBe(true);
+    });
+
+    it('caches text content from response when includeText=true', async () => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+      const promise = queue.renderVisible([1], 1.0, true);
+
+      const req = mockWorkerInstance.postMessage.mock.calls.find(
+        (c) => c[0].type === undefined
+      )![0];
+
+      const textContent = { items: [{ str: 'hello' }], width: 100, height: 200 };
+      mockWorkerInstance.onmessage?.({
+        data: { id: req.id, pageNum: 1, bitmap: createMockBitmap(), scale: 1.0, textContent },
+      } as MessageEvent);
+
+      await promise;
+
+      expect(queue.getTextContent(1)).toEqual(textContent);
+    });
+  });
+
+  describe('generateId uniqueness', () => {
+    it('produces unique IDs across many requests', async () => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+
+      // Queue 20 pages
+      queue.renderVisible([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], 1.0);
+
+      const allCalls = mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === undefined
+      );
+
+      const ids = allCalls.map((c) => c[0].id);
+      const uniqueIds = new Set(ids);
+      expect(uniqueIds.size).toBe(ids.length);
+    });
+  });
+
+  describe('devicePixelRatio in render requests', () => {
+    it('includes devicePixelRatio from window in all requests', () => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+      queue.renderVisible([1], 1.0);
+
+      const renderCalls = mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === undefined
+      );
+      expect(renderCalls[0][0].devicePixelRatio).toBe(2);
+    });
+  });
+
+  describe('LRU bitmap cache close() on eviction', () => {
+    it('calls close() on evicted bitmaps to free resources', async () => {
+      // Create queue with maxCacheSize=2
+      const smallQueue = new PdfRenderQueue(2, 5);
+      smallQueue.setPdfUrl('http://example.com/test.pdf');
+
+      const bitmaps: ImageBitmap[] = [];
+
+      // Render 3 pages to trigger eviction of the first
+      for (let page = 1; page <= 3; page++) {
+        const promise = smallQueue.renderVisible([page], 1.0);
+
+        const renderCalls = mockWorkerInstance.postMessage.mock.calls.filter(
+          (c) => c[0].type === undefined
+        );
+        const req = renderCalls[renderCalls.length - 1][0];
+
+        const bitmap = createMockBitmap();
+        bitmaps.push(bitmap);
+        mockWorkerInstance.onmessage?.({
+          data: { id: req.id, pageNum: page, bitmap, scale: 1.0 },
+        } as MessageEvent);
+
+        await promise;
+      }
+
+      // The first bitmap should have been evicted and close() called
+      expect(bitmaps[0].close).toHaveBeenCalled();
+      // The other two should still be in cache
+      expect(bitmaps[1].close).not.toHaveBeenCalled();
+      expect(bitmaps[2].close).not.toHaveBeenCalled();
+
+      smallQueue.destroy();
+    });
+  });
+
+  describe('cancel with mix of queued and pending tasks', () => {
+    it('cancels both queued and pending tasks for the specified pages', async () => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+
+      // Start renders to fill all 4 slots
+      const promise = queue.renderVisible([1, 2, 3, 4, 5, 6], 1.0);
+
+      // Pages 1-4 are pending, pages 5-6 are queued
+      const renderCalls = mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === undefined
+      );
+      expect(renderCalls).toHaveLength(4);
+
+      // Cancel pages 3 (pending) and 5 (queued)
+      queue.cancel([3, 5]);
+
+      // Should have sent cancel message for page 3 (pending)
+      const cancelCalls = mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === 'cancel'
+      );
+      expect(cancelCalls.length).toBeGreaterThanOrEqual(1);
+
+      // Complete remaining renders
+      for (const call of renderCalls) {
+        const req = call[0];
+        if (req.pageNum === 3) continue; // Already cancelled
+        mockWorkerInstance.onmessage?.({
+          data: { id: req.id, pageNum: req.pageNum, bitmap: createMockBitmap(), scale: 1.0 },
+        } as MessageEvent);
+      }
+      await Promise.resolve();
+
+      // Complete any newly dispatched renders (page 6 may have been dispatched)
+      const laterCalls = mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === undefined
+      );
+      for (const call of laterCalls.slice(4)) {
+        const req = call[0];
+        mockWorkerInstance.onmessage?.({
+          data: { id: req.id, pageNum: req.pageNum, bitmap: createMockBitmap(), scale: 1.0 },
+        } as MessageEvent);
+      }
+
+      const result = await promise;
+      // Pages 3 and 5 were cancelled, so they should not be in the result
+      expect(result.has(3)).toBe(false);
+      expect(result.has(5)).toBe(false);
+      // Other pages should be present
+      expect(result.has(1)).toBe(true);
+      expect(result.has(2)).toBe(true);
+      expect(result.has(4)).toBe(true);
+    });
+  });
+
+  describe('setPdfUrl clears text content cache', () => {
+    it('clears cached text content when switching to a new PDF', async () => {
+      queue.setPdfUrl('http://example.com/first.pdf');
+
+      const promise = queue.renderVisible([1], 1.0, true);
+      const req = mockWorkerInstance.postMessage.mock.calls.find(
+        (c) => c[0].type === undefined
+      )![0];
+
+      const textContent = { items: [{ str: 'page one' }], width: 100, height: 200 };
+      mockWorkerInstance.onmessage?.({
+        data: { id: req.id, pageNum: 1, bitmap: createMockBitmap(), scale: 1.0, textContent },
+      } as MessageEvent);
+      await promise;
+
+      expect(queue.getTextContent(1)).toEqual(textContent);
+
+      // Switch to a different PDF
+      queue.setPdfUrl('http://example.com/second.pdf');
+
+      // Text content should be cleared
+      expect(queue.getTextContent(1)).toBeNull();
+    });
+  });
+
+  describe('renderBuffer schedules idle processing', () => {
+    it('calls requestIdleCallback for buffer page processing', () => {
+      const requestIdleSpy = vi.fn((cb: IdleRequestCallback) => {
+        cb({ didTimeout: false, timeRemaining: () => 50 } as IdleDeadline);
+        return Math.random();
+      });
+      vi.stubGlobal('requestIdleCallback', requestIdleSpy);
+
+      queue.setPdfUrl('http://example.com/test.pdf');
+      queue.renderBuffer([10, 11, 12], 1.0);
+
+      expect(requestIdleSpy).toHaveBeenCalled();
+    });
+
+    it('does not schedule multiple idle callbacks', () => {
+      // Override to return id without executing callback
+      const requestIdleSpy = vi.fn(() => 42);
+      vi.stubGlobal('requestIdleCallback', requestIdleSpy);
+
+      const freshQueue = new PdfRenderQueue(5, 5);
+      freshQueue.setPdfUrl('http://example.com/test.pdf');
+      requestIdleSpy.mockClear();
+
+      freshQueue.renderBuffer([10], 1.0);
+      freshQueue.renderBuffer([11], 1.0);
+      freshQueue.renderBuffer([12], 1.0);
+
+      // Only one requestIdleCallback should have been made
+      expect(requestIdleSpy).toHaveBeenCalledTimes(1);
+
+      freshQueue.destroy();
+    });
+  });
+
+  describe('findQueuedTask checks both queue and pendingRequests', () => {
+    it('does not duplicate buffer renders for pages already pending in worker', () => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+
+      // Render page 5 with high priority (will be sent to worker)
+      queue.renderVisible([5], 1.0);
+
+      const renderCallsBefore = mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === undefined
+      ).length;
+
+      // Attempt to buffer render page 5 — should be skipped since it's pending
+      queue.renderBuffer([5], 1.0);
+
+      const renderCallsAfter = mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === undefined
+      ).length;
+
+      // No additional render requests should have been sent
+      expect(renderCallsAfter).toBe(renderCallsBefore);
+    });
+  });
+
+  describe('LRU cache makeKey rounding behavior', () => {
+    it('treats scales that round to the same integer key as cache hits', () => {
+      // LRUCache.makeKey: `${pageNum}-${Math.round(scale * 100)}`
+      // 1.005 * 100 = 100.4999... → rounds to 100
+      // 1.004 * 100 = 100.4      → rounds to 100
+      // 1.006 * 100 = 100.6      → rounds to 101 (different key)
+      queue.setPdfUrl('http://example.com/test.pdf');
+
+      // Render at scale 1.005 (key: "1-100")
+      queue.renderVisible([1], 1.005);
+      const req = mockWorkerInstance.postMessage.mock.calls.find(
+        (c) => c[0].type === undefined
+      )![0];
+      mockWorkerInstance.onmessage?.({
+        data: { id: req.id, pageNum: 1, bitmap: createMockBitmap(), scale: 1.005 },
+      } as MessageEvent);
+
+      // 1.004 also maps to key "1-100" (100.4 rounds to 100) → cache hit
+      expect(queue.isCached(1, 1.005)).toBe(true);
+      expect(queue.isCached(1, 1.004)).toBe(true);
+
+      // 1.006 maps to key "1-101" (100.6 rounds to 101) → cache miss
+      expect(queue.isCached(1, 1.006)).toBe(false);
+    });
+  });
+
+  describe('handleWorkerMessage triggers processQueue', () => {
+    it('dispatches queued tasks after a pending request completes', async () => {
+      queue.setPdfUrl('http://example.com/test.pdf');
+
+      // Queue 6 pages — first 4 go pending, last 2 stay queued
+      const promise = queue.renderVisible([1, 2, 3, 4, 5, 6], 1.0);
+
+      const initialCalls = mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === undefined
+      );
+      expect(initialCalls).toHaveLength(4);
+
+      // Complete page 1 — should trigger processQueue to dispatch page 5
+      mockWorkerInstance.onmessage?.({
+        data: { id: initialCalls[0][0].id, pageNum: 1, bitmap: createMockBitmap(), scale: 1.0 },
+      } as MessageEvent);
+      await Promise.resolve();
+
+      const callsAfterFirst = mockWorkerInstance.postMessage.mock.calls.filter(
+        (c) => c[0].type === undefined
+      );
+      // A new request should have been dispatched (page 5)
+      expect(callsAfterFirst.length).toBeGreaterThanOrEqual(5);
+
+      // Iteratively complete all remaining render requests until no new ones appear
+      const completed = new Set<string>();
+      completed.add(initialCalls[0][0].id); // page 1 already done
+      let prevCount = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const allCalls = mockWorkerInstance.postMessage.mock.calls.filter(
+          (c) => c[0].type === undefined
+        );
+        const pending = allCalls.filter((c) => !completed.has(c[0].id));
+        if (pending.length === 0) break;
+        if (allCalls.length === prevCount && pending.length === 0) break;
+        prevCount = allCalls.length;
+
+        for (const call of pending) {
+          const req = call[0];
+          completed.add(req.id);
+          mockWorkerInstance.onmessage?.({
+            data: { id: req.id, pageNum: req.pageNum, bitmap: createMockBitmap(), scale: 1.0 },
+          } as MessageEvent);
+        }
+        await Promise.resolve();
+      }
+
+      const result = await promise;
+      expect(result.size).toBe(6);
+    });
+  });
+});
