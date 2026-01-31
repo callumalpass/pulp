@@ -1034,6 +1034,495 @@ describe('library-stats routes', () => {
       });
     });
 
+    describe('edge case: same-timestamp completion (diffDays = 0)', () => {
+      it('excludes books finished at the exact same time as firstReadDate', async () => {
+        // When firstReadDate and dateFinished have the same timestamp,
+        // Math.ceil(0) = 0, which fails the `if (diffDays > 0)` check
+        const notes = [
+          createTestNote({
+            id: 'instant-finish',
+            progress: 100,
+            dateFinished: '2024-01-10T10:00:00Z',
+            readingStats: {
+              totalReadingTimeMs: 1000, totalSessions: 1, averageSessionMs: 1000,
+              firstReadDate: '2024-01-10T10:00:00Z', // exact same timestamp
+              pagesPerHour: null, totalPagesRead: 0, longestSessionMs: null,
+              estimatedCompletionDate: null, averageDailyReadingMs: null,
+            },
+          }),
+        ];
+
+        fastify = await setupFastify(notes);
+        const body = await getStats(fastify);
+
+        // diffDays = Math.ceil(0) = 0, which is excluded by `if (diffDays > 0)`
+        expect(body.averageDaysToComplete).toBeNull();
+      });
+
+      it('excludes zero-diff completions but includes valid ones in average', async () => {
+        const notes = [
+          createTestNote({
+            id: 'instant-finish',
+            progress: 100,
+            dateFinished: '2024-01-10T10:00:00Z',
+            readingStats: {
+              totalReadingTimeMs: 1000, totalSessions: 1, averageSessionMs: 1000,
+              firstReadDate: '2024-01-10T10:00:00Z',
+              pagesPerHour: null, totalPagesRead: 0, longestSessionMs: null,
+              estimatedCompletionDate: null, averageDailyReadingMs: null,
+            },
+          }),
+          createTestNote({
+            id: 'normal-finish',
+            progress: 100,
+            dateFinished: '2024-01-20T00:00:00Z',
+            readingStats: {
+              totalReadingTimeMs: 1000, totalSessions: 1, averageSessionMs: 1000,
+              firstReadDate: '2024-01-10T00:00:00Z', // 10 days
+              pagesPerHour: null, totalPagesRead: 0, longestSessionMs: null,
+              estimatedCompletionDate: null, averageDailyReadingMs: null,
+            },
+          }),
+        ];
+
+        fastify = await setupFastify(notes);
+        const body = await getStats(fastify);
+
+        // Only the 10-day book is counted
+        expect(body.averageDaysToComplete).toBe(10);
+      });
+
+      it('excludes books where dateFinished is before firstReadDate', async () => {
+        // Negative diff: Math.ceil(negative) is negative, fails `if (diffDays > 0)`
+        const notes = [
+          createTestNote({
+            id: 'backwards-dates',
+            progress: 100,
+            dateFinished: '2024-01-05T00:00:00Z',
+            readingStats: {
+              totalReadingTimeMs: 1000, totalSessions: 1, averageSessionMs: 1000,
+              firstReadDate: '2024-01-10T00:00:00Z', // finish before start
+              pagesPerHour: null, totalPagesRead: 0, longestSessionMs: null,
+              estimatedCompletionDate: null, averageDailyReadingMs: null,
+            },
+          }),
+        ];
+
+        fastify = await setupFastify(notes);
+        const body = await getStats(fastify);
+
+        expect(body.averageDaysToComplete).toBeNull();
+      });
+    });
+
+    describe('edge case: fractional and boundary ratings', () => {
+      it('classifies fractional rating 4.5 as rated4 (>= 4 but < 5)', async () => {
+        fastify = await setupFastify([createTestNote({ rating: 4.5 })]);
+        const body = await getStats(fastify);
+
+        expect(body.booksByRating.rated4).toBe(1);
+        expect(body.booksByRating.rated5).toBe(0);
+      });
+
+      it('classifies fractional rating 3.9 as rated3', async () => {
+        fastify = await setupFastify([createTestNote({ rating: 3.9 })]);
+        const body = await getStats(fastify);
+
+        expect(body.booksByRating.rated3).toBe(1);
+        expect(body.booksByRating.rated4).toBe(0);
+      });
+
+      it('classifies fractional rating 1.5 as rated1', async () => {
+        fastify = await setupFastify([createTestNote({ rating: 1.5 })]);
+        const body = await getStats(fastify);
+
+        expect(body.booksByRating.rated1).toBe(1);
+        expect(body.booksByRating.rated2).toBe(0);
+      });
+
+      it('classifies rating 0.5 as rated1 (below 2 threshold)', async () => {
+        fastify = await setupFastify([createTestNote({ rating: 0.5 })]);
+        const body = await getStats(fastify);
+
+        expect(body.booksByRating.rated1).toBe(1);
+      });
+
+      it('classifies exact boundary rating 5.0 as rated5', async () => {
+        fastify = await setupFastify([createTestNote({ rating: 5.0 })]);
+        const body = await getStats(fastify);
+
+        expect(body.booksByRating.rated5).toBe(1);
+      });
+
+      it('classifies rating above 5 as rated5 (>= 5)', async () => {
+        fastify = await setupFastify([createTestNote({ rating: 6 })]);
+        const body = await getStats(fastify);
+
+        expect(body.booksByRating.rated5).toBe(1);
+      });
+
+      it('classifies rating 0 as rated1 (below all thresholds except rated1)', async () => {
+        fastify = await setupFastify([createTestNote({ rating: 0 })]);
+        const body = await getStats(fastify);
+
+        // 0 is not null (so not unrated), < 2 so falls to else -> rated1
+        expect(body.booksByRating.rated1).toBe(1);
+        expect(body.booksByRating.unrated).toBe(0);
+      });
+
+      it('classifies negative rating as rated1', async () => {
+        fastify = await setupFastify([createTestNote({ rating: -1 })]);
+        const body = await getStats(fastify);
+
+        expect(body.booksByRating.rated1).toBe(1);
+      });
+    });
+
+    describe('edge case: invalid dates in yearly completion', () => {
+      it('skips invalid dateFinished in yearly breakdown', async () => {
+        const notes = [
+          createTestNote({
+            id: 'bad-date',
+            progress: 100,
+            dateFinished: 'not-a-date',
+            lastRead: null,
+          }),
+        ];
+
+        fastify = await setupFastify(notes);
+        const body = await getStats(fastify);
+
+        // The book is counted as completed
+        expect(body.booksCompleted).toBe(1);
+        // But NaN year is filtered out by !isNaN check
+        expect(body.booksCompletedByYear).toEqual({});
+        expect(body.booksCompletedThisYear).toBe(0);
+      });
+
+      it('falls back to lastRead when dateFinished is invalid and lastRead is valid', async () => {
+        // The code uses `note.dateFinished || note.lastRead` — an invalid string is truthy,
+        // so it won't fall back to lastRead. The invalid dateFinished takes precedence.
+        const notes = [
+          createTestNote({
+            id: 'bad-finished-good-lastread',
+            progress: 100,
+            dateFinished: 'invalid-date',
+            lastRead: '2024-06-15T10:00:00Z',
+          }),
+        ];
+
+        fastify = await setupFastify(notes);
+        const body = await getStats(fastify);
+
+        expect(body.booksCompleted).toBe(1);
+        // 'invalid-date' is truthy so it's used; new Date('invalid-date').getFullYear() is NaN
+        expect(body.booksCompletedByYear).toEqual({});
+      });
+
+      it('uses lastRead when dateFinished is null', async () => {
+        const notes = [
+          createTestNote({
+            id: 'null-finished',
+            progress: 100,
+            dateFinished: null,
+            lastRead: '2023-09-15T10:00:00Z',
+          }),
+        ];
+
+        fastify = await setupFastify(notes);
+        const body = await getStats(fastify);
+
+        expect(body.booksCompleted).toBe(1);
+        expect(body.booksCompletedByYear[2023]).toBe(1);
+      });
+    });
+
+    describe('edge case: readingStats with undefined/missing fields', () => {
+      it('treats undefined totalReadingTimeMs as 0 via || fallback', async () => {
+        const notes = [
+          createTestNote({
+            readingStats: {
+              totalReadingTimeMs: undefined as unknown as number,
+              totalSessions: 5,
+              averageSessionMs: 0,
+              firstReadDate: null,
+              pagesPerHour: null,
+              totalPagesRead: 100,
+              longestSessionMs: null,
+              estimatedCompletionDate: null,
+              averageDailyReadingMs: null,
+            },
+          }),
+        ];
+
+        fastify = await setupFastify(notes);
+        const body = await getStats(fastify);
+
+        // undefined || 0 = 0
+        expect(body.totalReadingTimeMs).toBe(0);
+        expect(body.totalSessions).toBe(5);
+        expect(body.totalPagesRead).toBe(100);
+      });
+
+      it('treats undefined totalPagesRead and totalSessions as 0', async () => {
+        const notes = [
+          createTestNote({
+            readingStats: {
+              totalReadingTimeMs: 5000,
+              totalSessions: undefined as unknown as number,
+              averageSessionMs: 0,
+              firstReadDate: null,
+              pagesPerHour: null,
+              totalPagesRead: undefined as unknown as number,
+              longestSessionMs: null,
+              estimatedCompletionDate: null,
+              averageDailyReadingMs: null,
+            },
+          }),
+        ];
+
+        fastify = await setupFastify(notes);
+        const body = await getStats(fastify);
+
+        expect(body.totalReadingTimeMs).toBe(5000);
+        expect(body.totalSessions).toBe(0);
+        expect(body.totalPagesRead).toBe(0);
+        // 0 sessions means averageSessionDurationMs is null
+        expect(body.averageSessionDurationMs).toBeNull();
+      });
+    });
+
+    describe('edge case: estimatedCompletionDate values', () => {
+      it('counts empty string estimatedCompletionDate as truthy', async () => {
+        // Empty string is falsy in JS, so this should NOT be counted
+        const notes = [
+          createTestNote({
+            readingStats: {
+              totalReadingTimeMs: 1000, totalSessions: 1, averageSessionMs: 1000,
+              firstReadDate: null, pagesPerHour: null, totalPagesRead: 0,
+              longestSessionMs: null, estimatedCompletionDate: '',
+              averageDailyReadingMs: null,
+            },
+          }),
+        ];
+
+        fastify = await setupFastify(notes);
+        const body = await getStats(fastify);
+
+        // '' is falsy, so `if (note.readingStats.estimatedCompletionDate)` is false
+        expect(body.booksWithEstimatedCompletion).toBe(0);
+      });
+
+      it('counts non-empty string estimatedCompletionDate', async () => {
+        const notes = [
+          createTestNote({
+            readingStats: {
+              totalReadingTimeMs: 1000, totalSessions: 1, averageSessionMs: 1000,
+              firstReadDate: null, pagesPerHour: null, totalPagesRead: 0,
+              longestSessionMs: null, estimatedCompletionDate: '2025-12-31',
+              averageDailyReadingMs: null,
+            },
+          }),
+        ];
+
+        fastify = await setupFastify(notes);
+        const body = await getStats(fastify);
+
+        expect(body.booksWithEstimatedCompletion).toBe(1);
+      });
+    });
+
+    describe('edge case: collections deduplication', () => {
+      it('deduplicates same collection name from a single book', async () => {
+        // A book shouldn't normally have duplicate collections but the Set handles it
+        fastify = await setupFastify([
+          createTestNote({ collections: ['Fiction', 'Fiction', 'Fiction'] }),
+        ]);
+        const body = await getStats(fastify);
+
+        expect(body.collectionsCount).toBe(1);
+      });
+
+      it('deduplicates collections across multiple books', async () => {
+        const notes = [
+          createTestNote({ id: 'a', collections: ['Fiction', 'Favorites'] }),
+          createTestNote({ id: 'b', collections: ['Fiction', 'Favorites'] }),
+          createTestNote({ id: 'c', collections: ['Fiction'] }),
+        ];
+
+        fastify = await setupFastify(notes);
+        const body = await getStats(fastify);
+
+        // Set deduplication: only 'Fiction' and 'Favorites'
+        expect(body.collectionsCount).toBe(2);
+      });
+
+      it('treats collection names as case-sensitive', async () => {
+        const notes = [
+          createTestNote({ id: 'a', collections: ['fiction'] }),
+          createTestNote({ id: 'b', collections: ['Fiction'] }),
+          createTestNote({ id: 'c', collections: ['FICTION'] }),
+        ];
+
+        fastify = await setupFastify(notes);
+        const body = await getStats(fastify);
+
+        // Set uses strict equality; all three are distinct
+        expect(body.collectionsCount).toBe(3);
+      });
+    });
+
+    describe('edge case: reading speed rounding precision', () => {
+      it('rounds reading speed to exactly one decimal place', async () => {
+        // (10 + 11 + 13) / 3 = 11.333... -> rounds to 11.3
+        const notes = [
+          createTestNote({
+            id: 'a',
+            readingStats: {
+              totalReadingTimeMs: 1000, totalSessions: 1, averageSessionMs: 1000,
+              firstReadDate: null, pagesPerHour: 10, totalPagesRead: 0,
+              longestSessionMs: null, estimatedCompletionDate: null, averageDailyReadingMs: null,
+            },
+          }),
+          createTestNote({
+            id: 'b',
+            readingStats: {
+              totalReadingTimeMs: 1000, totalSessions: 1, averageSessionMs: 1000,
+              firstReadDate: null, pagesPerHour: 11, totalPagesRead: 0,
+              longestSessionMs: null, estimatedCompletionDate: null, averageDailyReadingMs: null,
+            },
+          }),
+          createTestNote({
+            id: 'c',
+            readingStats: {
+              totalReadingTimeMs: 1000, totalSessions: 1, averageSessionMs: 1000,
+              firstReadDate: null, pagesPerHour: 13, totalPagesRead: 0,
+              longestSessionMs: null, estimatedCompletionDate: null, averageDailyReadingMs: null,
+            },
+          }),
+        ];
+
+        fastify = await setupFastify(notes);
+        const body = await getStats(fastify);
+
+        // Math.round(11.333... * 10) / 10 = Math.round(113.33) / 10 = 113 / 10 = 11.3
+        expect(body.averageReadingSpeedPagesPerHour).toBe(11.3);
+      });
+
+      it('handles reading speed that rounds to .5', async () => {
+        // (10 + 15) / 2 = 12.5 -> should stay 12.5
+        const notes = [
+          createTestNote({
+            id: 'a',
+            readingStats: {
+              totalReadingTimeMs: 1000, totalSessions: 1, averageSessionMs: 1000,
+              firstReadDate: null, pagesPerHour: 10, totalPagesRead: 0,
+              longestSessionMs: null, estimatedCompletionDate: null, averageDailyReadingMs: null,
+            },
+          }),
+          createTestNote({
+            id: 'b',
+            readingStats: {
+              totalReadingTimeMs: 1000, totalSessions: 1, averageSessionMs: 1000,
+              firstReadDate: null, pagesPerHour: 15, totalPagesRead: 0,
+              longestSessionMs: null, estimatedCompletionDate: null, averageDailyReadingMs: null,
+            },
+          }),
+        ];
+
+        fastify = await setupFastify(notes);
+        const body = await getStats(fastify);
+
+        expect(body.averageReadingSpeedPagesPerHour).toBe(12.5);
+      });
+    });
+
+    describe('edge case: average session duration', () => {
+      it('calculates average session as totalReadingTime / totalSessions', async () => {
+        const notes = [
+          createTestNote({
+            id: 'a',
+            readingStats: {
+              totalReadingTimeMs: 6000000, totalSessions: 4, averageSessionMs: 1500000,
+              firstReadDate: null, pagesPerHour: null, totalPagesRead: 0,
+              longestSessionMs: null, estimatedCompletionDate: null, averageDailyReadingMs: null,
+            },
+          }),
+          createTestNote({
+            id: 'b',
+            readingStats: {
+              totalReadingTimeMs: 3000000, totalSessions: 2, averageSessionMs: 1500000,
+              firstReadDate: null, pagesPerHour: null, totalPagesRead: 0,
+              longestSessionMs: null, estimatedCompletionDate: null, averageDailyReadingMs: null,
+            },
+          }),
+        ];
+
+        fastify = await setupFastify(notes);
+        const body = await getStats(fastify);
+
+        // Total: 9000000ms / 6 sessions = 1500000ms
+        expect(body.averageSessionDurationMs).toBe(1500000);
+      });
+
+      it('returns null when totalSessions is 0 despite having reading time', async () => {
+        // This is an edge case where readingTime exists but sessions somehow == 0
+        const notes = [
+          createTestNote({
+            readingStats: {
+              totalReadingTimeMs: 5000, totalSessions: 0, averageSessionMs: 0,
+              firstReadDate: null, pagesPerHour: null, totalPagesRead: 0,
+              longestSessionMs: null, estimatedCompletionDate: null, averageDailyReadingMs: null,
+            },
+          }),
+        ];
+
+        fastify = await setupFastify(notes);
+        const body = await getStats(fastify);
+
+        // totalSessions = 0, so averageSessionDurationMs is null
+        expect(body.averageSessionDurationMs).toBeNull();
+      });
+
+      it('rounds average session duration to nearest integer', async () => {
+        const notes = [
+          createTestNote({
+            id: 'a',
+            readingStats: {
+              totalReadingTimeMs: 10000, totalSessions: 3, averageSessionMs: 3333,
+              firstReadDate: null, pagesPerHour: null, totalPagesRead: 0,
+              longestSessionMs: null, estimatedCompletionDate: null, averageDailyReadingMs: null,
+            },
+          }),
+        ];
+
+        fastify = await setupFastify(notes);
+        const body = await getStats(fastify);
+
+        // Math.round(10000 / 3) = Math.round(3333.33) = 3333
+        expect(body.averageSessionDurationMs).toBe(3333);
+      });
+    });
+
+    describe('edge case: highlight category not in predefined set', () => {
+      it('does not count highlights with unknown categories in breakdown but counts total', async () => {
+        const highlights: PDFHighlight[] = [
+          createPDFHighlight({ id: '1', category: 'highlight' }),
+          createPDFHighlight({ id: '2', category: 'unknown-category' as any }),
+        ];
+
+        fastify = await setupFastify([createTestNote({ highlights })]);
+        const body = await getStats(fastify);
+
+        // Both counted in total
+        expect(body.totalHighlights).toBe(2);
+        // Only the known category is in the breakdown
+        expect(body.highlightsByCategory.highlight).toBe(1);
+        // Unknown category not added to breakdown
+        expect(body.highlightsByCategory).not.toHaveProperty('unknown-category');
+      });
+    });
+
     describe('mixed data scenarios', () => {
       it('handles a library with all book states represented', async () => {
         const notes = [
