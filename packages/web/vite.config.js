@@ -7,6 +7,7 @@ export default defineConfig({
         react(),
         VitePWA({
             registerType: 'autoUpdate',
+            devOptions: { enabled: true },
             includeAssets: ['favicon.svg'],
             manifest: {
                 name: 'Pulp Reader',
@@ -101,7 +102,10 @@ export default defineConfig({
         },
     },
     server: {
-        port: 5173,
+        port: 5174,
+        strictPort: true,
+        host: true,
+        allowedHosts: ['minipc.tail2b6cde.ts.net'],
         proxy: {
             '/api': {
                 target: 'http://localhost:3000',
