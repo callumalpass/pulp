@@ -147,7 +147,7 @@ describe('reading-stats routes', () => {
     // Clear gray-matter's internal cache to prevent frontmatter mutation leaking between tests.
     // gray-matter caches parsed results by string content with a shallow copy, so in-place
     // mutations of the data object (as done by atomicFrontmatterUpdate) corrupt cached entries.
-    matter.cache = {};
+    (matter as unknown as { cache?: Record<string, unknown> }).cache = {};
 
     testNotes = new Map();
     const testNote = createTestNote();
@@ -987,8 +987,6 @@ reading_stats:
     });
 
     it('generates default startTime when not provided', async () => {
-      const beforeTime = Date.now();
-
       const response = await fastify.inject({
         method: 'PATCH',
         url: '/api/library/test-note/reading-stats',
@@ -3913,7 +3911,6 @@ reading_sessions:
     });
 
     it('computes averageDailyReadingMs when two history entries exist', async () => {
-      const today = new Date().toISOString().split('T')[0];
       const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
       const note = createTestNote({

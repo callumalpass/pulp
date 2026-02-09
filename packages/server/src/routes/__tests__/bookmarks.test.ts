@@ -123,7 +123,7 @@ describe('bookmarkRoutes', () => {
     // gray-matter caches parsed results keyed by content string, and uses
     // shallow copies - so mutations to frontmatter objects in one test
     // can leak into subsequent tests that parse the same content string.
-    matter.clearCache();
+    (matter as unknown as { clearCache?: () => void }).clearCache?.();
   });
 
   afterEach(async () => {

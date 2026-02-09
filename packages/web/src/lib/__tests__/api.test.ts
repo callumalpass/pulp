@@ -98,7 +98,6 @@ describe('api', () => {
 
     it('spreads additional request options through to fetch', async () => {
       mockFetch.mockReturnValue(jsonResponse({ success: true, pinned: true }));
-      const signal = AbortSignal.abort();
 
       await api.pin.update('note-1', { pinned: true }).catch(() => {});
 
@@ -452,7 +451,7 @@ describe('api', () => {
         text: 'Important text',
         selection: { beginIndex: 0, beginOffset: 5, endIndex: 0, endOffset: 20 },
         note: 'My note',
-        category: 'key-concept',
+        category: 'important' as const,
       };
       mockFetch.mockReturnValue(jsonResponse({ success: true, highlight: { id: 'h-1', ...data, createdAt: '2025-01-01' } }));
 
@@ -552,10 +551,10 @@ describe('api', () => {
     it('sends update data as JSON body', async () => {
       mockFetch.mockReturnValue(jsonResponse({ id: 'bm-1', label: 'New', page: 5, createdAt: '2025-01-01' }));
 
-      await api.bookmarks.update('note-1', 'bm-1', { label: 'New', page: 5 });
+      await api.bookmarks.update('note-1', 'bm-1', { label: 'New' });
 
       const [, options] = mockFetch.mock.calls[0];
-      expect(JSON.parse(options.body)).toEqual({ label: 'New', page: 5 });
+      expect(JSON.parse(options.body)).toEqual({ label: 'New' });
     });
 
     it('does not send body for delete', async () => {

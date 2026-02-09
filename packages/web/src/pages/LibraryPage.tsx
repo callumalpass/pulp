@@ -146,7 +146,7 @@ function LibraryPageContent() {
 
   const isMobile = useMobile();
   const { status: connectionStatus } = useConnection();
-  const { data: notes, isLoading, error, refetch, isFetching } = useLibrary(sort, sortOrder);
+  const { data: notes, isLoading, error, refetch } = useLibrary(sort, sortOrder);
   const { data: collectionsData } = useCollections();
   const { data: searchStatus } = useSearchStatus();
   const { data: searchResults, isLoading: isSearching } = useSearch(debouncedQuery, {

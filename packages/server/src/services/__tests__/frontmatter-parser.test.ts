@@ -1210,11 +1210,12 @@ describe('getReadingStats with milestones and momentum', () => {
     }, 'reading_stats');
 
     expect(stats).not.toBeNull();
-    expect(stats!.milestones).toHaveLength(2);
-    expect(stats!.milestones[0].milestone).toBe(10);
-    expect(stats!.milestones[1].milestone).toBe(25);
-    expect(stats!.milestones[0].daysFromStart).toBe(0);
-    expect(stats!.milestones[1].daysFromStart).toBe(1);
+    const milestones = stats?.milestones ?? [];
+    expect(milestones).toHaveLength(2);
+    expect(milestones[0]?.milestone).toBe(10);
+    expect(milestones[1]?.milestone).toBe(25);
+    expect(milestones[0]?.daysFromStart).toBe(0);
+    expect(milestones[1]?.daysFromStart).toBe(1);
   });
 
   it('parses momentum from frontmatter', () => {

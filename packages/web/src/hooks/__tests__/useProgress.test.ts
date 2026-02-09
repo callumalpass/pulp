@@ -23,7 +23,6 @@ const mockQueryClient = {
 };
 
 type MutationVars = { id: string; progress: number; lastOpenedCfi?: string };
-type MutationCallbacks = { onSettled?: () => void };
 
 type MutationConfig = {
   mutationFn: (vars: MutationVars) => Promise<unknown>;
@@ -92,7 +91,6 @@ import { useProgress } from '../useProgress';
 function getTimeoutRef() { return refValues['ref_0']; }
 function getPendingRef() { return refValues['ref_1']; }
 function getIsSavingRef() { return refValues['ref_2']; }
-function getSavedTimeoutRef() { return refValues['ref_3']; }
 
 function resetMockState() {
   // Reset state tracking

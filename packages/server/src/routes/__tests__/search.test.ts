@@ -43,12 +43,13 @@ function createTestNote(overrides: Partial<LiteratureNote> = {}): LiteratureNote
 function createSearchResult(overrides: Partial<SearchResult> = {}): SearchResult {
   return {
     noteId: 'test-note',
-    noteTitle: 'Test Book',
+    title: 'Test Book',
+    sourceType: 'pdf',
     matches: [
       {
         text: 'This is a match with the search query in context.',
-        location: { type: 'page', page: 42 },
-        score: 0.95,
+        page: 42,
+        position: 0,
       },
     ],
     totalMatches: 1,
@@ -102,18 +103,18 @@ describe('search routes', () => {
       const searchResults = [
         createSearchResult({
           noteId: 'note-1',
-          noteTitle: 'Book One',
+          title: 'Book One',
           matches: [
-            { text: 'Found the query here', location: { type: 'page', page: 10 }, score: 0.9 },
-            { text: 'Also found query here', location: { type: 'page', page: 20 }, score: 0.8 },
+            { text: 'Found the query here', page: 10, position: 10 },
+            { text: 'Also found query here', page: 20, position: 20 },
           ],
           totalMatches: 2,
         }),
         createSearchResult({
           noteId: 'note-2',
-          noteTitle: 'Book Two',
+          title: 'Book Two',
           matches: [
-            { text: 'Another query match', location: { type: 'page', page: 5 }, score: 0.7 },
+            { text: 'Another query match', page: 5, position: 5 },
           ],
           totalMatches: 1,
         }),
@@ -160,7 +161,7 @@ describe('search routes', () => {
     it('respects the limit parameter', async () => {
       // Create many results to test limiting
       const manyResults = Array.from({ length: 30 }, (_, i) =>
-        createSearchResult({ noteId: `note-${i}`, noteTitle: `Book ${i}` })
+        createSearchResult({ noteId: `note-${i}`, title: `Book ${i}` })
       );
       vi.mocked(mockSearchIndex.search).mockReturnValue(manyResults);
 
@@ -177,7 +178,7 @@ describe('search routes', () => {
 
     it('uses default limit of 20', async () => {
       const manyResults = Array.from({ length: 50 }, (_, i) =>
-        createSearchResult({ noteId: `note-${i}`, noteTitle: `Book ${i}` })
+        createSearchResult({ noteId: `note-${i}`, title: `Book ${i}` })
       );
       vi.mocked(mockSearchIndex.search).mockReturnValue(manyResults);
 
@@ -227,7 +228,7 @@ describe('search routes', () => {
 
     it('handles limit at boundary values', async () => {
       const results = Array.from({ length: 5 }, (_, i) =>
-        createSearchResult({ noteId: `note-${i}`, noteTitle: `Book ${i}` })
+        createSearchResult({ noteId: `note-${i}`, title: `Book ${i}` })
       );
       vi.mocked(mockSearchIndex.search).mockReturnValue(results);
 

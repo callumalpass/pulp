@@ -1025,9 +1025,7 @@ describe('useReadingStatsStore', () => {
   // ── syncPendingSessions ───────────────────────────────────────────
 
   describe('syncPendingSessions', () => {
-    const pendingSession: Parameters<typeof useReadingStatsStore.setState>[0] extends infer S
-      ? S extends { pendingSessions?: infer P } ? NonNullable<P>[number] : never
-      : never = {
+    const pendingSession = {
       noteId: 'note-1',
       sessionDurationMs: 30000,
       pagesRead: 5,
@@ -1210,7 +1208,7 @@ describe('useReadingStatsStore', () => {
 
       // Check that localStorage was called with the store name
       const calls = localStorageMock.setItem.mock.calls;
-      const persistCall = calls.find(([key]: [string]) => key === 'pulp-reading-stats');
+      const persistCall = calls.find(([key]) => key === 'pulp-reading-stats');
       if (persistCall) {
         const persisted = JSON.parse(persistCall[1]);
         // Should contain pendingSessions but NOT activeSession or bookStatsCache
@@ -1362,7 +1360,6 @@ describe('useReadingStatsStore', () => {
       const store = useReadingStatsStore.getState();
       store.startSession('note-1', 1, 100);
 
-      const before = useReadingStatsStore.getState().activeSession!;
       currentTime = 5000;
       store.recordActivity();
       const after = useReadingStatsStore.getState().activeSession!;
@@ -2044,7 +2041,7 @@ describe('useReadingStatsStore', () => {
         totalSessions: 5,
       });
       // Explicitly set pagesPerHour to undefined
-      (stats as Record<string, unknown>).pagesPerHour = undefined;
+      (stats as unknown as { pagesPerHour?: number | null }).pagesPerHour = undefined;
       store.setBookStats('note-1', stats);
 
       // Should use progress-based fallback

@@ -1598,7 +1598,22 @@ describe('LibraryScanner', () => {
       mockStatSync.mockReturnValue({ isFile: () => true } as any);
       mockGetRating.mockReturnValue(null);
 
-      const cslData = { type: 'book', title: 'Test', author: [{ given: 'John', family: 'Doe' }] };
+      const cslData = {
+        type: 'book',
+        containerTitle: null,
+        publisher: null,
+        publisherPlace: null,
+        issued: null,
+        isbn: null,
+        doi: null,
+        url: null,
+        edition: null,
+        volume: null,
+        issue: null,
+        page: null,
+        collectionTitle: null,
+        translator: null,
+      };
       mockGetCSLMetadata.mockReturnValue(cslData);
 
       const scanner = new LibraryScanner(config as any);
@@ -1626,7 +1641,17 @@ describe('LibraryScanner', () => {
       mockGetPaused.mockReturnValue(false);
       mockGetPausedAt.mockReturnValue(null);
       mockGetRating.mockReturnValue(4);
-      mockGetReadingStats.mockReturnValue({ totalMinutes: 120 });
+      mockGetReadingStats.mockReturnValue({
+        totalReadingTimeMs: 120 * 60 * 1000,
+        totalSessions: 2,
+        averageSessionMs: 60 * 60 * 1000,
+        firstReadDate: '2024-01-01T00:00:00.000Z',
+        pagesPerHour: 20,
+        totalPagesRead: 40,
+        longestSessionMs: 60 * 60 * 1000,
+        estimatedCompletionDate: null,
+        averageDailyReadingMs: null,
+      });
       mockGetTotalPages.mockReturnValue(200);
       mockGetCollections.mockReturnValue(['Science']);
       mockGetCurrentChapter.mockReturnValue('Chapter 5');
@@ -1661,7 +1686,17 @@ describe('LibraryScanner', () => {
       expect(s.paused).toBe(false);
       expect(s.pausedAt).toBeNull();
       expect(s.rating).toBe(4);
-      expect(s.readingStats).toEqual({ totalMinutes: 120 });
+      expect(s.readingStats).toEqual({
+        totalReadingTimeMs: 120 * 60 * 1000,
+        totalSessions: 2,
+        averageSessionMs: 60 * 60 * 1000,
+        firstReadDate: '2024-01-01T00:00:00.000Z',
+        pagesPerHour: 20,
+        totalPagesRead: 40,
+        longestSessionMs: 60 * 60 * 1000,
+        estimatedCompletionDate: null,
+        averageDailyReadingMs: null,
+      });
       expect(s.totalPages).toBe(200);
       expect(s.highlightCount).toBe(3);
       expect(s.collections).toEqual(['Science']);

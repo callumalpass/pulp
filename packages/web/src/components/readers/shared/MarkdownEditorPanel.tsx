@@ -9,7 +9,7 @@ import { useNoteContent, useUpdateNoteContent } from '../../../hooks/useNoteCont
 import { useMobile } from '../../../hooks/useMobile';
 import { useReaderStore } from '../../../stores/reader';
 import { usePreferencesStore } from '../../../stores/preferences';
-import { sanitizeUrl, markdownToHtml } from '../../../lib/markdown';
+import { markdownToHtml } from '../../../lib/markdown';
 
 interface MarkdownEditorPanelProps {
   noteId: string;

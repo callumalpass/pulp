@@ -369,7 +369,7 @@ describe('useBeforeUnload', () => {
       refMap[1].current = hasUnsavedChanges2;
 
       const preventDefault = vi.fn();
-      fireWindowEvent('beforeunload', { preventDefault, returnValue: '' });
+      fireWindowEvent('beforeunload', { preventDefault, returnValue: false });
 
       expect(hasUnsavedChanges1).not.toHaveBeenCalled();
       expect(hasUnsavedChanges2).toHaveBeenCalledTimes(1);

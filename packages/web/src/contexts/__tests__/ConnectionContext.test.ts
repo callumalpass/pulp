@@ -740,7 +740,7 @@ describe('useNoteSubscription', () => {
     const subscriptionCleanup = cleanupFns.pop()!;
     subscriptionCleanup();
 
-    const sendCalls = ws.send.mock.calls.map((c: [string]) => JSON.parse(c[0]));
+    const sendCalls = ws.send.mock.calls.map((c: unknown[]) => JSON.parse(String(c[0])));
     const unsubCall = sendCalls.find((c: { type: string }) => c.type === 'unsubscribe:note');
     expect(unsubCall).toEqual({ type: 'unsubscribe:note', noteId: 'note-abc' });
   });

@@ -193,7 +193,7 @@ describe('useDoubleTapZoom', () => {
 
       // Need to reset mock state to get fresh refs for the next double tap sequence
       resetMockState();
-      const { handleDoubleTapEnd: handler2 } = useDoubleTapZoom({ onDoubleTap });
+      useDoubleTapZoom({ onDoubleTap });
 
       // Second double tap - zoom out (refs now have isZoomedIn = true from previous sequence)
       // Actually the ref state isn't carried over due to resetMockState,

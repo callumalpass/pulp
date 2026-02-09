@@ -282,7 +282,6 @@ describe('PdfRenderQueue', () => {
     it('skips pages that are already queued', () => {
       // Queue page 10 via renderVisible (it will be pending)
       queue.renderVisible([10], 1.0);
-      const initialCallCount = mockWorkerInstance.postMessage.mock.calls.length;
 
       // Now try to buffer the same page at same scale
       queue.renderBuffer([10], 1.0);
@@ -908,7 +907,6 @@ describe('PdfRenderQueue', () => {
       queue.renderVisible([1, 2, 3, 4], 1.0);
 
       // Queue additional pages that will stay in the queue (slots are full)
-      const rejections: Error[] = [];
       const p5 = queue.renderVisible([5], 1.0).catch(() => {});
 
       // Cancel page 5 which should be in the queue (not pending since slots are full)

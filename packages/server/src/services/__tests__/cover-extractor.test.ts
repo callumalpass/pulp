@@ -184,21 +184,6 @@ function createMockEpubClass(options: {
   return MockEPub;
 }
 
-// Legacy helper for backward compatibility - creates an instance-like object
-function createMockEpub(options: {
-  metadata?: { cover?: string };
-  manifest?: Record<string, { href: string; 'media-type': string; properties?: string }>;
-  guide?: Array<{ type: string; href: string }>;
-  spine?: { contents: Array<{ id: string }> };
-  parseError?: boolean;
-  getImageError?: boolean;
-  imageData?: Buffer;
-  chapterContent?: string;
-} = {}) {
-  const MockClass = createMockEpubClass(options);
-  return new MockClass();
-}
-
 describe('CoverExtractor', () => {
   let extractor: CoverExtractor;
 
@@ -311,7 +296,7 @@ describe('CoverExtractor', () => {
           }
           return true;
         });
-        mockReadFileSync.mockReturnValue(new Uint8Array([1, 2, 3]));
+        mockReadFileSync.mockReturnValue(Buffer.from([1, 2, 3]));
 
         const { mockPdf } = createMockPdf();
         mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
@@ -359,7 +344,7 @@ describe('CoverExtractor', () => {
 
       it('extracts first page of PDF as cover', async () => {
         const webpBuffer = Buffer.from('webp-image');
-        mockReadFileSync.mockReturnValue(new Uint8Array([1, 2, 3]));
+        mockReadFileSync.mockReturnValue(Buffer.from([1, 2, 3]));
 
         const { mockPdf, mockPage } = createMockPdf();
         mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
@@ -381,7 +366,7 @@ describe('CoverExtractor', () => {
       });
 
       it('calculates correct scale based on viewport', async () => {
-        mockReadFileSync.mockReturnValue(new Uint8Array([1, 2, 3]));
+        mockReadFileSync.mockReturnValue(Buffer.from([1, 2, 3]));
 
         const mockPage = {
           getViewport: vi.fn().mockReturnValue({ width: 1000, height: 1500 }),
@@ -407,7 +392,7 @@ describe('CoverExtractor', () => {
       });
 
       it('destroys PDF document after extraction', async () => {
-        mockReadFileSync.mockReturnValue(new Uint8Array([1, 2, 3]));
+        mockReadFileSync.mockReturnValue(Buffer.from([1, 2, 3]));
 
         const { mockPdf } = createMockPdf();
         mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
@@ -424,7 +409,7 @@ describe('CoverExtractor', () => {
       });
 
       it('handles PDF loading errors gracefully', async () => {
-        mockReadFileSync.mockReturnValue(new Uint8Array([1, 2, 3]));
+        mockReadFileSync.mockReturnValue(Buffer.from([1, 2, 3]));
         mockGetDocument.mockReturnValue({ promise: Promise.reject(new Error('Invalid PDF')) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
 
         const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -435,7 +420,7 @@ describe('CoverExtractor', () => {
       });
 
       it('handles page render errors gracefully', async () => {
-        mockReadFileSync.mockReturnValue(new Uint8Array([1, 2, 3]));
+        mockReadFileSync.mockReturnValue(Buffer.from([1, 2, 3]));
 
         const mockPage = {
           getViewport: vi.fn().mockReturnValue({ width: 612, height: 792 }),
@@ -460,7 +445,7 @@ describe('CoverExtractor', () => {
       });
 
       it('handles sharp processing errors gracefully', async () => {
-        mockReadFileSync.mockReturnValue(new Uint8Array([1, 2, 3]));
+        mockReadFileSync.mockReturnValue(Buffer.from([1, 2, 3]));
 
         const { mockPdf } = createMockPdf();
         mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
@@ -1712,7 +1697,7 @@ describe('CoverExtractor', () => {
         if (typeof path === 'string' && path.endsWith('.webp')) return false;
         return true;
       });
-      mockReadFileSync.mockReturnValue(new Uint8Array([1, 2, 3]));
+      mockReadFileSync.mockReturnValue(Buffer.from([1, 2, 3]));
 
       const { mockPdf } = createMockPdf();
       mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
@@ -2314,7 +2299,7 @@ describe('CoverExtractor', () => {
     });
 
     it('calculates correct scale for very wide viewport', async () => {
-      mockReadFileSync.mockReturnValue(new Uint8Array([1, 2, 3]));
+      mockReadFileSync.mockReturnValue(Buffer.from([1, 2, 3]));
 
       const mockPage = {
         getViewport: vi.fn()
@@ -2344,7 +2329,7 @@ describe('CoverExtractor', () => {
     });
 
     it('calculates correct scale for very tall viewport', async () => {
-      mockReadFileSync.mockReturnValue(new Uint8Array([1, 2, 3]));
+      mockReadFileSync.mockReturnValue(Buffer.from([1, 2, 3]));
 
       const mockPage = {
         getViewport: vi.fn()
@@ -2385,7 +2370,7 @@ describe('CoverExtractor', () => {
         if (typeof path === 'string' && path.endsWith('.webp')) return false;
         return true;
       });
-      mockReadFileSync.mockReturnValue(new Uint8Array([1, 2, 3]));
+      mockReadFileSync.mockReturnValue(Buffer.from([1, 2, 3]));
 
       const { mockPdf } = createMockPdf();
       mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);

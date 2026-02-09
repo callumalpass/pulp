@@ -9,7 +9,7 @@ import type { LiteratureNote } from '@pulp/shared';
 
 // Mock file-lock module
 vi.mock('../../services/file-lock.js', () => ({
-  atomicFrontmatterUpdate: vi.fn(async (filePath: string, modifier: Function) => {
+  atomicFrontmatterUpdate: vi.fn(async (_filePath: string, modifier: Function) => {
     const parsed = { frontmatter: {}, content: '' };
     return modifier(parsed);
   }),

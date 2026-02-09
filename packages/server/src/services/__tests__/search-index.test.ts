@@ -768,7 +768,7 @@ describe('SearchIndex', () => {
         { items: [{ str: 'Hello' }, { str: 'world' }] },
         { items: [{ str: 'Second page content here' }] },
       ]);
-      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf') as unknown as ReturnType<typeof readFile>);
+      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf'));
       mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
 
       const note = createTestNote({ id: 'pdf-note', title: 'PDF Book', sourceType: 'pdf' });
@@ -796,7 +796,7 @@ describe('SearchIndex', () => {
         ],
         ['iv', '1'],
       );
-      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf') as unknown as ReturnType<typeof readFile>);
+      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf'));
       mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
 
       const note = createTestNote({ id: 'labeled-pdf', sourceType: 'pdf' });
@@ -819,7 +819,7 @@ describe('SearchIndex', () => {
         { items: [{ str: '   ' }] },
         { items: [{ str: 'Real content here' }] },
       ]);
-      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf') as unknown as ReturnType<typeof readFile>);
+      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf'));
       mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
 
       const note = createTestNote({ id: 'sparse-pdf', sourceType: 'pdf' });
@@ -854,7 +854,7 @@ describe('SearchIndex', () => {
         destroy: vi.fn().mockResolvedValue(undefined),
       };
 
-      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf') as unknown as ReturnType<typeof readFile>);
+      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf'));
       mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
 
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -873,7 +873,7 @@ describe('SearchIndex', () => {
       const mockPdf = createMockPdfDocument([
         { items: [{ str: 'Multiple' }, { str: '  spaces  ' }, { str: 'between' }] },
       ]);
-      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf') as unknown as ReturnType<typeof readFile>);
+      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf'));
       mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
 
       const note = createTestNote({ id: 'spaced-pdf', sourceType: 'pdf' });
@@ -890,7 +890,7 @@ describe('SearchIndex', () => {
       const mockPdf = createMockPdfDocument([
         { items: [{ str: 'Some text' }] },
       ]);
-      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf') as unknown as ReturnType<typeof readFile>);
+      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf'));
       mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
 
       const note = createTestNote({ id: 'cleanup-pdf', sourceType: 'pdf' });
@@ -918,7 +918,7 @@ describe('SearchIndex', () => {
     it('handles getDocument failure gracefully', async () => {
       const index = new SearchIndex(testConfig);
 
-      mockReadFile.mockResolvedValue(Buffer.from('bad-data') as unknown as ReturnType<typeof readFile>);
+      mockReadFile.mockResolvedValue(Buffer.from('bad-data'));
       mockGetDocument.mockReturnValue({ promise: Promise.reject(new Error('Invalid PDF')) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
 
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -950,7 +950,7 @@ describe('SearchIndex', () => {
         destroy: vi.fn().mockResolvedValue(undefined),
       };
 
-      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf') as unknown as ReturnType<typeof readFile>);
+      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf'));
       mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
 
       const note = createTestNote({ id: 'mixed-items', sourceType: 'pdf' });
@@ -1298,9 +1298,9 @@ describe('SearchIndex', () => {
 
       // Make the PDF extraction fail at the indexNote level (timeout)
       // by making readFile hang, then rejecting with timeout
-      mockReadFile.mockImplementation(() => new Promise(() => {
+      mockReadFile.mockImplementation(() => new Promise<string>(() => {
         // never resolves - will be caught by indexNote's timeout
-      }) as unknown as ReturnType<typeof readFile>);
+      }));
 
       vi.useFakeTimers();
 
@@ -1327,7 +1327,7 @@ describe('SearchIndex', () => {
         getPageLabels: vi.fn().mockResolvedValue(null),
         destroy: vi.fn().mockResolvedValue(undefined),
       };
-      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf') as unknown as ReturnType<typeof readFile>);
+      mockReadFile.mockResolvedValue(Buffer.from('fake-pdf'));
       mockGetDocument.mockReturnValue({ promise: Promise.resolve(mockPdf) } as unknown as ReturnType<typeof pdfjsLib.getDocument>);
 
       await index.indexNote(note);

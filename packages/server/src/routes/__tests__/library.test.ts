@@ -37,9 +37,11 @@ function createTestNote(overrides: Partial<LiteratureNote> = {}): LiteratureNote
     highlights: [
       {
         id: 'h1',
+        type: 'pdf',
+        page: 1,
+        selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 1 },
         text: 'Highlighted text',
-        location: { page: 1 },
-        color: 'yellow',
+        category: 'highlight',
         createdAt: '2024-01-10T10:00:00Z',
       },
     ],
@@ -69,16 +71,19 @@ function createTestSummary(overrides: Partial<LiteratureNoteSummary> = {}): Lite
     lastRead: '2024-01-15T10:00:00Z',
     sourceType: 'pdf',
     pinned: false,
+    pausedAt: null,
     rating: null,
+    readingStats: null,
     highlightCount: 1,
     collections: [],
     totalPages: 100,
-    tags: ['literature-note'],
     currentChapter: null,
     paused: false,
     citekey: null,
     dateCreated: '2024-01-01T00:00:00Z',
     dateFinished: null,
+    yearCompleted: null,
+    csl: null,
     ...overrides,
   };
 }
@@ -270,11 +275,11 @@ describe('libraryRoutes', () => {
       const testNote = createTestNote({
         id: 'test-123',
         highlights: [
-          { id: 'h1', text: 'First highlight', location: { page: 1 }, color: 'yellow', createdAt: '2024-01-10T10:00:00Z' },
-          { id: 'h2', text: 'Second highlight', location: { page: 5 }, color: 'blue', createdAt: '2024-01-11T10:00:00Z' },
+          { id: 'h1', type: 'pdf', page: 1, selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 }, text: 'First highlight', category: 'highlight', createdAt: '2024-01-10T10:00:00Z' },
+          { id: 'h2', type: 'pdf', page: 5, selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 6 }, text: 'Second highlight', category: 'important', createdAt: '2024-01-11T10:00:00Z' },
         ],
         bookmarks: [
-          { location: { page: 10 }, label: 'Chapter 1', createdAt: '2024-01-12T10:00:00Z' },
+          { id: 'b1', page: 10, label: 'Chapter 1', createdAt: '2024-01-12T10:00:00Z' },
         ],
       });
       notes.set('test-123', testNote);
@@ -319,8 +324,8 @@ describe('libraryRoutes', () => {
       const testNote = createTestNote({
         id: 'test-123',
         highlights: [
-          { id: 'h1', text: 'First highlight', location: { page: 1 }, color: 'yellow', createdAt: '2024-01-10T10:00:00Z' },
-          { id: 'h2', text: 'Second highlight', location: { page: 5 }, color: 'blue', createdAt: '2024-01-11T10:00:00Z' },
+          { id: 'h1', type: 'pdf', page: 1, selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 5 }, text: 'First highlight', category: 'highlight', createdAt: '2024-01-10T10:00:00Z' },
+          { id: 'h2', type: 'pdf', page: 5, selection: { beginIndex: 0, beginOffset: 0, endIndex: 0, endOffset: 6 }, text: 'Second highlight', category: 'important', createdAt: '2024-01-11T10:00:00Z' },
         ],
       });
       notes.set('test-123', testNote);

@@ -251,7 +251,7 @@ describe('useSwipeGesture', () => {
       const onSwipeLeft = vi.fn();
 
       // Start with enabled hook, record touch start
-      const { handleTouchStart, handleTouchEnd } = useSwipeGesture({
+      const { handleTouchStart } = useSwipeGesture({
         onSwipeLeft,
         enabled: true,
       });

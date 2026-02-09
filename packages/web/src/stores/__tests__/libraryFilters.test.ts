@@ -24,7 +24,7 @@ if (typeof globalThis.window === 'undefined') {
 
 // Now import the store
 import { useLibraryFiltersStore } from '../libraryFilters';
-import type { SortOption, SortOrder, TypeFilter, ProgressFilter, SearchMode, ViewMode } from '../libraryFilters';
+import type { SortOption, TypeFilter, ProgressFilter, SearchMode, ViewMode } from '../libraryFilters';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 

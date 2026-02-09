@@ -474,12 +474,12 @@ describe('PDF Render Worker', () => {
     it('initiates both render and text extraction before waiting for results', async () => {
       // Use deferred promises so we can verify both are started concurrently
       let resolveRender!: () => void;
-      let resolveText!: (value: unknown) => void;
+      let resolveText!: (value: { items: { str: string; dir: string; transform: number[]; width: number; height: number; hasEOL: boolean; }[]; styles: {} }) => void;
 
       const renderPromise = new Promise<void>((resolve) => {
         resolveRender = resolve;
       });
-      const textPromise = new Promise((resolve) => {
+      const textPromise = new Promise<{ items: { str: string; dir: string; transform: number[]; width: number; height: number; hasEOL: boolean; }[]; styles: {} }>((resolve) => {
         resolveText = resolve;
       });
 
@@ -838,8 +838,15 @@ describe('PDF Render Worker', () => {
       const request = makeRenderRequest();
       await dispatchMessage(request);
 
-      const renderCallArg = mockPage.render.mock.calls[0][0];
+      const firstRenderCall = mockPage.render.mock.calls.at(0) as unknown[] | undefined;
+      const renderCallArg = firstRenderCall?.[0] as
+        | { canvasContext: { fillRect?: unknown } }
+        | undefined;
       // The context should be an object (from MockOffscreenCanvas.getContext('2d'))
+      expect(renderCallArg).toBeDefined();
+      if (!renderCallArg) {
+        throw new Error('Expected render to be called with arguments');
+      }
       expect(renderCallArg.canvasContext).toBeDefined();
       expect(renderCallArg.canvasContext).toHaveProperty('fillRect');
     });
