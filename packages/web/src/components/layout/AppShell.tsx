@@ -1,4 +1,5 @@
 import { type ReactNode, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Header } from './Header';
 import { MobileBottomNav } from './MobileBottomNav';
 import { useMobile } from '../../hooks/useMobile';
@@ -9,6 +10,8 @@ interface AppShellProps {
 
 export function AppShell({ children }: AppShellProps) {
   const isMobile = useMobile();
+  const location = useLocation();
+  const isReaderRoute = location.pathname.startsWith('/read/');
 
   // When the skip link targets #main-content, focus lands on the <main> element
   // (tabIndex={-1}). Pressing Tab from there should move to the first focusable
@@ -36,7 +39,7 @@ export function AppShell({ children }: AppShellProps) {
         Skip to main content
       </a>
 
-      <Header />
+      {!isReaderRoute && <Header />}
       <main
         id="main-content"
         role="main"
