@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+import { lazy, Suspense, useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { TextLayer } from 'pdfjs-dist';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
@@ -11,6 +11,7 @@ import { useHighlights } from '../../hooks/useNote';
 import { useCreateHighlight } from '../../hooks/useHighlights';
 import { useToast } from '../../contexts/ToastContext';
 import { useMobile } from '../../hooks/useMobile';
+import { usePerformanceMode } from '../../hooks/usePerformanceMode';
 import { useSwipeGesture } from '../../hooks/useSwipeGesture';
 import { usePinchZoom } from '../../hooks/usePinchZoom';
 import { useDoubleTapZoom } from '../../hooks/useDoubleTapZoom';
@@ -20,14 +21,18 @@ import { ReaderControls } from './shared/ReaderControls';
 import { HighlightPopup } from './shared/HighlightPopup';
 import { HighlightEditPopup } from './shared/HighlightEditPopup';
 import { PDFTableOfContents } from './shared/PDFTableOfContents';
-import { MarkdownEditorPanel } from './shared/MarkdownEditorPanel';
 import { KeyboardShortcutsPanel } from './shared/KeyboardShortcutsPanel';
 import { BookmarksPanel } from './shared/BookmarksPanel';
 import { HighlightsPanel } from './shared/HighlightsPanel';
-import { ReadingStatsPanel } from './shared/ReadingStatsPanel';
-import { ReadingGoalsPanel } from './shared/ReadingGoalsPanel';
 import { api } from '../../lib/api';
 import { PdfRenderQueue, type TextContentData } from '../../lib/pdf-render-queue';
+
+const ReadingStatsPanel = lazy(() =>
+  import('./shared/ReadingStatsPanel').then((m) => ({ default: m.ReadingStatsPanel }))
+);
+const ReadingGoalsPanel = lazy(() =>
+  import('./shared/ReadingGoalsPanel').then((m) => ({ default: m.ReadingGoalsPanel }))
+);
 
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
@@ -55,9 +60,8 @@ interface PageDimensions {
   height: number;
 }
 
-const PAGE_BUFFER = 3; // Number of pages to pre-render above/below viewport
-const VIRTUALIZATION_BUFFER = 8; // Number of pages above/below to keep in DOM
-const ZOOM_DEBOUNCE_MS = 150; // Debounce delay for zoom changes
+const DEFAULT_PAGE_BUFFER = 3; // Number of pages to pre-render above/below viewport
+const DEFAULT_VIRTUALIZATION_BUFFER = 8; // Number of pages above/below to keep in DOM
 const PAGE_DIMENSION_CONCURRENCY = 6; // Parallelism for initial page measurements
 const MAX_TEXT_CACHE_SIZE = 100; // Maximum pages to keep in text content cache
 
@@ -84,7 +88,6 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     zoom,
     zoomMode,
     tocOpen,
-    markdownPanelOpen,
     scrollToPage,
     isLoading,
     pageLabels,
@@ -104,7 +107,6 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     setZoom,
     setZoomMode,
     setTocOpen,
-    setMarkdownPanelOpen,
     setScrollToPage,
     setIsLoading,
     setSearchResults,
@@ -171,16 +173,22 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
   // Mobile support
   const isMobile = useMobile();
+  const { isLowEnd } = usePerformanceMode();
+  const pageBuffer = isLowEnd ? 1 : DEFAULT_PAGE_BUFFER;
+  const virtualizationBuffer = isLowEnd ? 4 : DEFAULT_VIRTUALIZATION_BUFFER;
 
   // Idle detection for reading stats (the hook sets up activity listeners)
   // isIdlePaused is shown in the ReadingStatsPanel when open
   useIdleDetection();
 
   // Virtualization: track which pages should have DOM elements
-  const [virtualizedRange, setVirtualizedRange] = useState<{ start: number; end: number }>({ start: 1, end: 10 });
+  const [virtualizedRange, setVirtualizedRange] = useState<{ start: number; end: number }>({
+    start: 1,
+    end: isLowEnd ? 6 : 10,
+  });
 
-  // Debounced zoom state for triggering re-renders
-  const [debouncedZoom, setDebouncedZoom] = useState(zoom);
+  // Keep this alias for existing render logic; now synced live for pinch smoothness.
+  const debouncedZoom = zoom;
 
   // Scroll direction tracking for predictive preloading
   const lastScrollTopRef = useRef(0);
@@ -220,14 +228,6 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     cache.set(pageNum, text);
     accessOrder.push(pageNum);
   }, []);
-
-  // Debounce zoom changes
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedZoom(zoom);
-    }, ZOOM_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [zoom]);
 
   // Memoized cumulative page heights for O(1) scroll offset lookups
   // pageHeights[i] = cumulative height from start to top of page i (1-indexed)
@@ -575,7 +575,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   // Calculate which pages should be in the DOM based on scroll position - O(log n)
   const calculateVirtualizedRange = useCallback((scrollTop: number, viewportHeight: number) => {
     if (pageDimensions.size === 0 || totalPages === 0) {
-      return { start: 1, end: Math.min(10, totalPages) };
+      return { start: 1, end: Math.min(virtualizationBuffer + 2, totalPages) };
     }
 
     // Find the first page that could be visible (using binary search)
@@ -590,10 +590,10 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
     // Add virtualization buffer
     return {
-      start: Math.max(1, startPage - VIRTUALIZATION_BUFFER),
-      end: Math.min(totalPages, endPage + VIRTUALIZATION_BUFFER),
+      start: Math.max(1, startPage - virtualizationBuffer),
+      end: Math.min(totalPages, endPage + virtualizationBuffer),
     };
-  }, [pageDimensions, totalPages, findPageAtScrollPosition]);
+  }, [pageDimensions, totalPages, findPageAtScrollPosition, virtualizationBuffer]);
 
   // Update current page based on scroll position - O(log n) using binary search
   // Skip in e-ink mode since pages are controlled manually, not by scroll
@@ -721,8 +721,8 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
     // Add buffer pages based on scroll direction (predictive preloading)
     const direction = scrollDirectionRef.current;
-    const forwardBuffer = direction === 'down' ? PAGE_BUFFER + 2 : PAGE_BUFFER;
-    const backwardBuffer = direction === 'up' ? PAGE_BUFFER + 2 : PAGE_BUFFER;
+    const forwardBuffer = direction === 'down' ? pageBuffer + 2 : pageBuffer;
+    const backwardBuffer = direction === 'up' ? pageBuffer + 2 : pageBuffer;
 
     visiblePages.forEach((pageNum) => {
       // Pages ahead (in scroll direction get more buffer)
@@ -796,7 +796,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     renderedPagesRef.current.forEach((pageNum) => {
       let shouldKeep = false;
       visiblePages.forEach((visiblePage) => {
-        if (Math.abs(pageNum - visiblePage) <= PAGE_BUFFER + 1) {
+        if (Math.abs(pageNum - visiblePage) <= pageBuffer + 1) {
           shouldKeep = true;
         }
       });
@@ -826,7 +826,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         return next;
       });
     }
-  }, [visiblePages, totalPages, isLoading, renderVersion, debouncedZoom]);
+  }, [visiblePages, totalPages, isLoading, renderVersion, debouncedZoom, pageBuffer]);
 
   // Render highlights when pages are ready
   useEffect(() => {
@@ -1541,6 +1541,58 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     [pinchHandlers, swipeHandlers, doubleTapHandlers]
   );
 
+  // Prevent browser/page pinch-zoom over the PDF viewport on mobile.
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!isMobile || !el) return;
+
+    const preventPinchPageZoom = (event: TouchEvent) => {
+      if (event.touches.length === 2) {
+        event.preventDefault();
+      }
+    };
+
+    const preventGestureZoom = (event: Event) => {
+      event.preventDefault();
+    };
+
+    el.addEventListener('touchmove', preventPinchPageZoom, { passive: false });
+    el.addEventListener('gesturestart', preventGestureZoom);
+    el.addEventListener('gesturechange', preventGestureZoom);
+
+    return () => {
+      el.removeEventListener('touchmove', preventPinchPageZoom);
+      el.removeEventListener('gesturestart', preventGestureZoom);
+      el.removeEventListener('gesturechange', preventGestureZoom);
+    };
+  }, [isMobile]);
+
+  // Also suppress browser pinch-zoom over the full reader surface (including toolbar).
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!isMobile || !el) return;
+
+    const preventPinchPageZoom = (event: TouchEvent) => {
+      if (event.touches.length === 2) {
+        event.preventDefault();
+      }
+    };
+
+    const preventGestureZoom = (event: Event) => {
+      event.preventDefault();
+    };
+
+    el.addEventListener('touchmove', preventPinchPageZoom, { passive: false });
+    el.addEventListener('gesturestart', preventGestureZoom);
+    el.addEventListener('gesturechange', preventGestureZoom);
+
+    return () => {
+      el.removeEventListener('touchmove', preventPinchPageZoom);
+      el.removeEventListener('gesturestart', preventGestureZoom);
+      el.removeEventListener('gesturechange', preventGestureZoom);
+    };
+  }, [isMobile]);
+
   /**
    * Get text selection in PDF++ format
    */
@@ -2118,7 +2170,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden min-w-0" ref={containerRef}>
+    <div className={`flex-1 flex flex-col overflow-hidden min-w-0 ${isMobile ? 'touch-pan-only' : ''}`} ref={containerRef}>
       <ReaderControls
         noteId={note.id}
         currentPage={currentPage}
@@ -2257,25 +2309,24 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
           </div>
         </div>
 
-        {/* Markdown Editor Panel */}
-        {markdownPanelOpen && (
-          <MarkdownEditorPanel noteId={note.id} onClose={() => setMarkdownPanelOpen(false)} />
-        )}
-
         {/* Reading Statistics Panel */}
         {statsOpen && (
-          <ReadingStatsPanel
-            noteId={note.id}
-            currentPage={currentPage}
-            totalPages={totalPages}
-            dateFinished={note.dateFinished}
-            onClose={() => setStatsOpen(false)}
-          />
+          <Suspense fallback={<div className="w-80 bg-bg-surface border-l border-text-secondary/10" />}>
+            <ReadingStatsPanel
+              noteId={note.id}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              dateFinished={note.dateFinished}
+              onClose={() => setStatsOpen(false)}
+            />
+          </Suspense>
         )}
 
         {/* Reading Goals Panel */}
         {goalsOpen && (
-          <ReadingGoalsPanel onClose={() => setGoalsOpen(false)} />
+          <Suspense fallback={<div className="w-80 bg-bg-surface border-l border-text-secondary/10" />}>
+            <ReadingGoalsPanel onClose={() => setGoalsOpen(false)} />
+          </Suspense>
         )}
       </div>
 

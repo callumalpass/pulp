@@ -201,36 +201,6 @@ describe('api', () => {
       expect(url).toBe('/api/library/note-1/highlights');
     });
 
-    it('gets note content', async () => {
-      mockFetch.mockReturnValue(jsonResponse({ content: '# Test' }));
-
-      const result = await api.library.getContent('note-1');
-
-      expect(result).toEqual({ content: '# Test' });
-      const [url] = mockFetch.mock.calls[0];
-      expect(url).toBe('/api/library/note-1/content');
-    });
-
-    it('updates note content with PUT method', async () => {
-      mockFetch.mockReturnValue(jsonResponse({ success: true }));
-
-      await api.library.updateContent('note-1', '# Updated');
-
-      const [url, options] = mockFetch.mock.calls[0];
-      expect(url).toBe('/api/library/note-1/content');
-      expect(options.method).toBe('PUT');
-      expect(JSON.parse(options.body)).toEqual({ content: '# Updated' });
-    });
-
-    it('updates note content with empty string', async () => {
-      mockFetch.mockReturnValue(jsonResponse({ success: true }));
-
-      await api.library.updateContent('note-1', '');
-
-      const [, options] = mockFetch.mock.calls[0];
-      expect(JSON.parse(options.body)).toEqual({ content: '' });
-    });
-
     it('encodes note IDs with special characters in URL path', async () => {
       mockFetch.mockReturnValue(jsonResponse({ id: 'note/with/slashes', title: 'Test' }));
 

@@ -48,8 +48,6 @@ export function ReaderControls({
     zoomMode,
     tocOpen,
     toggleToc,
-    markdownPanelOpen,
-    toggleMarkdownPanel,
     isSearchOpen,
     searchQuery,
     searchResults,
@@ -96,18 +94,6 @@ export function ReaderControls({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  // Keyboard shortcut for markdown editor (Cmd/Ctrl+E)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
-        e.preventDefault();
-        toggleMarkdownPanel();
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [toggleMarkdownPanel]);
 
   const handleSearchKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -634,25 +620,6 @@ export function ReaderControls({
       </Button>
 
       <div className="h-6 w-px bg-text-secondary/20" aria-hidden="true" />
-
-      {/* Markdown notes toggle */}
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={toggleMarkdownPanel}
-        className={`w-8 h-8 !p-0 ${markdownPanelOpen ? 'bg-accent-primary/20 text-accent-primary' : ''}`}
-        aria-label="Toggle notes panel (Cmd/Ctrl+E)"
-        aria-expanded={markdownPanelOpen}
-        aria-controls="markdown-notes-panel"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <polyline points="14 2 14 8 20 8" />
-          <line x1="16" y1="13" x2="8" y2="13" />
-          <line x1="16" y1="17" x2="8" y2="17" />
-          <polyline points="10 9 9 9 8 9" />
-        </svg>
-      </Button>
 
       {/* Bookmarks toggle */}
       <Button

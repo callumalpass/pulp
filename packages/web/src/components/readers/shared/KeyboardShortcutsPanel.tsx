@@ -44,7 +44,6 @@ const PDF_SHORTCUTS: ShortcutGroup[] = [
     title: 'Panels',
     shortcuts: [
       { keys: ['T'], description: 'Toggle table of contents' },
-      { keys: ['Ctrl', 'E'], description: 'Toggle notes panel' },
       { keys: ['B'], description: 'Toggle bookmarks panel' },
       { keys: ['S'], description: 'Toggle reading statistics' },
       { keys: ['R'], description: 'Toggle reading goals' },
@@ -88,7 +87,6 @@ const EPUB_SHORTCUTS: ShortcutGroup[] = [
     title: 'Panels',
     shortcuts: [
       { keys: ['T'], description: 'Toggle table of contents' },
-      { keys: ['Ctrl', 'E'], description: 'Toggle notes panel' },
       { keys: ['B'], description: 'Toggle bookmarks panel' },
       { keys: ['S'], description: 'Toggle reading statistics' },
       { keys: ['R'], description: 'Toggle reading goals' },

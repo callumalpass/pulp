@@ -31,6 +31,7 @@ function createTwoFingerTouchEvent(
   x2: number,
   y2: number
 ): React.TouchEvent {
+  const preventDefault = vi.fn();
   return {
     touches: [
       { clientX: x1, clientY: y1 },
@@ -40,20 +41,25 @@ function createTwoFingerTouchEvent(
       { clientX: x1, clientY: y1 },
       { clientX: x2, clientY: y2 },
     ],
+    preventDefault,
   } as unknown as React.TouchEvent;
 }
 
 function createSingleFingerTouchEvent(x: number, y: number): React.TouchEvent {
+  const preventDefault = vi.fn();
   return {
     touches: [{ clientX: x, clientY: y }],
     changedTouches: [{ clientX: x, clientY: y }],
+    preventDefault,
   } as unknown as React.TouchEvent;
 }
 
 function createZeroTouchEvent(): React.TouchEvent {
+  const preventDefault = vi.fn();
   return {
     touches: [],
     changedTouches: [],
+    preventDefault,
   } as unknown as React.TouchEvent;
 }
 
@@ -88,6 +94,18 @@ describe('usePinchZoom', () => {
   });
 
   describe('handlePinchStart', () => {
+    it('prevents browser default pinch handling for two-finger start', () => {
+      const onZoomChange = vi.fn();
+      const { handlePinchStart } = usePinchZoom({ onZoomChange });
+
+      const event = createTwoFingerTouchEvent(0, 0, 100, 0);
+      const preventDefault = vi.spyOn(event, 'preventDefault');
+
+      handlePinchStart(event, 1.0);
+
+      expect(preventDefault).toHaveBeenCalledTimes(1);
+    });
+
     it('ignores single-finger touch events', () => {
       const onZoomChange = vi.fn();
       const { handlePinchStart, handlePinchMove, handlePinchEnd } = usePinchZoom({
@@ -150,6 +168,19 @@ describe('usePinchZoom', () => {
   });
 
   describe('zoom calculations', () => {
+    it('prevents browser default pinch handling for two-finger move', () => {
+      const onZoomChange = vi.fn();
+      const { handlePinchStart, handlePinchMove } = usePinchZoom({ onZoomChange });
+
+      handlePinchStart(createTwoFingerTouchEvent(0, 0, 100, 0), 1.0);
+
+      const moveEvent = createTwoFingerTouchEvent(0, 0, 120, 0);
+      const preventDefault = vi.spyOn(moveEvent, 'preventDefault');
+      handlePinchMove(moveEvent);
+
+      expect(preventDefault).toHaveBeenCalledTimes(1);
+    });
+
     it('calculates correct zoom for pinch out (zoom in)', () => {
       const onZoomChange = vi.fn();
       const { handlePinchStart, handlePinchMove } = usePinchZoom({ onZoomChange });
@@ -290,8 +321,8 @@ describe('usePinchZoom', () => {
     });
   });
 
-  describe('debouncing', () => {
-    it('debounces zoom updates for performance', () => {
+  describe('update behavior', () => {
+    it('coalesces rapid pinch updates to one frame for smooth performance', () => {
       const onZoomChange = vi.fn();
       const { handlePinchStart, handlePinchMove } = usePinchZoom({ onZoomChange });
 
@@ -302,40 +333,59 @@ describe('usePinchZoom', () => {
       handlePinchMove(createTwoFingerTouchEvent(0, 0, 160, 0));
       handlePinchMove(createTwoFingerTouchEvent(0, 0, 170, 0));
 
-      // Before timer fires, no updates
+      // Before frame flush, nothing has been emitted yet.
       expect(onZoomChange).not.toHaveBeenCalled();
 
-      // After 16ms, should fire once with latest value
+      // After one frame, latest zoom is emitted.
       vi.advanceTimersByTime(20);
-
       expect(onZoomChange).toHaveBeenCalledTimes(1);
       expect(onZoomChange).toHaveBeenCalledWith(1.7);
     });
 
-    it('ignores zoom changes smaller than 0.02', () => {
+    it('ignores zoom changes smaller than the default threshold (0.015)', () => {
       const onZoomChange = vi.fn();
       const { handlePinchStart, handlePinchMove } = usePinchZoom({ onZoomChange });
 
       handlePinchStart(createTwoFingerTouchEvent(0, 0, 100, 0), 1.0);
 
-      // Move slightly - less than 2% change (101px = 1.01x zoom)
+      // Move slightly - less than 1.5% change (101px = 1.01x zoom)
       handlePinchMove(createTwoFingerTouchEvent(0, 0, 101, 0));
-      vi.advanceTimersByTime(20);
 
       expect(onZoomChange).not.toHaveBeenCalled();
     });
 
-    it('triggers update when zoom change exceeds 0.02', () => {
+    it('triggers update when zoom change exceeds the default threshold (0.015)', () => {
       const onZoomChange = vi.fn();
       const { handlePinchStart, handlePinchMove } = usePinchZoom({ onZoomChange });
 
       handlePinchStart(createTwoFingerTouchEvent(0, 0, 100, 0), 1.0);
 
-      // Move enough to exceed threshold (103px = 1.03x zoom, > 0.02 change)
-      handlePinchMove(createTwoFingerTouchEvent(0, 0, 103, 0));
+      // Move enough to exceed threshold (102px = 1.02x zoom, > 0.015 change)
+      handlePinchMove(createTwoFingerTouchEvent(0, 0, 102, 0));
       vi.advanceTimersByTime(20);
 
       expect(onZoomChange).toHaveBeenCalledTimes(1);
+    });
+
+    it('respects custom updateThreshold', () => {
+      const onZoomChange = vi.fn();
+      const { handlePinchStart, handlePinchMove } = usePinchZoom({
+        onZoomChange,
+        updateThreshold: 0.03,
+      });
+
+      handlePinchStart(createTwoFingerTouchEvent(0, 0, 100, 0), 1.0);
+
+      // 2% change should be ignored with a 3% threshold.
+      handlePinchMove(createTwoFingerTouchEvent(0, 0, 102, 0));
+      vi.advanceTimersByTime(20);
+      expect(onZoomChange).not.toHaveBeenCalled();
+
+      // 4% change should be emitted.
+      handlePinchMove(createTwoFingerTouchEvent(0, 0, 104, 0));
+      vi.advanceTimersByTime(20);
+      expect(onZoomChange).toHaveBeenCalledTimes(1);
+      expect(onZoomChange).toHaveBeenCalledWith(1.04);
     });
   });
 
@@ -348,9 +398,6 @@ describe('usePinchZoom', () => {
 
       handlePinchStart(createTwoFingerTouchEvent(0, 0, 100, 0), 1.0);
       handlePinchMove(createTwoFingerTouchEvent(0, 0, 150, 0));
-      vi.advanceTimersByTime(20);
-
-      onZoomChange.mockClear();
 
       // End with one finger lifted (single touch remaining)
       handlePinchEnd(createSingleFingerTouchEvent(0, 0));
@@ -412,7 +459,7 @@ describe('usePinchZoom', () => {
 
       // Continue pinching should still work
       handlePinchMove(createTwoFingerTouchEvent(0, 0, 200, 0));
-      vi.advanceTimersByTime(20);
+      vi.advanceTimersByTime(80);
 
       expect(onZoomChange).toHaveBeenCalled();
     });

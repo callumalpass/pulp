@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, useCallback } from 'react';
 import ePub, { Book, Rendition, Contents, NavItem } from 'epubjs';
 import type { LiteratureNote, EPUBHighlight, HighlightCategory } from '@pulp/shared';
 import { HIGHLIGHT_CATEGORIES } from '@pulp/shared';
@@ -18,13 +18,17 @@ import { HighlightEditPopup } from './shared/HighlightEditPopup';
 import { KeyboardShortcutsPanel } from './shared/KeyboardShortcutsPanel';
 import { BookmarksPanel } from './shared/BookmarksPanel';
 import { HighlightsPanel } from './shared/HighlightsPanel';
-import { ReadingStatsPanel } from './shared/ReadingStatsPanel';
-import { ReadingGoalsPanel } from './shared/ReadingGoalsPanel';
 import { ReadingTimeIndicator } from './shared/ReadingTimeIndicator';
-import { MarkdownEditorPanel } from './shared/MarkdownEditorPanel';
 import { SaveIndicator } from './shared/SaveIndicator';
 import { api } from '../../lib/api';
 import { Link } from 'react-router-dom';
+
+const ReadingStatsPanel = lazy(() =>
+  import('./shared/ReadingStatsPanel').then((m) => ({ default: m.ReadingStatsPanel }))
+);
+const ReadingGoalsPanel = lazy(() =>
+  import('./shared/ReadingGoalsPanel').then((m) => ({ default: m.ReadingGoalsPanel }))
+);
 
 interface EPUBReaderProps {
   note: LiteratureNote;
@@ -59,7 +63,6 @@ export function EPUBReader({ note }: EPUBReaderProps) {
     bookmarksOpen,
     statsOpen,
     goalsOpen,
-    markdownPanelOpen,
     setCurrentPage,
     setTotalPages,
     setIsLoading,
@@ -74,8 +77,6 @@ export function EPUBReader({ note }: EPUBReaderProps) {
     toggleStats,
     setGoalsOpen,
     toggleGoals,
-    setMarkdownPanelOpen,
-    toggleMarkdownPanel,
     reset,
   } = useReaderStore();
 
@@ -639,19 +640,6 @@ export function EPUBReader({ note }: EPUBReaderProps) {
         }
       }
 
-      // Close markdown panel on Escape (if open)
-      if (e.key === 'Escape' && markdownPanelOpen) {
-        setMarkdownPanelOpen(false);
-        return;
-      }
-
-      // Notes editor: Cmd/Ctrl+E
-      if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
-        e.preventDefault();
-        toggleMarkdownPanel();
-        return;
-      }
-
       // Table of contents: T
       if (e.key === 't' || e.key === 'T') {
         e.preventDefault();
@@ -706,7 +694,7 @@ export function EPUBReader({ note }: EPUBReaderProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [shortcutsOpen, bookmarksOpen, highlightsOpen, statsOpen, goalsOpen, markdownPanelOpen, tocOpen, theme, fontSize, toggleShortcuts, setShortcutsOpen, toggleBookmarks, setBookmarksOpen, toggleHighlights, setHighlightsOpen, toggleStats, setStatsOpen, toggleGoals, setGoalsOpen, toggleMarkdownPanel, setMarkdownPanelOpen, setReaderTheme, setFontSize, selection, quickHighlight]);
+  }, [shortcutsOpen, bookmarksOpen, highlightsOpen, statsOpen, goalsOpen, tocOpen, theme, fontSize, toggleShortcuts, setShortcutsOpen, toggleBookmarks, setBookmarksOpen, toggleHighlights, setHighlightsOpen, toggleStats, setStatsOpen, toggleGoals, setGoalsOpen, setReaderTheme, setFontSize, selection, quickHighlight]);
 
   const progress = totalPages > 0 ? (currentPage / totalPages) * 100 : 0;
   const colors = THEME_STYLES[theme];
@@ -894,23 +882,6 @@ export function EPUBReader({ note }: EPUBReaderProps) {
           </svg>
         </button>
 
-        {/* Notes button */}
-        <button
-          onClick={() => { toggleMarkdownPanel(); setTocOpen(false); setSettingsOpen(false); }}
-          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-current/50 ${markdownPanelOpen ? 'bg-current/20' : 'hover:bg-current/10'}`}
-          aria-label="Notes (Cmd+E)"
-          aria-expanded={markdownPanelOpen}
-          aria-controls="markdown-notes-panel"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-            <line x1="16" y1="13" x2="8" y2="13" />
-            <line x1="16" y1="17" x2="8" y2="17" />
-            <polyline points="10 9 9 9 8 9" />
-          </svg>
-        </button>
-
         {/* Settings button */}
         <button
           onClick={() => { setSettingsOpen(!settingsOpen); setTocOpen(false); }}
@@ -981,26 +952,22 @@ export function EPUBReader({ note }: EPUBReaderProps) {
 
         {/* Reading Statistics Panel */}
         {statsOpen && (
-          <ReadingStatsPanel
-            noteId={note.id}
-            currentPage={currentPage}
-            totalPages={totalPages}
-            dateFinished={note.dateFinished}
-            onClose={() => setStatsOpen(false)}
-          />
+          <Suspense fallback={<div className="w-80 bg-bg-surface border-l border-text-secondary/10" />}>
+            <ReadingStatsPanel
+              noteId={note.id}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              dateFinished={note.dateFinished}
+              onClose={() => setStatsOpen(false)}
+            />
+          </Suspense>
         )}
 
         {/* Reading Goals Panel */}
         {goalsOpen && (
-          <ReadingGoalsPanel onClose={() => setGoalsOpen(false)} />
-        )}
-
-        {/* Markdown Notes Panel */}
-        {markdownPanelOpen && (
-          <MarkdownEditorPanel
-            noteId={note.id}
-            onClose={() => setMarkdownPanelOpen(false)}
-          />
+          <Suspense fallback={<div className="w-80 bg-bg-surface border-l border-text-secondary/10" />}>
+            <ReadingGoalsPanel onClose={() => setGoalsOpen(false)} />
+          </Suspense>
         )}
 
         {/* TOC Sidebar */}

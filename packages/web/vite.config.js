@@ -38,6 +38,7 @@ export default defineConfig({
             },
             workbox: {
                 globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+                navigateFallbackAllowlist: [/^\//],
                 runtimeCaching: [
                     {
                         urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -128,7 +129,6 @@ export default defineConfig({
                     'vendor-query': ['@tanstack/react-query'],
                     'vendor-pdf': ['pdfjs-dist'],
                     'vendor-epub': ['epubjs'],
-                    'vendor-codemirror': ['@codemirror/state', '@codemirror/view', '@codemirror/lang-markdown', '@codemirror/language', '@codemirror/commands', '@replit/codemirror-vim'],
                 },
             },
         },

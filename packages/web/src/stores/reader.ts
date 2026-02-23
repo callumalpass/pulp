@@ -41,7 +41,6 @@ interface ReaderState {
   zoom: number;
   zoomMode: ZoomMode;
   tocOpen: boolean;
-  markdownPanelOpen: boolean;
   scrollToPage: number | null;
   isLoading: boolean;
 
@@ -88,8 +87,6 @@ interface ReaderState {
   zoomOut: () => void;
   setTocOpen: (open: boolean) => void;
   toggleToc: () => void;
-  setMarkdownPanelOpen: (open: boolean) => void;
-  toggleMarkdownPanel: () => void;
   setScrollToPage: (page: number | null) => void;
   setIsLoading: (loading: boolean) => void;
   setLoadError: (error: string | null) => void;
@@ -140,7 +137,6 @@ export const useReaderStore = create<ReaderState>((set) => ({
   zoom: 1,
   zoomMode: 'fit-width',
   tocOpen: false,
-  markdownPanelOpen: false,
   scrollToPage: null,
   isLoading: true,
 
@@ -187,8 +183,6 @@ export const useReaderStore = create<ReaderState>((set) => ({
   zoomOut: () => set((state) => ({ zoom: Math.max(0.5, state.zoom - 0.25), zoomMode: 'custom' })),
   setTocOpen: (open) => set({ tocOpen: open }),
   toggleToc: () => set((state) => ({ tocOpen: !state.tocOpen })),
-  setMarkdownPanelOpen: (open) => set({ markdownPanelOpen: open }),
-  toggleMarkdownPanel: () => set((state) => ({ markdownPanelOpen: !state.markdownPanelOpen })),
   setScrollToPage: (page) => set({ scrollToPage: page }),
   setIsLoading: (loading) => set({ isLoading: loading }),
   setLoadError: (error) => set({ loadError: error }),
@@ -257,7 +251,6 @@ export const useReaderStore = create<ReaderState>((set) => ({
     zoom: 1,
     zoomMode: 'fit-width',
     tocOpen: false,
-    markdownPanelOpen: false,
     scrollToPage: null,
     isLoading: true,
     loadError: null,

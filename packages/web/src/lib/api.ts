@@ -68,17 +68,6 @@ export const api = {
     getHighlights(id: string) {
       return fetchJSON<Highlight[]>(`/library/${id}/highlights`);
     },
-
-    getContent(id: string) {
-      return fetchJSON<{ content: string }>(`/library/${id}/content`);
-    },
-
-    updateContent(id: string, content: string) {
-      return fetchJSON<{ success: boolean }>(`/library/${id}/content`, {
-        method: 'PUT',
-        body: JSON.stringify({ content }),
-      });
-    },
   },
 
   progress: {

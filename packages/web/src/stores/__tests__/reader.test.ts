@@ -29,7 +29,6 @@ function resetStore() {
     zoom: 1,
     zoomMode: 'fit-width',
     tocOpen: false,
-    markdownPanelOpen: false,
     scrollToPage: null,
     isLoading: true,
     loadError: null,
@@ -64,7 +63,6 @@ describe('useReaderStore', () => {
       expect(state.zoom).toBe(1);
       expect(state.zoomMode).toBe('fit-width');
       expect(state.tocOpen).toBe(false);
-      expect(state.markdownPanelOpen).toBe(false);
       expect(state.scrollToPage).toBeNull();
       expect(state.isLoading).toBe(true);
       expect(state.loadError).toBeNull();
@@ -253,19 +251,6 @@ describe('useReaderStore', () => {
       expect(useReaderStore.getState().tocOpen).toBe(true);
       useReaderStore.getState().setTocOpen(false);
       expect(useReaderStore.getState().tocOpen).toBe(false);
-    });
-
-    it('toggles markdown panel', () => {
-      expect(useReaderStore.getState().markdownPanelOpen).toBe(false);
-      useReaderStore.getState().toggleMarkdownPanel();
-      expect(useReaderStore.getState().markdownPanelOpen).toBe(true);
-      useReaderStore.getState().toggleMarkdownPanel();
-      expect(useReaderStore.getState().markdownPanelOpen).toBe(false);
-    });
-
-    it('sets markdown panel open state directly', () => {
-      useReaderStore.getState().setMarkdownPanelOpen(true);
-      expect(useReaderStore.getState().markdownPanelOpen).toBe(true);
     });
 
     it('toggles mobile menu', () => {
@@ -548,7 +533,6 @@ describe('useReaderStore', () => {
         zoom: 2.5,
         zoomMode: 'custom',
         tocOpen: true,
-        markdownPanelOpen: true,
         scrollToPage: 42,
         isLoading: false,
         loadError: 'some error',
@@ -573,7 +557,6 @@ describe('useReaderStore', () => {
       expect(state.zoom).toBe(1);
       expect(state.zoomMode).toBe('fit-width');
       expect(state.tocOpen).toBe(false);
-      expect(state.markdownPanelOpen).toBe(false);
       expect(state.scrollToPage).toBeNull();
       expect(state.isLoading).toBe(true);
       expect(state.loadError).toBeNull();

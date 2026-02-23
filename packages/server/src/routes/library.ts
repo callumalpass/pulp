@@ -1,7 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type { LibraryQuery } from '@pulp/shared';
 import type { LibraryScanner } from '../services/library-scanner.js';
-import { readFileSync, writeFileSync } from 'node:fs';
 
 interface LibraryRouteOptions {
   scanner: LibraryScanner;
@@ -54,52 +53,4 @@ export const libraryRoutes: FastifyPluginAsync<LibraryRouteOptions> = async (fas
     return note.highlights;
   });
 
-  // GET /api/library/:id/content - Get markdown content of a note
-  fastify.get<{
-    Params: { id: string };
-  }>('/api/library/:id/content', async (request, reply) => {
-    const note = scanner.getById(request.params.id);
-
-    if (!note) {
-      return reply.code(404).send({ error: 'Note not found' });
-    }
-
-    try {
-      const content = readFileSync(note.notePath, 'utf-8');
-      return { content };
-    } catch (error) {
-      return reply.code(500).send({ error: 'Failed to read note content' });
-    }
-  });
-
-  // PUT /api/library/:id/content - Update markdown content of a note
-  fastify.put<{
-    Params: { id: string };
-    Body: { content: string };
-  }>('/api/library/:id/content', {
-    schema: {
-      body: {
-        type: 'object',
-        required: ['content'],
-        properties: {
-          content: { type: 'string' },
-        },
-      },
-    },
-  }, async (request, reply) => {
-    const note = scanner.getById(request.params.id);
-
-    if (!note) {
-      return reply.code(404).send({ error: 'Note not found' });
-    }
-
-    try {
-      writeFileSync(note.notePath, request.body.content, 'utf-8');
-      // Refresh scanner to pick up changes (including new highlights)
-      scanner.refresh();
-      return { success: true };
-    } catch (error) {
-      return reply.code(500).send({ error: 'Failed to write note content' });
-    }
-  });
 };
