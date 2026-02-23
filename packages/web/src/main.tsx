@@ -7,25 +7,28 @@ import { ConnectionProvider } from './contexts/ConnectionContext';
 import App from './App';
 import './index.css';
 
-// Initialize theme from localStorage before React renders to prevent flash
-function initializeTheme() {
+// Initialize appearance settings from localStorage before React renders to prevent flash
+function initializeAppearance() {
+  let theme: 'light' | 'dark' = 'dark';
+  let einkMode = false;
+
   try {
     const stored = localStorage.getItem('pulp-preferences');
     if (stored) {
       const { state } = JSON.parse(stored);
-      if (state?.theme) {
-        document.documentElement.setAttribute('data-theme', state.theme);
-        return;
-      }
+      if (state?.theme === 'light' || state?.theme === 'dark') theme = state.theme;
+      if (state?.einkMode === true) einkMode = true;
     }
   } catch {
     // Ignore parse errors
   }
-  // Default to dark theme if no preference saved
-  document.documentElement.setAttribute('data-theme', 'dark');
+
+  document.documentElement.setAttribute('data-theme', theme);
+  document.documentElement.setAttribute('data-eink-mode', einkMode ? 'true' : 'false');
+  document.documentElement.classList.toggle('eink-mode', einkMode);
 }
 
-initializeTheme();
+initializeAppearance();
 
 const queryClient = new QueryClient({
   defaultOptions: {

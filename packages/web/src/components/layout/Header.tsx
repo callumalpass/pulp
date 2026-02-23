@@ -22,9 +22,30 @@ export function Header() {
 
       <nav className="ml-auto flex items-center gap-4" aria-label="Header controls">
         <ConnectionStatus />
+        <EinkModeToggle />
         <ThemeToggle />
       </nav>
     </header>
+  );
+}
+
+function EinkModeToggle() {
+  const einkMode = usePreferencesStore((state) => state.einkMode);
+  const toggleEinkMode = usePreferencesStore((state) => state.toggleEinkMode);
+
+  return (
+    <button
+      onClick={toggleEinkMode}
+      className={`min-w-[44px] min-h-[44px] px-2 h-10 rounded-xl border border-subtle flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-deep/80 active:scale-95 transition-[color,background-color,transform,border-color] duration-150 focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-surface ${
+        einkMode ? 'bg-bg-deep/90 text-text-primary border-text-secondary/60' : ''
+      }`}
+      title="Toggle e-ink mode"
+      aria-label={`Switch to ${einkMode ? 'standard' : 'e-ink'} mode`}
+      aria-pressed={einkMode}
+      data-testid="eink-toggle"
+    >
+      <span className="text-[11px] font-semibold tracking-wide" aria-hidden="true">E-ink</span>
+    </button>
   );
 }
 

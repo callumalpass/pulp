@@ -40,12 +40,10 @@ import { usePreferencesStore } from '../preferences';
 function resetStore() {
   usePreferencesStore.setState({
     theme: 'dark',
+    einkMode: false,
     readerTheme: 'dark',
     fontSize: 16,
     lineHeight: 1.6,
-    markdownPanelOverlay: false,
-    markdownPanelWidth: 400,
-    markdownPanelVimMode: false,
     metadataPanelWidth: 380,
     metadataPanelExpandedSections: ['publication', 'progress'],
   });
@@ -77,18 +75,6 @@ describe('usePreferencesStore', () => {
 
     it('has 1.6 as default line height', () => {
       expect(usePreferencesStore.getState().lineHeight).toBe(1.6);
-    });
-
-    it('has markdown panel overlay disabled by default', () => {
-      expect(usePreferencesStore.getState().markdownPanelOverlay).toBe(false);
-    });
-
-    it('has 400 as default markdown panel width', () => {
-      expect(usePreferencesStore.getState().markdownPanelWidth).toBe(400);
-    });
-
-    it('has vim mode disabled by default', () => {
-      expect(usePreferencesStore.getState().markdownPanelVimMode).toBe(false);
     });
 
     it('has 380 as default metadata panel width', () => {
@@ -227,70 +213,6 @@ describe('usePreferencesStore', () => {
     it('clamps zero to minimum', () => {
       usePreferencesStore.getState().setLineHeight(0);
       expect(usePreferencesStore.getState().lineHeight).toBe(1.2);
-    });
-  });
-
-  // ── setMarkdownPanelOverlay ────────────────────────────────────────
-
-  describe('setMarkdownPanelOverlay', () => {
-    it('enables overlay mode', () => {
-      usePreferencesStore.getState().setMarkdownPanelOverlay(true);
-      expect(usePreferencesStore.getState().markdownPanelOverlay).toBe(true);
-    });
-
-    it('disables overlay mode', () => {
-      usePreferencesStore.getState().setMarkdownPanelOverlay(true);
-      usePreferencesStore.getState().setMarkdownPanelOverlay(false);
-      expect(usePreferencesStore.getState().markdownPanelOverlay).toBe(false);
-    });
-  });
-
-  // ── setMarkdownPanelWidth ──────────────────────────────────────────
-
-  describe('setMarkdownPanelWidth', () => {
-    it('sets width to a valid value', () => {
-      usePreferencesStore.getState().setMarkdownPanelWidth(500);
-      expect(usePreferencesStore.getState().markdownPanelWidth).toBe(500);
-    });
-
-    it('clamps width to minimum of 280', () => {
-      usePreferencesStore.getState().setMarkdownPanelWidth(100);
-      expect(usePreferencesStore.getState().markdownPanelWidth).toBe(280);
-    });
-
-    it('clamps width to maximum of 800', () => {
-      usePreferencesStore.getState().setMarkdownPanelWidth(1000);
-      expect(usePreferencesStore.getState().markdownPanelWidth).toBe(800);
-    });
-
-    it('allows width at lower boundary (280)', () => {
-      usePreferencesStore.getState().setMarkdownPanelWidth(280);
-      expect(usePreferencesStore.getState().markdownPanelWidth).toBe(280);
-    });
-
-    it('allows width at upper boundary (800)', () => {
-      usePreferencesStore.getState().setMarkdownPanelWidth(800);
-      expect(usePreferencesStore.getState().markdownPanelWidth).toBe(800);
-    });
-
-    it('clamps negative values to minimum', () => {
-      usePreferencesStore.getState().setMarkdownPanelWidth(-100);
-      expect(usePreferencesStore.getState().markdownPanelWidth).toBe(280);
-    });
-  });
-
-  // ── setMarkdownPanelVimMode ────────────────────────────────────────
-
-  describe('setMarkdownPanelVimMode', () => {
-    it('enables vim mode', () => {
-      usePreferencesStore.getState().setMarkdownPanelVimMode(true);
-      expect(usePreferencesStore.getState().markdownPanelVimMode).toBe(true);
-    });
-
-    it('disables vim mode', () => {
-      usePreferencesStore.getState().setMarkdownPanelVimMode(true);
-      usePreferencesStore.getState().setMarkdownPanelVimMode(false);
-      expect(usePreferencesStore.getState().markdownPanelVimMode).toBe(false);
     });
   });
 
