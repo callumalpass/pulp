@@ -1,9 +1,11 @@
-import { useMemo, useState, memo } from 'react';
+import { useMemo, useState, memo, useRef, useCallback, useEffect } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Link } from 'react-router-dom';
 import type { LiteratureNoteSummary } from '@pulp/shared';
 import { ProgressIndicator } from './ProgressIndicator';
 import { api } from '../../lib/api';
 import { formatLastRead } from '../../lib/format';
+import { usePerformanceMode } from '../../hooks/usePerformanceMode';
 
 interface LibraryListViewProps {
   notes: LiteratureNoteSummary[];
@@ -14,7 +16,132 @@ function getStaggerClass(index: number): string {
   return `card-enter card-stagger-${index + 1}`;
 }
 
+const DEFAULT_VIRTUALIZATION_THRESHOLD = 80;
+const LOW_END_VIRTUALIZATION_THRESHOLD = 40;
+const LIST_ROW_GAP_PX = 4;
+const MOBILE_ROW_ESTIMATE_PX = 96;
+const DESKTOP_ROW_ESTIMATE_PX = 80;
+
+const SimpleList = memo(function SimpleList({
+  notes,
+  listOffset,
+  label,
+}: {
+  notes: LiteratureNoteSummary[];
+  listOffset: number;
+  label: string;
+}) {
+  return (
+    <div className="space-y-1" role="list" aria-label={label}>
+      {notes.map((note, index) => (
+        <div key={note.id} className={getStaggerClass(listOffset + index)}>
+          <ListRow note={note} />
+        </div>
+      ))}
+    </div>
+  );
+});
+
+const VirtualizedList = memo(function VirtualizedList({
+  notes,
+  listOffset,
+  label,
+}: {
+  notes: LiteratureNoteSummary[];
+  listOffset: number;
+  label: string;
+}) {
+  const { isLowEnd } = usePerformanceMode();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+
+  // Match the library grid virtualizer and use the main app scroll container.
+  const scrollRef = useRef<HTMLElement | null>(
+    typeof document !== 'undefined' ? document.getElementById('main-content') : null,
+  );
+
+  const updateScrollMargin = useCallback(() => {
+    const scrollElement = scrollRef.current;
+    const containerElement = containerRef.current;
+    if (!scrollElement || !containerElement) return;
+
+    const scrollRect = scrollElement.getBoundingClientRect();
+    const containerRect = containerElement.getBoundingClientRect();
+    // Convert list container top to scroll-content coordinates.
+    const nextMargin = containerRect.top - scrollRect.top + scrollElement.scrollTop;
+    setScrollMargin(nextMargin);
+  }, []);
+
+  useEffect(() => {
+    updateScrollMargin();
+
+    const scrollElement = scrollRef.current;
+    const containerElement = containerRef.current;
+    if (!scrollElement || !containerElement) return;
+
+    const observer = new ResizeObserver(updateScrollMargin);
+    observer.observe(scrollElement);
+    observer.observe(containerElement);
+    window.addEventListener('resize', updateScrollMargin);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateScrollMargin);
+    };
+  }, [notes.length, updateScrollMargin]);
+
+  const estimateSize = useCallback(() => {
+    const width = containerRef.current?.clientWidth ?? (typeof window !== 'undefined' ? window.innerWidth : 1024);
+    const rowHeight = width < 640 ? MOBILE_ROW_ESTIMATE_PX : DESKTOP_ROW_ESTIMATE_PX;
+    return rowHeight + LIST_ROW_GAP_PX;
+  }, []);
+
+  const virtualizer = useVirtualizer({
+    count: notes.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize,
+    overscan: isLowEnd ? 4 : 8,
+    scrollMargin,
+  });
+
+  return (
+    <div ref={containerRef} role="list" aria-label={label}>
+      <div
+        style={{
+          height: virtualizer.getTotalSize(),
+          position: 'relative',
+        }}
+      >
+        {virtualizer.getVirtualItems().map((virtualRow) => {
+          const note = notes[virtualRow.index];
+          if (!note) return null;
+
+          return (
+            <div
+              key={virtualRow.key}
+              data-index={virtualRow.index}
+              ref={virtualizer.measureElement}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${virtualRow.start - scrollMargin}px)`,
+              }}
+            >
+              <div className={`pb-1 ${getStaggerClass(listOffset + virtualRow.index)}`}>
+                <ListRow note={note} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+});
+
 export const LibraryListView = memo(function LibraryListView({ notes }: LibraryListViewProps) {
+  const { isLowEnd } = usePerformanceMode();
   const { pinned, unpinned } = useMemo(() => {
     const pinned: LiteratureNoteSummary[] = [];
     const unpinned: LiteratureNoteSummary[] = [];
@@ -38,11 +165,14 @@ export const LibraryListView = memo(function LibraryListView({ notes }: LibraryL
     );
   }
 
+  const virtualizationThreshold = isLowEnd ? LOW_END_VIRTUALIZATION_THRESHOLD : DEFAULT_VIRTUALIZATION_THRESHOLD;
+  const shouldVirtualizePinned = pinned.length >= virtualizationThreshold;
+  const shouldVirtualizeUnpinned = unpinned.length >= virtualizationThreshold;
+
   return (
     <div
       className="space-y-4"
       data-testid="library-list-view"
-      role="list"
       aria-label="Library books"
     >
       {/* Column headers (desktop only) */}
@@ -64,34 +194,33 @@ export const LibraryListView = memo(function LibraryListView({ notes }: LibraryL
       </div>
 
       {pinned.length > 0 && (
-        <section>
+        <section aria-labelledby="pinned-books-list-heading">
           <SectionHeader icon={<PinIcon className="w-4 h-4" />}>
-            Pinned
+            <span id="pinned-books-list-heading">Pinned</span>
           </SectionHeader>
-          <div className="space-y-1">
-            {pinned.map((note, index) => (
-              <div key={note.id} className={getStaggerClass(index)}>
-                <ListRow note={note} />
-              </div>
-            ))}
-          </div>
+          {shouldVirtualizePinned ? (
+            <VirtualizedList notes={pinned} listOffset={0} label="Pinned books" />
+          ) : (
+            <SimpleList notes={pinned} listOffset={0} label="Pinned books" />
+          )}
         </section>
       )}
 
       {unpinned.length > 0 && (
-        <section>
+        <section
+          aria-labelledby={pinned.length > 0 ? 'all-books-list-heading' : undefined}
+          aria-label={pinned.length === 0 ? 'All books' : undefined}
+        >
           {pinned.length > 0 && (
             <SectionHeader icon={<ListIcon className="w-4 h-4" />}>
-              All Books
+              <span id="all-books-list-heading">All Books</span>
             </SectionHeader>
           )}
-          <div className="space-y-1">
-            {unpinned.map((note, index) => (
-              <div key={note.id} className={getStaggerClass(index)}>
-                <ListRow note={note} />
-              </div>
-            ))}
-          </div>
+          {shouldVirtualizeUnpinned ? (
+            <VirtualizedList notes={unpinned} listOffset={pinned.length} label="All books" />
+          ) : (
+            <SimpleList notes={unpinned} listOffset={pinned.length} label="All books" />
+          )}
         </section>
       )}
     </div>

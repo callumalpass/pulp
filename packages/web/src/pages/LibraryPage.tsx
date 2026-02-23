@@ -16,6 +16,7 @@ import { LibraryShortcutsPanel } from '../components/library/LibraryShortcutsPan
 import { LibraryStats } from '../components/library/LibraryStats';
 import { Button } from '../components/ui/Button';
 import { useLibraryFiltersStore, type SortOption, type ProgressFilter, type TypeFilter, type SearchMode, type ViewMode } from '../stores/libraryFilters';
+import { usePreferencesStore } from '../stores/preferences';
 import { filterNotes, hasActiveFilters as computeHasActiveFilters, countActiveFilters, findContinueReadingBook, excludeContinueReadingBook } from '../lib/library-filters';
 import type { LiteratureNoteSummary } from '@pulp/shared';
 
@@ -145,6 +146,7 @@ function LibraryPageContent() {
   }, [setSort]);
 
   const isMobile = useMobile();
+  const einkMode = usePreferencesStore((state) => state.einkMode);
   const { status: connectionStatus } = useConnection();
   const { data: notes, isLoading, error, refetch } = useLibrary(sort, sortOrder);
   const { data: collectionsData } = useCollections();
@@ -187,6 +189,9 @@ function LibraryPageContent() {
 
   // Get available collections
   const availableCollections = collectionsData?.collections || [];
+  // E-ink mode prioritizes readability and fast refresh; force list rendering
+  // while preserving the stored preference for standard mode.
+  const effectiveViewMode: ViewMode = einkMode ? 'list' : viewMode;
 
   const handleClearFilters = useCallback(() => {
     setSearchQuery('');
@@ -419,20 +424,22 @@ function LibraryPageContent() {
                   </span>
                 )}
               </button>
-              {/* View mode toggle on mobile */}
-              <button
-                onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
-                type="button"
-                className="w-11 h-11 flex items-center justify-center rounded-xl bg-bg-surface border border-text-secondary/20 text-text-secondary hover:text-text-primary hover:bg-bg-deep hover:border-text-secondary/40 transition-colors active:scale-[0.97]"
-                title={viewMode === 'grid' ? 'Switch to list view' : 'Switch to grid view'}
-                aria-label={viewMode === 'grid' ? 'Switch to list view' : 'Switch to grid view'}
-              >
-                {viewMode === 'grid' ? (
-                  <ListViewIcon className="w-5 h-5" />
-                ) : (
-                  <GridViewIcon className="w-5 h-5" />
-                )}
-              </button>
+              {/* View mode toggle on mobile (hidden in e-ink mode; list is forced) */}
+              {!einkMode && (
+                <button
+                  onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
+                  type="button"
+                  className="w-11 h-11 flex items-center justify-center rounded-xl bg-bg-surface border border-text-secondary/20 text-text-secondary hover:text-text-primary hover:bg-bg-deep hover:border-text-secondary/40 transition-colors active:scale-[0.97]"
+                  title={viewMode === 'grid' ? 'Switch to list view' : 'Switch to grid view'}
+                  aria-label={viewMode === 'grid' ? 'Switch to list view' : 'Switch to grid view'}
+                >
+                  {viewMode === 'grid' ? (
+                    <ListViewIcon className="w-5 h-5" />
+                  ) : (
+                    <GridViewIcon className="w-5 h-5" />
+                  )}
+                </button>
+              )}
               {/* Sort order button on mobile */}
               <button
                 onClick={toggleSortOrder}
@@ -496,15 +503,17 @@ function LibraryPageContent() {
                    widths this collapses, allowing items to wrap naturally. */}
               <div className="flex-1 min-w-[2rem]" />
 
-              {/* View mode toggle */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-text-secondary uppercase tracking-wider font-medium">View</span>
-                <FilterButtonGroup
-                  options={VIEW_MODE_OPTIONS}
-                  value={viewMode}
-                  onChange={setViewMode}
-                />
-              </div>
+              {/* View mode toggle (hidden in e-ink mode; list is forced) */}
+              {!einkMode && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-text-secondary uppercase tracking-wider font-medium">View</span>
+                  <FilterButtonGroup
+                    options={VIEW_MODE_OPTIONS}
+                    value={viewMode}
+                    onChange={setViewMode}
+                  />
+                </div>
+              )}
 
               {/* Sort controls */}
               <div className="flex items-center gap-1.5">
@@ -611,8 +620,8 @@ function LibraryPageContent() {
               onClear={handleClearFilters}
             />
           ) : (
-            <div key={viewMode} className="view-switch-enter">
-              {viewMode === 'list' ? (
+            <div key={effectiveViewMode} className="view-switch-enter">
+              {effectiveViewMode === 'list' ? (
                 <LibraryListView notes={gridNotes} />
               ) : (
                 <LibraryGrid notes={gridNotes} />
