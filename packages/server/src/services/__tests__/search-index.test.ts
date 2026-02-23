@@ -8,10 +8,13 @@ vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
   mkdirSync: vi.fn(),
   readFileSync: vi.fn(),
+  statSync: vi.fn(),
 }));
 
 vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(),
+  rename: vi.fn(),
+  stat: vi.fn(),
   writeFile: vi.fn(),
 }));
 
@@ -25,15 +28,18 @@ vi.mock('epub2', () => ({
   default: vi.fn(),
 }));
 
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { readFile, rename, stat, writeFile } from 'node:fs/promises';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import EPub from 'epub2';
 
 const mockExistsSync = vi.mocked(existsSync);
 const mockMkdirSync = vi.mocked(mkdirSync);
 const mockReadFileSync = vi.mocked(readFileSync);
+const mockStatSync = vi.mocked(statSync);
 const mockReadFile = vi.mocked(readFile);
+const mockRename = vi.mocked(rename);
+const mockStat = vi.mocked(stat);
 const mockWriteFile = vi.mocked(writeFile);
 const mockGetDocument = vi.mocked(pdfjsLib.getDocument);
 const mockEPub = vi.mocked(EPub);
@@ -195,7 +201,10 @@ describe('SearchIndex', () => {
     // Default: cache directory doesn't exist, no existing cache
     mockExistsSync.mockReturnValue(false);
     mockReadFileSync.mockReturnValue('{}');
+    mockStatSync.mockReturnValue({ size: 1024 } as ReturnType<typeof statSync>);
     mockWriteFile.mockResolvedValue(undefined);
+    mockRename.mockResolvedValue(undefined);
+    mockStat.mockResolvedValue({ size: 1024 } as Awaited<ReturnType<typeof stat>>);
   });
 
   afterEach(() => {
@@ -1408,7 +1417,7 @@ describe('SearchIndex', () => {
       await vi.advanceTimersByTimeAsync(1100);
 
       expect(mockWriteFile).toHaveBeenCalledWith(
-        '/test/library/.pulp-cache/search/index.json',
+        '/test/library/.pulp-cache/search/index.json.tmp',
         expect.any(String),
       );
 

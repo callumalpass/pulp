@@ -7,6 +7,7 @@ vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
   mkdirSync: vi.fn(),
   readFileSync: vi.fn(),
+  statSync: vi.fn(),
   writeFileSync: vi.fn(),
 }));
 
@@ -34,7 +35,7 @@ vi.mock('epub2', () => ({
   default: vi.fn(),
 }));
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from '@napi-rs/canvas';
@@ -44,6 +45,7 @@ import EPub from 'epub2';
 const mockExistsSync = vi.mocked(existsSync);
 const mockMkdirSync = vi.mocked(mkdirSync);
 const mockReadFileSync = vi.mocked(readFileSync);
+const mockStatSync = vi.mocked(statSync);
 const mockWriteFileSync = vi.mocked(writeFileSync);
 const mockUnlink = vi.mocked(unlink);
 const mockGetDocument = vi.mocked(pdfjsLib.getDocument);
@@ -191,6 +193,7 @@ describe('CoverExtractor', () => {
     vi.clearAllMocks();
     // Default: cache directory doesn't exist, so it will be created
     mockExistsSync.mockReturnValue(false);
+    mockStatSync.mockReturnValue({ size: 1024 } as ReturnType<typeof statSync>);
     extractor = new CoverExtractor(testConfig);
   });
 

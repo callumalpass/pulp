@@ -109,15 +109,26 @@ async function main() {
   }
 
   // Graceful shutdown
-  const shutdown = () => {
+  const shutdown = async () => {
     console.log('Shutting down...');
     fileWatcher.stop();
-    fastify.close();
+    await searchIndex.flushCache();
+    await fastify.close();
     process.exit(0);
   };
 
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', () => {
+    shutdown().catch(error => {
+      console.error('Error during shutdown:', error);
+      process.exit(1);
+    });
+  });
+  process.on('SIGTERM', () => {
+    shutdown().catch(error => {
+      console.error('Error during shutdown:', error);
+      process.exit(1);
+    });
+  });
 }
 
 main();

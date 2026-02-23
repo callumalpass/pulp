@@ -1,10 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from '@napi-rs/canvas';
 import sharp from 'sharp';
 import EPub from 'epub2';
 import type { Config } from '../config/schema.js';
+import { buildPdfDocumentOptions, toUint8ArrayView } from './pdfjs-options.js';
 
 /** Width of extracted cover images in pixels */
 const COVER_WIDTH = 300;
@@ -20,6 +21,12 @@ const PDF_RENDER_SCALE = 2;
 
 /** Timeout for EPUB cover extraction in milliseconds */
 const EPUB_COVER_TIMEOUT_MS = 15000;
+
+/** Maximum PDF size to allow for cover extraction (bytes) */
+const MAX_PDF_COVER_SOURCE_BYTES = 200 * 1024 * 1024;
+
+/** Maximum concurrent cover extraction tasks */
+const MAX_CONCURRENT_COVER_EXTRACTIONS = 2;
 
 /** Common cover image patterns to search for in EPUB manifests */
 const EPUB_COVER_PATTERNS = [
@@ -43,6 +50,10 @@ export class CoverExtractor {
   private readonly coverWidth: number;
   private readonly coverHeight: number;
   private readonly coverQuality: number;
+  private readonly maxConcurrentExtractions: number;
+  private activeExtractions = 0;
+  private extractionWaitQueue: Array<() => void> = [];
+  private inFlightExtractions: Map<string, Promise<Buffer | null>> = new Map();
 
   constructor(config: Config) {
     this.cacheDir = join(config.library_path, '.pulp-cache', 'covers');
@@ -50,6 +61,7 @@ export class CoverExtractor {
     this.coverWidth = config.cover_width ?? COVER_WIDTH;
     this.coverHeight = config.cover_height ?? COVER_HEIGHT;
     this.coverQuality = config.cover_quality ?? COVER_QUALITY;
+    this.maxConcurrentExtractions = MAX_CONCURRENT_COVER_EXTRACTIONS;
     this.ensureCacheDir();
   }
 
@@ -74,27 +86,75 @@ export class CoverExtractor {
       return readFileSync(cachePath);
     }
 
-    // Extract and cache
-    try {
-      const cover = sourceType === 'pdf'
-        ? await this.extractPDFCover(sourcePath)
-        : await this.extractEPUBCover(sourcePath);
-
-      if (cover) {
-        writeFileSync(cachePath, cover);
-        return cover;
-      }
-    } catch (error) {
-      console.error(`Failed to extract cover for ${noteId}:`, error);
+    const inFlight = this.inFlightExtractions.get(noteId);
+    if (inFlight) {
+      return inFlight;
     }
 
-    return null;
+    const extractionPromise = this.withExtractionSlot(async () => {
+      // Check cache again after waiting for a slot in case another request populated it.
+      if (existsSync(cachePath)) {
+        return readFileSync(cachePath);
+      }
+
+      // Extract and cache
+      try {
+        const cover = sourceType === 'pdf'
+          ? await this.extractPDFCover(sourcePath)
+          : await this.extractEPUBCover(sourcePath);
+
+        if (cover) {
+          writeFileSync(cachePath, cover);
+          return cover;
+        }
+      } catch (error) {
+        console.error(`Failed to extract cover for ${noteId}:`, error);
+      }
+
+      return null;
+    }).finally(() => {
+      this.inFlightExtractions.delete(noteId);
+    });
+
+    this.inFlightExtractions.set(noteId, extractionPromise);
+    return extractionPromise;
+  }
+
+  private async withExtractionSlot<T>(work: () => Promise<T>): Promise<T> {
+    if (this.activeExtractions >= this.maxConcurrentExtractions) {
+      await new Promise<void>((resolve) => {
+        this.extractionWaitQueue.push(resolve);
+      });
+    }
+
+    this.activeExtractions++;
+
+    try {
+      return await work();
+    } finally {
+      this.activeExtractions--;
+      const next = this.extractionWaitQueue.shift();
+      if (next) {
+        next();
+      }
+    }
   }
 
   private async extractPDFCover(pdfPath: string): Promise<Buffer | null> {
+    let pdf: Awaited<ReturnType<typeof pdfjsLib.getDocument>['promise']> | null = null;
+
     try {
-      const data = new Uint8Array(readFileSync(pdfPath));
-      const pdf = await pdfjsLib.getDocument({ data }).promise;
+      const fileSize = statSync(pdfPath).size;
+      if (fileSize > MAX_PDF_COVER_SOURCE_BYTES) {
+        console.warn(
+          `Skipping PDF cover extraction for oversized file (${fileSize} bytes): ${pdfPath}`
+        );
+        return null;
+      }
+
+      const fileBuffer = readFileSync(pdfPath);
+      const data = toUint8ArrayView(fileBuffer);
+      pdf = await pdfjsLib.getDocument(buildPdfDocumentOptions(data)).promise;
       const page = await pdf.getPage(1);
 
       // Calculate scale to fit desired dimensions (render at higher scale for quality)
@@ -124,11 +184,18 @@ export class CoverExtractor {
         .webp({ quality: this.coverQuality })
         .toBuffer();
 
-      await pdf.destroy();
       return resized;
     } catch (error) {
       console.error('PDF cover extraction failed:', error);
       return null;
+    } finally {
+      if (pdf) {
+        try {
+          await pdf.destroy();
+        } catch (destroyError) {
+          console.warn('Failed to cleanup PDF document after cover extraction:', destroyError);
+        }
+      }
     }
   }
 

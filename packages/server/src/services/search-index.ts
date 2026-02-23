@@ -1,10 +1,11 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import EPub from 'epub2';
 import type { Config } from '../config/schema.js';
 import type { LiteratureNote } from '@pulp/shared';
+import { buildPdfDocumentOptions, toUint8ArrayView } from './pdfjs-options.js';
 
 export interface SearchResult {
   noteId: string;
@@ -69,6 +70,21 @@ const EPUB_YIELD_INTERVAL = 3;
 /** Timeout for indexing a single document (milliseconds) */
 const INDEX_TIMEOUT_MS = 60000;
 
+/** Maximum PDF size to index (bytes) - avoids OOM on very large files */
+const MAX_INDEXABLE_PDF_BYTES = 200 * 1024 * 1024;
+
+/** Maximum normalized text characters stored per page/chapter segment */
+const MAX_TEXT_CHARS_PER_SEGMENT = 2000;
+
+/** Maximum normalized text characters stored per document */
+const MAX_TEXT_CHARS_PER_DOCUMENT = 120000;
+
+/** Stop background indexing before the process gets near V8 heap ceiling */
+const INDEXING_HEAP_WATERMARK_BYTES = 1500 * 1024 * 1024;
+
+/** Skip loading oversized cache files to avoid startup OOM */
+const MAX_INDEX_CACHE_FILE_BYTES = 150 * 1024 * 1024;
+
 // Helper to yield to event loop - prevents blocking server
 const yieldToEventLoop = (): Promise<void> => new Promise(resolve => setImmediate(resolve));
 
@@ -85,9 +101,12 @@ function withTimeout<T>(promise: Promise<T>, ms: number, operation: string): Pro
 export class SearchIndex {
   private cacheDir: string;
   private cacheFile: string;
+  private cacheTempFile: string;
   private index: IndexCache;
   private indexingInProgress: Set<string> = new Set();
   private savePending = false;
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private saveInFlight: Promise<void> | null = null;
   private readonly searchContextChars: number;
   private readonly maxMatchesPerDoc: number;
   private readonly resultsPerDoc: number;
@@ -95,6 +114,7 @@ export class SearchIndex {
   constructor(config: Config) {
     this.cacheDir = join(config.library_path, '.pulp-cache', 'search');
     this.cacheFile = join(this.cacheDir, 'index.json');
+    this.cacheTempFile = join(this.cacheDir, 'index.json.tmp');
     // Use config values with fallbacks to default constants
     this.searchContextChars = config.search_context_chars ?? SEARCH_CONTEXT_CHARS;
     this.maxMatchesPerDoc = config.search_max_matches_per_doc ?? MAX_MATCHES_PER_DOCUMENT;
@@ -112,6 +132,14 @@ export class SearchIndex {
   private loadCache(): IndexCache {
     try {
       if (existsSync(this.cacheFile)) {
+        const cacheFileSize = statSync(this.cacheFile).size;
+        if (cacheFileSize > MAX_INDEX_CACHE_FILE_BYTES) {
+          console.warn(
+            `Search index cache too large to load safely (${cacheFileSize} bytes); starting with empty index`
+          );
+          return { version: INDEX_VERSION, documents: {} };
+        }
+
         const data = JSON.parse(readFileSync(this.cacheFile, 'utf-8'));
         if (data.version === INDEX_VERSION) {
           return data;
@@ -129,14 +157,40 @@ export class SearchIndex {
     this.savePending = true;
 
     // Debounce saves to avoid excessive disk I/O
-    setTimeout(async () => {
+    this.saveTimer = setTimeout(() => {
       this.savePending = false;
-      try {
-        await writeFile(this.cacheFile, JSON.stringify(this.index, null, 2));
-      } catch (error) {
-        console.error('Failed to save search index cache:', error);
-      }
+      this.saveTimer = null;
+      this.saveInFlight = this.writeCacheToDisk();
+      this.saveInFlight.finally(() => {
+        this.saveInFlight = null;
+      });
     }, CACHE_SAVE_DEBOUNCE_MS);
+  }
+
+  private async writeCacheToDisk(): Promise<void> {
+    try {
+      const serialized = JSON.stringify(this.index, null, 2);
+      // Atomic save: write to temp file then rename
+      await writeFile(this.cacheTempFile, serialized);
+      await rename(this.cacheTempFile, this.cacheFile);
+    } catch (error) {
+      console.error('Failed to save search index cache:', error);
+    }
+  }
+
+  async flushCache(): Promise<void> {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+      this.savePending = false;
+    }
+
+    if (this.saveInFlight) {
+      await this.saveInFlight;
+      return;
+    }
+
+    await this.writeCacheToDisk();
   }
 
   async indexNote(note: LiteratureNote): Promise<void> {
@@ -188,16 +242,30 @@ export class SearchIndex {
   private async extractPDFText(pdfPath: string): Promise<IndexedPage[]> {
     const pages: IndexedPage[] = [];
     let position = 0;
+    let totalChars = 0;
+    let pdf: Awaited<ReturnType<typeof pdfjsLib.getDocument>['promise']> | null = null;
 
     try {
+      const fileStats = await stat(pdfPath);
+      if (fileStats.size > MAX_INDEXABLE_PDF_BYTES) {
+        console.warn(
+          `Skipping PDF text indexing for oversized file (${fileStats.size} bytes): ${pdfPath}`
+        );
+        return pages;
+      }
+
       // Use async file read to avoid blocking
       const buffer = await readFile(pdfPath);
-      const data = new Uint8Array(buffer);
+      const data = toUint8ArrayView(buffer);
 
-      const pdf = await pdfjsLib.getDocument({ data }).promise;
+      pdf = await pdfjsLib.getDocument(buildPdfDocumentOptions(data)).promise;
       const pageLabels = await pdf.getPageLabels();
 
       for (let i = 1; i <= pdf.numPages; i++) {
+        if (totalChars >= MAX_TEXT_CHARS_PER_DOCUMENT) {
+          break;
+        }
+
         // Yield to event loop periodically to keep server responsive
         if (i % PDF_YIELD_INTERVAL === 0) {
           await yieldToEventLoop();
@@ -207,13 +275,24 @@ export class SearchIndex {
           const page = await pdf.getPage(i);
           const textContent = await page.getTextContent();
 
-          const text = textContent.items
-            .map(item => ('str' in item ? item.str : ''))
-            .join(' ')
-            .replace(/\s+/g, ' ')
-            .trim();
+          // Build text incrementally and cap early to keep memory bounded.
+          const rawParts: string[] = [];
+          let rawLength = 0;
+          const rawLimit = MAX_TEXT_CHARS_PER_SEGMENT * 2;
+          for (const item of textContent.items) {
+            const value = 'str' in item ? item.str : '';
+            if (!value) continue;
+            rawParts.push(value);
+            rawLength += value.length + 1;
+            if (rawLength >= rawLimit) break;
+          }
 
-          if (text.length > 0) {
+          const normalized = rawParts.join(' ').replace(/\s+/g, ' ').trim();
+          const remainingChars = MAX_TEXT_CHARS_PER_DOCUMENT - totalChars;
+          const segmentLimit = Math.min(MAX_TEXT_CHARS_PER_SEGMENT, remainingChars);
+          const text = normalized.slice(0, segmentLimit);
+
+          if (text.length > 0 && remainingChars > 0) {
             pages.push({
               pageNum: i,
               pageLabel: pageLabels?.[i - 1] || undefined,
@@ -221,15 +300,26 @@ export class SearchIndex {
               position,
             });
             position += text.length;
+            totalChars += text.length;
+          }
+
+          if (typeof page.cleanup === 'function') {
+            page.cleanup();
           }
         } catch (pageError) {
           console.error(`Error extracting page ${i}:`, pageError);
         }
       }
-
-      await pdf.destroy();
     } catch (error) {
       console.error('PDF text extraction failed:', error);
+    } finally {
+      if (pdf) {
+        try {
+          await pdf.destroy();
+        } catch (destroyError) {
+          console.warn('Failed to cleanup PDF document after text extraction:', destroyError);
+        }
+      }
     }
 
     return pages;
@@ -239,6 +329,7 @@ export class SearchIndex {
     return new Promise((resolve) => {
       const pages: IndexedPage[] = [];
       let position = 0;
+      let totalChars = 0;
 
       try {
         const epub = new EPub(epubPath);
@@ -266,6 +357,9 @@ export class SearchIndex {
             let chapterCount = 0;
             for (const item of spine) {
               if (!item.id) continue;
+              if (totalChars >= MAX_TEXT_CHARS_PER_DOCUMENT) {
+                break;
+              }
 
               // Yield periodically to keep server responsive
               if (++chapterCount % EPUB_YIELD_INTERVAL === 0) {
@@ -275,6 +369,13 @@ export class SearchIndex {
               try {
                 const chapter = await this.getChapterText(epub, item.id);
                 if (chapter && chapter.length > 0) {
+                  const remainingChars = MAX_TEXT_CHARS_PER_DOCUMENT - totalChars;
+                  const segmentLimit = Math.min(MAX_TEXT_CHARS_PER_SEGMENT, remainingChars);
+                  const text = chapter.slice(0, segmentLimit);
+                  if (!text) {
+                    continue;
+                  }
+
                   const href = (epub.manifest[item.id] as { href?: string })?.href || '';
                   const baseHref = href.split('#')[0];
                   const chapterTitle = chapterTitles.get(baseHref) || baseHref;
@@ -282,10 +383,11 @@ export class SearchIndex {
                   pages.push({
                     chapter: chapterTitle,
                     chapterHref: href,
-                    text: chapter,
+                    text,
                     position,
                   });
-                  position += chapter.length;
+                  position += text.length;
+                  totalChars += text.length;
                 }
               } catch (chapterError) {
                 // Log the error but continue with other chapters
@@ -420,6 +522,14 @@ export class SearchIndex {
 
     // Index one at a time with yielding between each to keep server responsive
     for (let i = 0; i < notes.length; i++) {
+      const heapUsed = process.memoryUsage().heapUsed;
+      if (heapUsed >= INDEXING_HEAP_WATERMARK_BYTES) {
+        console.warn(
+          `Pausing background indexing at ${Math.round(heapUsed / (1024 * 1024))}MB heap usage`
+        );
+        break;
+      }
+
       await this.indexNote(notes[i]);
       // Yield after each document to ensure server stays responsive
       await yieldToEventLoop();
