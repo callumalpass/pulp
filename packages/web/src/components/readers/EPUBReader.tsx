@@ -49,11 +49,14 @@ const THEME_STYLES: Record<EPUBTheme, { bg: string; text: string; link: string }
   sepia: { bg: '#f4ecd8', text: '#5c4b37', link: '#8b5a2b' },
   eink: { bg: '#ffffff', text: '#000000', link: '#000000' },
 };
+const TOUCH_LONG_PRESS_MS = 350;
+const TOUCH_MOVE_CANCEL_PX = 8;
 
 export function EPUBReader({ note }: EPUBReaderProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<Book | null>(null);
   const renditionRef = useRef<Rendition | null>(null);
+  const pendingNavigationTargetRef = useRef<string | null>(null);
 
   const {
     currentPage,
@@ -125,7 +128,98 @@ export function EPUBReader({ note }: EPUBReaderProps) {
   const [headerVisible, setHeaderVisible] = useState(true);
 
   const isMobile = useMobile();
+  const touchSelectionEnabledRef = useRef(!isMobile);
+  const touchLongPressTimerRef = useRef<number | null>(null);
+  const touchStartPointRef = useRef<{ x: number; y: number } | null>(null);
+  const registeredContentsRef = useRef<Set<Contents>>(new Set());
   const theme = (readerTheme || 'dark') as EPUBTheme;
+
+  const clearTouchLongPressTimer = useCallback(() => {
+    if (touchLongPressTimerRef.current !== null) {
+      window.clearTimeout(touchLongPressTimerRef.current);
+      touchLongPressTimerRef.current = null;
+    }
+  }, []);
+
+  const setTouchSelectionEnabled = useCallback((enabled: boolean) => {
+    const shouldEnable = !isMobile || enabled;
+    touchSelectionEnabledRef.current = shouldEnable;
+
+    for (const contents of registeredContentsRef.current) {
+      const body = contents.document?.body;
+      if (!body) continue;
+
+      const selectionValue = shouldEnable ? 'text' : 'none';
+      body.style.setProperty('user-select', selectionValue);
+      body.style.setProperty('-webkit-user-select', selectionValue);
+      body.style.setProperty('-webkit-touch-callout', shouldEnable ? 'default' : 'none');
+    }
+  }, [isMobile]);
+
+  const registerTouchSelectionHandlers = useCallback((contents: Contents) => {
+    if (registeredContentsRef.current.has(contents)) {
+      setTouchSelectionEnabled(touchSelectionEnabledRef.current);
+      return;
+    }
+
+    registeredContentsRef.current.add(contents);
+    setTouchSelectionEnabled(touchSelectionEnabledRef.current);
+
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1) return;
+
+      const touch = event.touches[0];
+      touchStartPointRef.current = { x: touch.clientX, y: touch.clientY };
+
+      clearTouchLongPressTimer();
+      touchLongPressTimerRef.current = window.setTimeout(() => {
+        setTouchSelectionEnabled(true);
+      }, TOUCH_LONG_PRESS_MS);
+    };
+
+    const onTouchMove = (event: TouchEvent) => {
+      if (!touchStartPointRef.current || event.touches.length !== 1) return;
+
+      const touch = event.touches[0];
+      const movedX = Math.abs(touch.clientX - touchStartPointRef.current.x);
+      const movedY = Math.abs(touch.clientY - touchStartPointRef.current.y);
+      if (movedX > TOUCH_MOVE_CANCEL_PX || movedY > TOUCH_MOVE_CANCEL_PX) {
+        clearTouchLongPressTimer();
+      }
+    };
+
+    const finishTouch = () => {
+      clearTouchLongPressTimer();
+      touchStartPointRef.current = null;
+
+      window.setTimeout(() => {
+        const sel = contents.window.getSelection();
+        if (!sel || sel.isCollapsed) {
+          setTouchSelectionEnabled(false);
+        }
+      }, 80);
+    };
+
+    if (isMobile) {
+      contents.document.addEventListener('touchstart', onTouchStart, { passive: true });
+      contents.document.addEventListener('touchmove', onTouchMove, { passive: true });
+      contents.document.addEventListener('touchend', finishTouch, { passive: true });
+      contents.document.addEventListener('touchcancel', finishTouch, { passive: true });
+    }
+
+    const cleanup = () => {
+      if (isMobile) {
+        contents.document.removeEventListener('touchstart', onTouchStart);
+        contents.document.removeEventListener('touchmove', onTouchMove);
+        contents.document.removeEventListener('touchend', finishTouch);
+        contents.document.removeEventListener('touchcancel', finishTouch);
+      }
+      registeredContentsRef.current.delete(contents);
+    };
+
+    contents.window.addEventListener('pagehide', cleanup, { once: true });
+    contents.window.addEventListener('unload', cleanup, { once: true });
+  }, [clearTouchLongPressTimer, isMobile, setTouchSelectionEnabled]);
 
   // Mobile swipe navigation
   const { handleTouchStart, handleTouchEnd } = useSwipeGesture({
@@ -138,6 +232,28 @@ export function EPUBReader({ note }: EPUBReaderProps) {
   // Idle detection for reading stats (the hook sets up activity listeners)
   // isIdlePaused is shown in the ReadingStatsPanel when open
   useIdleDetection();
+
+  useEffect(() => {
+    setTouchSelectionEnabled(!isMobile);
+  }, [isMobile, setTouchSelectionEnabled]);
+
+  useEffect(() => {
+    if (!isMobile || selection) return;
+
+    const resetSelectionModeTimer = window.setTimeout(() => {
+      const hasSelection = Array.from(registeredContentsRef.current).some((contents) => {
+        const sel = contents.window.getSelection();
+        return !!sel && !sel.isCollapsed;
+      });
+      if (!hasSelection) {
+        setTouchSelectionEnabled(false);
+      }
+    }, 100);
+
+    return () => {
+      window.clearTimeout(resetSelectionModeTimer);
+    };
+  }, [isMobile, selection, setTouchSelectionEnabled]);
 
   // Load EPUB
   useEffect(() => {
@@ -152,10 +268,40 @@ export function EPUBReader({ note }: EPUBReaderProps) {
       cancelAnimationFrame(timeoutId);
       saveImmediately();
       endSession(); // End reading session when leaving
+      clearTouchLongPressTimer();
+      touchStartPointRef.current = null;
+      registeredContentsRef.current.clear();
+      pendingNavigationTargetRef.current = null;
       renditionRef.current?.destroy();
       bookRef.current?.destroy();
     };
-  }, [note.id]);
+  }, [note.id, clearTouchLongPressTimer]);
+
+  const normalizeHref = (href: string): string => {
+    if (!href) return '';
+    const trimmedHref = href.trim();
+    const decodedHref = (() => {
+      try {
+        return decodeURI(trimmedHref);
+      } catch {
+        return trimmedHref;
+      }
+    })();
+    return decodedHref.replace(/^[./]+/, '').replace(/\?.*$/, '');
+  };
+
+  const getBaseHref = (href: string): string => {
+    return normalizeHref(href).split('#')[0];
+  };
+
+  const hrefsMatch = (firstHref: string, secondHref: string): boolean => {
+    if (!firstHref || !secondHref) return false;
+    return (
+      firstHref === secondHref ||
+      firstHref.endsWith(secondHref) ||
+      secondHref.endsWith(firstHref)
+    );
+  };
 
   // Track page changes for reading stats
   useEffect(() => {
@@ -217,6 +363,9 @@ export function EPUBReader({ note }: EPUBReaderProps) {
         flow: 'paginated',
       });
       renditionRef.current = rendition;
+      rendition.hooks.content.register((contents: Contents) => {
+        registerTouchSelectionHandlers(contents);
+      });
 
       // Apply initial styles
       applyTheme(rendition, theme);
@@ -317,9 +466,18 @@ export function EPUBReader({ note }: EPUBReaderProps) {
         // Find current chapter
         const chapter = findChapter(navigation.toc, location.start.href);
         setCurrentChapter(chapter?.label || '');
+
+        if (pendingNavigationTargetRef.current) {
+          pendingNavigationTargetRef.current = null;
+        }
       });
 
       rendition.on('selected', (cfiRange: string, contents: Contents) => {
+        if (isMobile && !touchSelectionEnabledRef.current) {
+          contents.window.getSelection()?.removeAllRanges();
+          return;
+        }
+
         const sel = contents.window.getSelection();
         if (!sel || sel.isCollapsed) return;
 
@@ -354,7 +512,13 @@ export function EPUBReader({ note }: EPUBReaderProps) {
 
         // Don't navigate if there's a text selection
         const sel = (e.view as Window)?.getSelection();
-        if (sel && !sel.isCollapsed) return;
+        if (sel && !sel.isCollapsed) {
+          if (isMobile && !touchSelectionEnabledRef.current) {
+            sel.removeAllRanges();
+          } else {
+            return;
+          }
+        }
 
         // Use screen coordinates for reliable cross-iframe calculation
         const containerRect = containerRef.current?.getBoundingClientRect();
@@ -391,8 +555,11 @@ export function EPUBReader({ note }: EPUBReaderProps) {
   };
 
   const findChapter = (items: NavItem[], href: string): NavItem | null => {
+    const targetBaseHref = getBaseHref(href);
+
     for (const item of items) {
-      if (href.includes(item.href)) return item;
+      const itemBaseHref = getBaseHref(item.href);
+      if (hrefsMatch(targetBaseHref, itemBaseHref)) return item;
       if (item.subitems) {
         const found = findChapter(item.subitems, href);
         if (found) return found;
@@ -411,6 +578,9 @@ export function EPUBReader({ note }: EPUBReaderProps) {
         const { width, height } = entry.contentRect;
         if (width > 0 && height > 0) {
           renditionRef.current.resize(width, height);
+          if (pendingNavigationTargetRef.current) {
+            renditionRef.current.display(pendingNavigationTargetRef.current);
+          }
         }
       }
     });
@@ -514,10 +684,26 @@ export function EPUBReader({ note }: EPUBReaderProps) {
     if (cfi) renditionRef.current.display(cfi);
   }, [locations, totalPages]);
 
-  const goToChapter = (href: string) => {
-    renditionRef.current?.display(href);
-    setTocOpen(false);
-  };
+  const goToChapter = useCallback(async (href: string) => {
+    const targetHref = href?.trim();
+    if (!renditionRef.current || !targetHref) return;
+
+    pendingNavigationTargetRef.current = targetHref;
+
+    try {
+      await renditionRef.current.display(targetHref);
+      setTocOpen(false);
+      window.setTimeout(() => {
+        if (pendingNavigationTargetRef.current === targetHref) {
+          pendingNavigationTargetRef.current = null;
+        }
+      }, 2000);
+    } catch (error) {
+      pendingNavigationTargetRef.current = null;
+      console.error('Failed to navigate to chapter:', error);
+      showToast('Failed to navigate to chapter', 'error');
+    }
+  }, [showToast]);
 
   // Quick highlight with category (for keyboard shortcuts)
   const quickHighlight = useCallback(async (category: HighlightCategory = 'highlight') => {
