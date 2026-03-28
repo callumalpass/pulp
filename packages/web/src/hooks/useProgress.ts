@@ -80,7 +80,14 @@ export function useProgress(noteId: string | undefined) {
   });
 
   const executeSave = useCallback((data: PendingProgress) => {
-    if (!noteId || isSavingRef.current) return;
+    if (!noteId) return;
+
+    if (isSavingRef.current) {
+      // Keep the latest save request queued so it can flush after the in-flight save settles.
+      pendingProgress.current = data;
+      setSaveStatus('pending');
+      return;
+    }
 
     isSavingRef.current = true;
     setSaveStatus('saving');
@@ -90,6 +97,12 @@ export function useProgress(noteId: string | undefined) {
       {
         onSettled: () => {
           isSavingRef.current = false;
+
+          const queuedProgress = pendingProgress.current;
+          if (queuedProgress !== null) {
+            pendingProgress.current = null;
+            executeSave(queuedProgress);
+          }
         },
       }
     );
@@ -113,6 +126,7 @@ export function useProgress(noteId: string | undefined) {
 
       // Debounce the save
       timeoutRef.current = setTimeout(() => {
+        timeoutRef.current = null;
         const dataToSave = pendingProgress.current;
         if (dataToSave !== null) {
           pendingProgress.current = null;

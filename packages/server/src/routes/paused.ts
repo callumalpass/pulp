@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { PausedUpdate } from '@pulp/shared';
 import type { LibraryScanner } from '../services/library-scanner.js';
 import type { Config } from '../config/schema.js';
-import { atomicFrontmatterUpdate } from '../services/file-lock.js';
+import { NoteNotFoundError, updateNoteMetadata } from '../services/note-metadata.js';
 
 interface PausedRouteOptions {
   scanner: LibraryScanner;
@@ -34,37 +34,37 @@ export const pausedRoutes: FastifyPluginAsync<PausedRouteOptions> = async (fasti
       },
     },
   }, async (request, reply) => {
-    const note = scanner.getById(request.params.id);
-
-    if (!note) {
-      return reply.code(404).send({ error: 'Note not found' });
-    }
-
     const { paused } = request.body;
     const now = new Date().toISOString();
 
     try {
-      // Use atomic update to prevent race conditions
-      await atomicFrontmatterUpdate(note.notePath, ({ frontmatter }) => {
-        // Update or remove the paused key
-        if (paused) {
-          frontmatter[config.paused_key] = true;
-          frontmatter[config.paused_at_key] = now;
-        } else {
-          delete frontmatter[config.paused_key];
-          delete frontmatter[config.paused_at_key];
-        }
-        return frontmatter;
+      const { derived } = await updateNoteMetadata({
+        scanner,
+        noteId: request.params.id,
+        mutateFrontmatter: ({ frontmatter }) => {
+          if (paused) {
+            frontmatter[config.paused_key] = true;
+            frontmatter[config.paused_at_key] = now;
+          } else {
+            delete frontmatter[config.paused_key];
+            delete frontmatter[config.paused_at_key];
+          }
+          return {
+            paused,
+            pausedAt: paused ? now : null,
+          };
+        },
+        mapUpdates: ({ paused: nextPaused, pausedAt }) => ({
+          paused: nextPaused,
+          pausedAt,
+        }),
       });
 
-      // Update in-memory cache
-      scanner.updateNote(request.params.id, {
-        paused,
-        pausedAt: paused ? now : null,
-      });
-
-      return { success: true, paused, pausedAt: paused ? now : null };
+      return { success: true, ...derived };
     } catch (error) {
+      if (error instanceof NoteNotFoundError) {
+        return reply.code(404).send({ error: 'Note not found' });
+      }
       fastify.log.error(error, 'Failed to update paused status');
       return reply.code(500).send({ error: 'Failed to update paused status' });
     }

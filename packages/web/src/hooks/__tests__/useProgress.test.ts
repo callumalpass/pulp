@@ -307,26 +307,31 @@ describe('useProgress', () => {
       expect(mutateFn).not.toHaveBeenCalled();
     });
 
-    it('does not save when already saving', () => {
+    it('queues the latest save when another save is already in flight', () => {
       const result = callHook('note-1');
 
-      // First save - start it
-      result.updateProgress(0.5);
+      result.updateProgress(0.5, 'epubcfi(/6/4)');
       vi.advanceTimersByTime(5000);
       expect(mutateFn).toHaveBeenCalledTimes(1);
 
-      // isSavingRef is now true (set in executeSave)
-      // Trigger another save attempt while still saving
-      getPendingRef().current = { progress: 0.8 };
-      result.updateProgress(0.8);
+      result.updateProgress(0.8, 'epubcfi(/6/10)');
       vi.advanceTimersByTime(5000);
 
-      // Second call should be blocked by isSavingRef guard
-      // The mutate is still called because the pending data is set,
-      // but executeSave checks isSavingRef
-      // Actually, let's verify what happens: executeSave checks isSavingRef
-      // After first executeSave: isSavingRef.current = true
-      // The onSettled callback resets it
+      expect(mutateFn).toHaveBeenCalledTimes(1);
+      expect(getPendingRef().current).toEqual({
+        progress: 0.8,
+        lastOpenedCfi: 'epubcfi(/6/10)',
+      });
+
+      const firstMutateCallbacks = mutateFn.mock.calls[0][1];
+      firstMutateCallbacks.onSettled();
+
+      expect(mutateFn).toHaveBeenCalledTimes(2);
+      expect(mutateFn).toHaveBeenLastCalledWith(
+        { id: 'note-1', progress: 0.8, lastOpenedCfi: 'epubcfi(/6/10)' },
+        expect.objectContaining({ onSettled: expect.any(Function) }),
+      );
+      expect(getPendingRef().current).toBeNull();
     });
 
     it('sets saveStatus to saving when executing', () => {

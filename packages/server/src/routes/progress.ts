@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { ProgressUpdate } from '@pulp/shared';
 import type { LibraryScanner } from '../services/library-scanner.js';
 import type { Config } from '../config/schema.js';
-import { atomicFrontmatterUpdate } from '../services/file-lock.js';
+import { NoteNotFoundError, updateNoteMetadata } from '../services/note-metadata.js';
 
 interface ProgressRouteOptions {
   scanner: LibraryScanner;
@@ -35,50 +35,44 @@ export const progressRoutes: FastifyPluginAsync<ProgressRouteOptions> = async (f
       },
     },
   }, async (request, reply) => {
-    const note = scanner.getById(request.params.id);
-
-    if (!note) {
-      return reply.code(404).send({ error: 'Note not found' });
-    }
-
     // Clamp progress to valid range (defensive - schema should already enforce this)
     const progress = Math.max(0, Math.min(100, request.body.progress));
     const lastOpenedCfi = request.body.lastOpenedCfi;
     const now = new Date().toISOString();
 
     try {
-      let dateFinished = note.dateFinished;
+      const { derived } = await updateNoteMetadata({
+        scanner,
+        noteId: request.params.id,
+        mutateFrontmatter: ({ frontmatter, note }) => {
+          let dateFinished = note.dateFinished;
+          frontmatter[config.progress_key] = progress;
+          frontmatter[config.last_read_key] = now;
 
-      // Use atomic update to prevent race conditions
-      await atomicFrontmatterUpdate(note.notePath, ({ frontmatter }) => {
-        // Update frontmatter
-        frontmatter[config.progress_key] = progress;
-        frontmatter[config.last_read_key] = now;
+          if (lastOpenedCfi && note.sourceType === 'epub') {
+            frontmatter[config.last_opened_cfi_key] = lastOpenedCfi;
+          }
 
-        // Update lastOpenedCfi for EPUBs
-        if (lastOpenedCfi && note.sourceType === 'epub') {
-          frontmatter[config.last_opened_cfi_key] = lastOpenedCfi;
-        }
+          if (progress === 100 && !note.dateFinished) {
+            frontmatter[config.date_finished_key] = now;
+            dateFinished = now;
+          }
 
-        // Set date_finished when book is completed (reaches 100% for the first time)
-        if (progress === 100 && !note.dateFinished) {
-          frontmatter[config.date_finished_key] = now;
-          dateFinished = now;
-        }
-
-        return frontmatter;
+          return { progress, lastRead: now, lastOpenedCfi, dateFinished };
+        },
+        mapUpdates: ({ progress: nextProgress, lastRead, lastOpenedCfi: nextLastOpenedCfi, dateFinished }, note) => ({
+          progress: nextProgress,
+          lastRead,
+          ...(nextLastOpenedCfi && note.sourceType === 'epub' ? { lastOpenedCfi: nextLastOpenedCfi } : {}),
+          ...(dateFinished ? { dateFinished } : {}),
+        }),
       });
 
-      // Update in-memory cache
-      scanner.updateNote(request.params.id, {
-        progress,
-        lastRead: now,
-        ...(lastOpenedCfi && note.sourceType === 'epub' ? { lastOpenedCfi } : {}),
-        ...(dateFinished ? { dateFinished } : {}),
-      });
-
-      return { success: true, progress, lastRead: now, lastOpenedCfi, dateFinished };
+      return { success: true, ...derived };
     } catch (error) {
+      if (error instanceof NoteNotFoundError) {
+        return reply.code(404).send({ error: 'Note not found' });
+      }
       fastify.log.error(error, 'Failed to update progress');
       return reply.code(500).send({ error: 'Failed to update progress' });
     }

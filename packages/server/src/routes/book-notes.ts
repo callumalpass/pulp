@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { BookNotesUpdate } from '@pulp/shared';
 import type { LibraryScanner } from '../services/library-scanner.js';
 import type { Config } from '../config/schema.js';
-import { atomicFrontmatterUpdate } from '../services/file-lock.js';
+import { NoteNotFoundError, updateNoteMetadata } from '../services/note-metadata.js';
 
 interface BookNotesRouteOptions {
   scanner: LibraryScanner;
@@ -29,13 +29,11 @@ export const bookNotesRoutes: FastifyPluginAsync<BookNotesRouteOptions> = async 
       },
     },
   }, async (request, reply) => {
-    const note = scanner.getById(request.params.id);
-
-    if (!note) {
+    if (!scanner.getById(request.params.id)) {
       return reply.code(404).send({ error: 'Note not found' });
     }
 
-    return { notes: note.bookNotes };
+    return { notes: scanner.getById(request.params.id)?.bookNotes ?? null };
   });
 
   // PATCH /api/library/:id/notes - Update book notes
@@ -60,34 +58,31 @@ export const bookNotesRoutes: FastifyPluginAsync<BookNotesRouteOptions> = async 
       },
     },
   }, async (request, reply) => {
-    const note = scanner.getById(request.params.id);
-
-    if (!note) {
-      return reply.code(404).send({ error: 'Note not found' });
-    }
-
     const { notes } = request.body;
 
     // Trim notes if provided
     const trimmedNotes = notes?.trim() || null;
 
     try {
-      // Use atomic update to prevent race conditions
-      await atomicFrontmatterUpdate(note.notePath, ({ frontmatter }) => {
-        // Update or remove the notes key
-        if (trimmedNotes) {
-          frontmatter[config.book_notes_key] = trimmedNotes;
-        } else {
-          delete frontmatter[config.book_notes_key];
-        }
-        return frontmatter;
+      const { derived } = await updateNoteMetadata({
+        scanner,
+        noteId: request.params.id,
+        mutateFrontmatter: ({ frontmatter }) => {
+          if (trimmedNotes) {
+            frontmatter[config.book_notes_key] = trimmedNotes;
+          } else {
+            delete frontmatter[config.book_notes_key];
+          }
+          return trimmedNotes;
+        },
+        mapUpdates: (bookNotes) => ({ bookNotes }),
       });
 
-      // Update in-memory cache
-      scanner.updateNote(request.params.id, { bookNotes: trimmedNotes });
-
-      return { success: true, notes: trimmedNotes };
+      return { success: true, notes: derived };
     } catch (error) {
+      if (error instanceof NoteNotFoundError) {
+        return reply.code(404).send({ error: 'Note not found' });
+      }
       fastify.log.error(error, 'Failed to update book notes');
       return reply.code(500).send({ error: 'Failed to update book notes' });
     }

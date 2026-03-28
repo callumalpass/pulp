@@ -180,6 +180,33 @@ export interface ProgressUpdate {
   lastOpenedCfi?: string;  // For EPUBs: exact CFI position for precise resume
 }
 
+export type ReaderProgressPercent = number;
+
+export interface ReaderPagination {
+  currentPage: number;
+  totalPages: number;
+  progressPercent: ReaderProgressPercent;
+}
+
+export interface PdfReaderPosition {
+  sourceType: 'pdf';
+  progressPercent: ReaderProgressPercent;
+  page: number;
+  totalPages: number | null;
+}
+
+export interface EpubReaderPosition {
+  sourceType: 'epub';
+  progressPercent: ReaderProgressPercent;
+  cfi: string | null;
+  chapter: string | null;
+  href: string | null;
+  estimatedPage: number;
+  totalLocations: number;
+}
+
+export type ReaderPosition = PdfReaderPosition | EpubReaderPosition;
+
 export interface PinUpdate {
   pinned: boolean;
 }

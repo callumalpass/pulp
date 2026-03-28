@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { RatingUpdate } from '@pulp/shared';
 import type { LibraryScanner } from '../services/library-scanner.js';
 import type { Config } from '../config/schema.js';
-import { atomicFrontmatterUpdate } from '../services/file-lock.js';
+import { NoteNotFoundError, updateNoteMetadata } from '../services/note-metadata.js';
 
 interface RatingRouteOptions {
   scanner: LibraryScanner;
@@ -34,12 +34,6 @@ export const ratingRoutes: FastifyPluginAsync<RatingRouteOptions> = async (fasti
       },
     },
   }, async (request, reply) => {
-    const note = scanner.getById(request.params.id);
-
-    if (!note) {
-      return reply.code(404).send({ error: 'Note not found' });
-    }
-
     const { rating } = request.body;
 
     // Validate rating
@@ -48,22 +42,25 @@ export const ratingRoutes: FastifyPluginAsync<RatingRouteOptions> = async (fasti
     }
 
     try {
-      // Use atomic update to prevent race conditions
-      await atomicFrontmatterUpdate(note.notePath, ({ frontmatter }) => {
-        // Update or remove the rating key
-        if (rating !== null) {
-          frontmatter[config.rating_key] = rating;
-        } else {
-          delete frontmatter[config.rating_key];
-        }
-        return frontmatter;
+      const { derived } = await updateNoteMetadata({
+        scanner,
+        noteId: request.params.id,
+        mutateFrontmatter: ({ frontmatter }) => {
+          if (rating !== null) {
+            frontmatter[config.rating_key] = rating;
+          } else {
+            delete frontmatter[config.rating_key];
+          }
+          return rating;
+        },
+        mapUpdates: (nextRating) => ({ rating: nextRating }),
       });
 
-      // Update in-memory cache
-      scanner.updateNote(request.params.id, { rating });
-
-      return { success: true, rating };
+      return { success: true, rating: derived };
     } catch (error) {
+      if (error instanceof NoteNotFoundError) {
+        return reply.code(404).send({ error: 'Note not found' });
+      }
       fastify.log.error(error, 'Failed to update rating');
       return reply.code(500).send({ error: 'Failed to update rating' });
     }

@@ -6,6 +6,9 @@ import { useReaderStore } from '../../stores/reader';
 import { usePreferencesStore } from '../../stores/preferences';
 import { useReadingStatsStore } from '../../stores/readingStats';
 import { useProgress } from '../../hooks/useProgress';
+import { useEpubNavigation } from '../../hooks/useEpubNavigation';
+import { useEpubPosition } from '../../hooks/useEpubPosition';
+import { useEpubSelection } from '../../hooks/useEpubSelection';
 import { useHighlights } from '../../hooks/useNote';
 import { useCreateHighlight } from '../../hooks/useHighlights';
 import { useToast } from '../../contexts/ToastContext';
@@ -13,6 +16,14 @@ import { useMobile } from '../../hooks/useMobile';
 import { useIdleDetection } from '../../hooks/useIdleDetection';
 import { useSwipeGesture } from '../../hooks/useSwipeGesture';
 import { useBeforeUnload, useSaveShortcut } from '../../hooks/useBeforeUnload';
+import {
+  createEpubLocationsCacheKey,
+  DEFAULT_EPUB_TOTAL_PAGES_ESTIMATE,
+  EPUB_LOCATION_GENERATION_BREAKPOINT,
+  getCfiFromProgress,
+  loadCachedEpubLocations,
+  saveCachedEpubLocations,
+} from '../../lib/epub-location';
 import { HighlightPopup } from './shared/HighlightPopup';
 import { HighlightEditPopup } from './shared/HighlightEditPopup';
 import { KeyboardShortcutsPanel } from './shared/KeyboardShortcutsPanel';
@@ -32,13 +43,6 @@ const ReadingGoalsPanel = lazy(() =>
 
 interface EPUBReaderProps {
   note: LiteratureNote;
-}
-
-interface Selection {
-  text: string;
-  page: number;
-  position: { x: number; y: number };
-  cfi: string;
 }
 
 type EPUBTheme = 'light' | 'dark' | 'sepia' | 'eink';
@@ -115,15 +119,12 @@ export function EPUBReader({ note }: EPUBReaderProps) {
   // Ctrl+S / Cmd+S to save immediately
   useSaveShortcut(saveImmediately);
 
-  const [selection, setSelection] = useState<Selection | null>(null);
   const [editingHighlight, setEditingHighlight] = useState<{ highlight: EPUBHighlight; position: { x: number; y: number } } | null>(null);
   const [locations, setLocations] = useState<string[]>([]);
   const [toc, setToc] = useState<NavItem[]>([]);
   const [tocOpen, setTocOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [currentChapter, setCurrentChapter] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
-  const [currentCfi, setCurrentCfi] = useState<string | null>(null);
   const [showClickZones, setShowClickZones] = useState(true);
   const [headerVisible, setHeaderVisible] = useState(true);
 
@@ -133,6 +134,26 @@ export function EPUBReader({ note }: EPUBReaderProps) {
   const touchStartPointRef = useRef<{ x: number; y: number } | null>(null);
   const registeredContentsRef = useRef<Set<Contents>>(new Set());
   const theme = (readerTheme || 'dark') as EPUBTheme;
+  const { currentPosition, handleRelocated } = useEpubPosition({
+    note,
+    setCurrentPage,
+    updateProgress,
+  });
+  const { selection, setSelection, clearSelection, handleSelected } = useEpubSelection({
+    isMobile,
+    currentPage,
+    touchSelectionEnabledRef,
+  });
+  const { goToPage, goToChapter } = useEpubNavigation({
+    locations,
+    totalPages,
+    renditionRef,
+    pendingNavigationTargetRef,
+    setTocOpen,
+    showToast,
+  });
+  const currentChapter = currentPosition.chapter || '';
+  const currentCfi = currentPosition.cfi;
 
   const clearTouchLongPressTimer = useCallback(() => {
     if (touchLongPressTimerRef.current !== null) {
@@ -277,32 +298,6 @@ export function EPUBReader({ note }: EPUBReaderProps) {
     };
   }, [note.id, clearTouchLongPressTimer]);
 
-  const normalizeHref = (href: string): string => {
-    if (!href) return '';
-    const trimmedHref = href.trim();
-    const decodedHref = (() => {
-      try {
-        return decodeURI(trimmedHref);
-      } catch {
-        return trimmedHref;
-      }
-    })();
-    return decodedHref.replace(/^[./]+/, '').replace(/\?.*$/, '');
-  };
-
-  const getBaseHref = (href: string): string => {
-    return normalizeHref(href).split('#')[0];
-  };
-
-  const hrefsMatch = (firstHref: string, secondHref: string): boolean => {
-    if (!firstHref || !secondHref) return false;
-    return (
-      firstHref === secondHref ||
-      firstHref.endsWith(secondHref) ||
-      secondHref.endsWith(firstHref)
-    );
-  };
-
   // Track page changes for reading stats
   useEffect(() => {
     if (!isLoading && totalPages > 0) {
@@ -378,15 +373,22 @@ export function EPUBReader({ note }: EPUBReaderProps) {
       setToc(navigation.toc);
 
       // Try to load cached locations first
-      const cacheKey = `epub-locations-${note.id}`;
-      const cachedLocations = localStorage.getItem(cacheKey);
+      const cacheKey = createEpubLocationsCacheKey({
+        noteId: note.id,
+        sourceRelative: note.sourceRelative,
+        fontSize,
+        lineHeight,
+        width,
+        height,
+      });
+      const cachedLocations = loadCachedEpubLocations(cacheKey);
       let generatedLocations: string[] = [];
 
-      if (cachedLocations) {
+      if (cachedLocations.length > 0) {
         try {
-          generatedLocations = JSON.parse(cachedLocations);
+          generatedLocations = cachedLocations;
           // epub.js load() expects the serialized string, not parsed array
-          book.locations.load(cachedLocations);
+          book.locations.load(JSON.stringify(cachedLocations));
           setLocations(generatedLocations);
           setTotalPages(generatedLocations.length);
         } catch {
@@ -394,23 +396,53 @@ export function EPUBReader({ note }: EPUBReaderProps) {
         }
       }
 
-      // Display content immediately (don't wait for locations)
-      // Prefer exact CFI position if available, otherwise calculate from progress
-      if (note.lastOpenedCfi) {
-        // Resume at exact saved CFI position
-        await rendition.display(note.lastOpenedCfi);
-      } else if (note.progress > 0 && generatedLocations.length > 0) {
-        // Fallback: calculate approximate position from progress percentage
-        const locationIndex = Math.floor((note.progress / 100) * generatedLocations.length);
-        const cfi = generatedLocations[locationIndex];
-        if (cfi) {
-          await rendition.display(cfi);
-        } else {
-          await rendition.display();
+      // Event handlers
+      rendition.on('relocated', (location: { start: { cfi: string; location: number; href: string } }) => {
+        handleRelocated(location, book, navigation.toc, () => {
+          if (pendingNavigationTargetRef.current) {
+            pendingNavigationTargetRef.current = null;
+          }
+        });
+      });
+
+      const restoreFromSavedPosition = async () => {
+        if (note.lastOpenedCfi) {
+          try {
+            await rendition.display(note.lastOpenedCfi);
+            return;
+          } catch (error) {
+            console.warn('Failed to restore EPUB from saved CFI, falling back to progress', error);
+          }
         }
-      } else {
+
+        if (note.progress > 0) {
+          if (generatedLocations.length === 0) {
+            try {
+              generatedLocations = await book.locations.generate(EPUB_LOCATION_GENERATION_BREAKPOINT);
+              setLocations(generatedLocations);
+              setTotalPages(generatedLocations.length);
+              saveCachedEpubLocations(cacheKey, generatedLocations);
+            } catch (error) {
+              console.warn('Failed to generate EPUB locations for restore fallback', error);
+            }
+          }
+
+          const fallbackCfi = getCfiFromProgress(book.locations, generatedLocations, note.progress);
+          if (fallbackCfi) {
+            try {
+              await rendition.display(fallbackCfi);
+              return;
+            } catch (error) {
+              console.warn('Failed to restore EPUB from progress fallback', error);
+            }
+          }
+        }
+
         await rendition.display();
-      }
+      };
+
+      // Display content immediately (don't wait for locations)
+      await restoreFromSavedPosition();
 
       // Hide loading spinner - content is visible now
       setIsLoading(false);
@@ -420,22 +452,17 @@ export function EPUBReader({ note }: EPUBReaderProps) {
       const startPage = note.progress > 0 && generatedLocations.length > 0
         ? Math.floor((note.progress / 100) * generatedLocations.length) + 1
         : 1;
-      const totalPagesEstimate = generatedLocations.length || 100; // Estimate until locations are ready
+      const totalPagesEstimate = generatedLocations.length || DEFAULT_EPUB_TOTAL_PAGES_ESTIMATE;
       startSession(note.id, startPage, totalPagesEstimate);
 
       // Generate locations in background if not cached
-      if (!cachedLocations || generatedLocations.length === 0) {
+      if (cachedLocations.length === 0 || generatedLocations.length === 0) {
         // Use requestIdleCallback for non-blocking generation
         const generateLocations = async () => {
-          const newLocations = await book.locations.generate(1024);
+          const newLocations = await book.locations.generate(EPUB_LOCATION_GENERATION_BREAKPOINT);
           setLocations(newLocations);
           setTotalPages(newLocations.length);
-          // Cache for next time
-          try {
-            localStorage.setItem(cacheKey, JSON.stringify(newLocations));
-          } catch {
-            // localStorage full, ignore
-          }
+          saveCachedEpubLocations(cacheKey, newLocations);
         };
 
         if ('requestIdleCallback' in window) {
@@ -445,65 +472,7 @@ export function EPUBReader({ note }: EPUBReaderProps) {
         }
       }
 
-      // Event handlers
-      rendition.on('relocated', (location: { start: { cfi: string; location: number; href: string } }) => {
-        const locationIndex = location.start.location;
-        if (locationIndex >= 0) {
-          setCurrentPage(locationIndex + 1);
-        }
-
-        // Track current CFI for bookmarks
-        setCurrentCfi(location.start.cfi);
-
-        // Update progress when locations are available
-        const currentLocations = book.locations.length();
-        if (currentLocations > 0 && locationIndex >= 0) {
-          const progress = ((locationIndex + 1) / currentLocations) * 100;
-          // Send CFI along with progress for precise resume
-          updateProgress(progress, location.start.cfi);
-        }
-
-        // Find current chapter
-        const chapter = findChapter(navigation.toc, location.start.href);
-        setCurrentChapter(chapter?.label || '');
-
-        if (pendingNavigationTargetRef.current) {
-          pendingNavigationTargetRef.current = null;
-        }
-      });
-
-      rendition.on('selected', (cfiRange: string, contents: Contents) => {
-        if (isMobile && !touchSelectionEnabledRef.current) {
-          contents.window.getSelection()?.removeAllRanges();
-          return;
-        }
-
-        const sel = contents.window.getSelection();
-        if (!sel || sel.isCollapsed) return;
-
-        const text = sel.toString().trim();
-        if (!text) return;
-
-        const range = sel.getRangeAt(0);
-        const rect = range.getBoundingClientRect(); // Coords relative to iframe viewport
-
-        // Get the iframe element to convert to main document coordinates
-        const iframe = contents.document.defaultView?.frameElement as HTMLIFrameElement | null;
-        const iframeRect = iframe?.getBoundingClientRect();
-
-        if (!iframeRect) return;
-
-        // Calculate viewport-relative coordinates by adding iframe offset
-        setSelection({
-          text,
-          page: currentPage,
-          position: {
-            x: iframeRect.left + rect.left + rect.width / 2,
-            y: iframeRect.top + rect.bottom + 10,
-          },
-          cfi: cfiRange,
-        });
-      });
+      rendition.on('selected', handleSelected);
 
       // Click to navigate (left/right thirds) or toggle UI (center)
       rendition.on('click', (e: MouseEvent) => {
@@ -552,20 +521,6 @@ export function EPUBReader({ note }: EPUBReaderProps) {
       setError(err instanceof Error ? err.message : 'Failed to load EPUB');
       setIsLoading(false);
     }
-  };
-
-  const findChapter = (items: NavItem[], href: string): NavItem | null => {
-    const targetBaseHref = getBaseHref(href);
-
-    for (const item of items) {
-      const itemBaseHref = getBaseHref(item.href);
-      if (hrefsMatch(targetBaseHref, itemBaseHref)) return item;
-      if (item.subitems) {
-        const found = findChapter(item.subitems, href);
-        if (found) return found;
-      }
-    }
-    return null;
   };
 
   // Resize handler
@@ -677,34 +632,6 @@ export function EPUBReader({ note }: EPUBReaderProps) {
     });
   };
 
-  const goToPage = useCallback((page: number) => {
-    if (!renditionRef.current || locations.length === 0) return;
-    const newPage = Math.max(1, Math.min(totalPages, page));
-    const cfi = locations[newPage - 1];
-    if (cfi) renditionRef.current.display(cfi);
-  }, [locations, totalPages]);
-
-  const goToChapter = useCallback(async (href: string) => {
-    const targetHref = href?.trim();
-    if (!renditionRef.current || !targetHref) return;
-
-    pendingNavigationTargetRef.current = targetHref;
-
-    try {
-      await renditionRef.current.display(targetHref);
-      setTocOpen(false);
-      window.setTimeout(() => {
-        if (pendingNavigationTargetRef.current === targetHref) {
-          pendingNavigationTargetRef.current = null;
-        }
-      }, 2000);
-    } catch (error) {
-      pendingNavigationTargetRef.current = null;
-      console.error('Failed to navigate to chapter:', error);
-      showToast('Failed to navigate to chapter', 'error');
-    }
-  }, [showToast]);
-
   // Quick highlight with category (for keyboard shortcuts)
   const quickHighlight = useCallback(async (category: HighlightCategory = 'highlight') => {
     if (!selection) return;
@@ -716,15 +643,13 @@ export function EPUBReader({ note }: EPUBReaderProps) {
         text: selection.text,
         category,
       });
-      // Clear selection
-      window.getSelection()?.removeAllRanges();
-      setSelection(null);
+      clearSelection();
       showToast('Highlight saved', 'success');
     } catch (error) {
       console.error('Failed to create highlight:', error);
       showToast('Failed to create highlight', 'error');
     }
-  }, [selection, createHighlight, showToast]);
+  }, [selection, createHighlight, clearSelection, showToast]);
 
   // Navigate to a highlight and flash it
   const navigateToHighlight = useCallback((_page?: number, cfi?: string, _highlightId?: string) => {
@@ -882,7 +807,7 @@ export function EPUBReader({ note }: EPUBReaderProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [shortcutsOpen, bookmarksOpen, highlightsOpen, statsOpen, goalsOpen, tocOpen, theme, fontSize, toggleShortcuts, setShortcutsOpen, toggleBookmarks, setBookmarksOpen, toggleHighlights, setHighlightsOpen, toggleStats, setStatsOpen, toggleGoals, setGoalsOpen, setReaderTheme, setFontSize, selection, quickHighlight]);
 
-  const progress = totalPages > 0 ? (currentPage / totalPages) * 100 : 0;
+  const progress = currentPosition.progressPercent;
   const colors = THEME_STYLES[theme];
 
   if (error) {

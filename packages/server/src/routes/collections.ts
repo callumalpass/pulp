@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { CollectionsUpdate } from '@pulp/shared';
 import type { LibraryScanner } from '../services/library-scanner.js';
 import type { Config } from '../config/schema.js';
-import { atomicFrontmatterUpdate } from '../services/file-lock.js';
+import { NoteNotFoundError, updateNoteMetadata } from '../services/note-metadata.js';
 
 interface CollectionsRouteOptions {
   scanner: LibraryScanner;
@@ -37,34 +37,31 @@ export const collectionsRoutes: FastifyPluginAsync<CollectionsRouteOptions> = as
       },
     },
   }, async (request, reply) => {
-    const note = scanner.getById(request.params.id);
-
-    if (!note) {
-      return reply.code(404).send({ error: 'Note not found' });
-    }
-
     // Sanitize collections: trim whitespace and remove empty entries
     const collections = request.body.collections
       .map(c => c.trim())
       .filter(c => c.length > 0);
 
     try {
-      // Use atomic update to prevent race conditions
-      await atomicFrontmatterUpdate(note.notePath, ({ frontmatter }) => {
-        // Update the collections key
-        if (collections.length > 0) {
-          frontmatter[config.collections_key] = collections;
-        } else {
-          delete frontmatter[config.collections_key];
-        }
-        return frontmatter;
+      const { derived } = await updateNoteMetadata({
+        scanner,
+        noteId: request.params.id,
+        mutateFrontmatter: ({ frontmatter }) => {
+          if (collections.length > 0) {
+            frontmatter[config.collections_key] = collections;
+          } else {
+            delete frontmatter[config.collections_key];
+          }
+          return collections;
+        },
+        mapUpdates: (nextCollections) => ({ collections: nextCollections }),
       });
 
-      // Update in-memory cache
-      scanner.updateNote(request.params.id, { collections });
-
-      return { success: true, collections };
+      return { success: true, collections: derived };
     } catch (error) {
+      if (error instanceof NoteNotFoundError) {
+        return reply.code(404).send({ error: 'Note not found' });
+      }
       fastify.log.error(error, 'Failed to update collections');
       return reply.code(500).send({ error: 'Failed to update collections' });
     }
