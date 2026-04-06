@@ -9,13 +9,13 @@ export interface EpubSelection {
 }
 
 interface UseEpubSelectionArgs {
-  isMobile: boolean;
+  isTouchDevice: boolean;
   currentPage: number;
   touchSelectionEnabledRef: MutableRefObject<boolean>;
 }
 
 export function useEpubSelection({
-  isMobile,
+  isTouchDevice,
   currentPage,
   touchSelectionEnabledRef,
 }: UseEpubSelectionArgs) {
@@ -27,7 +27,7 @@ export function useEpubSelection({
   }, []);
 
   const handleSelected = useCallback((cfiRange: string, contents: Contents) => {
-    if (isMobile && !touchSelectionEnabledRef.current) {
+    if (isTouchDevice && !touchSelectionEnabledRef.current) {
       contents.window.getSelection()?.removeAllRanges();
       return;
     }
@@ -54,7 +54,7 @@ export function useEpubSelection({
       },
       cfi: cfiRange,
     });
-  }, [currentPage, isMobile, touchSelectionEnabledRef]);
+  }, [currentPage, isTouchDevice, touchSelectionEnabledRef]);
 
   return {
     selection,

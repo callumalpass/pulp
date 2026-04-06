@@ -12,7 +12,7 @@ import { useEpubSelection } from '../../hooks/useEpubSelection';
 import { useHighlights } from '../../hooks/useNote';
 import { useCreateHighlight } from '../../hooks/useHighlights';
 import { useToast } from '../../contexts/ToastContext';
-import { useMobile } from '../../hooks/useMobile';
+import { useTouchDevice } from '../../hooks/useTouchDevice';
 import { useIdleDetection } from '../../hooks/useIdleDetection';
 import { useSwipeGesture } from '../../hooks/useSwipeGesture';
 import { useBeforeUnload, useSaveShortcut } from '../../hooks/useBeforeUnload';
@@ -129,8 +129,8 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
   const [showClickZones, setShowClickZones] = useState(true);
   const [headerVisible, setHeaderVisible] = useState(true);
 
-  const isMobile = useMobile();
-  const touchSelectionEnabledRef = useRef(!isMobile);
+  const isTouchDevice = useTouchDevice();
+  const touchSelectionEnabledRef = useRef(!isTouchDevice);
   const touchLongPressTimerRef = useRef<number | null>(null);
   const touchStartPointRef = useRef<{ x: number; y: number } | null>(null);
   const registeredContentsRef = useRef<Set<Contents>>(new Set());
@@ -141,7 +141,7 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
     updateProgress,
   });
   const { selection, setSelection, clearSelection, handleSelected } = useEpubSelection({
-    isMobile,
+    isTouchDevice,
     currentPage,
     touchSelectionEnabledRef,
   });
@@ -164,7 +164,7 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
   }, []);
 
   const setTouchSelectionEnabled = useCallback((enabled: boolean) => {
-    const shouldEnable = !isMobile || enabled;
+    const shouldEnable = !isTouchDevice || enabled;
     touchSelectionEnabledRef.current = shouldEnable;
 
     for (const contents of registeredContentsRef.current) {
@@ -176,7 +176,7 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
       body.style.setProperty('-webkit-user-select', selectionValue);
       body.style.setProperty('-webkit-touch-callout', shouldEnable ? 'default' : 'none');
     }
-  }, [isMobile]);
+  }, [isTouchDevice]);
 
   const registerTouchSelectionHandlers = useCallback((contents: Contents) => {
     if (registeredContentsRef.current.has(contents)) {
@@ -222,7 +222,7 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
       }, 80);
     };
 
-    if (isMobile) {
+    if (isTouchDevice) {
       contents.document.addEventListener('touchstart', onTouchStart, { passive: true });
       contents.document.addEventListener('touchmove', onTouchMove, { passive: true });
       contents.document.addEventListener('touchend', finishTouch, { passive: true });
@@ -230,7 +230,7 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
     }
 
     const cleanup = () => {
-      if (isMobile) {
+      if (isTouchDevice) {
         contents.document.removeEventListener('touchstart', onTouchStart);
         contents.document.removeEventListener('touchmove', onTouchMove);
         contents.document.removeEventListener('touchend', finishTouch);
@@ -241,13 +241,13 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
 
     contents.window.addEventListener('pagehide', cleanup, { once: true });
     contents.window.addEventListener('unload', cleanup, { once: true });
-  }, [clearTouchLongPressTimer, isMobile, setTouchSelectionEnabled]);
+  }, [clearTouchLongPressTimer, isTouchDevice, setTouchSelectionEnabled]);
 
   // Mobile swipe navigation
   const { handleTouchStart, handleTouchEnd } = useSwipeGesture({
     onSwipeLeft: () => renditionRef.current?.next(),
     onSwipeRight: () => renditionRef.current?.prev(),
-    enabled: isMobile,
+    enabled: isTouchDevice,
     threshold: 50,
   });
 
@@ -256,11 +256,11 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
   useIdleDetection();
 
   useEffect(() => {
-    setTouchSelectionEnabled(!isMobile);
-  }, [isMobile, setTouchSelectionEnabled]);
+    setTouchSelectionEnabled(!isTouchDevice);
+  }, [isTouchDevice, setTouchSelectionEnabled]);
 
   useEffect(() => {
-    if (!isMobile || selection) return;
+    if (!isTouchDevice || selection) return;
 
     const resetSelectionModeTimer = window.setTimeout(() => {
       const hasSelection = Array.from(registeredContentsRef.current).some((contents) => {
@@ -275,7 +275,7 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
     return () => {
       window.clearTimeout(resetSelectionModeTimer);
     };
-  }, [isMobile, selection, setTouchSelectionEnabled]);
+  }, [isTouchDevice, selection, setTouchSelectionEnabled]);
 
   // Load EPUB
   useEffect(() => {
@@ -492,7 +492,7 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
         // Don't navigate if there's a text selection
         const sel = (e.view as Window)?.getSelection();
         if (sel && !sel.isCollapsed) {
-          if (isMobile && !touchSelectionEnabledRef.current) {
+          if (isTouchDevice && !touchSelectionEnabledRef.current) {
             sel.removeAllRanges();
           } else {
             return;

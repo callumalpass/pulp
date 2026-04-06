@@ -1,16 +1,15 @@
-import { lazy, Suspense, useEffect, useRef, useCallback, useState, useMemo, useLayoutEffect } from 'react';
+import { lazy, Suspense, useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { TextLayer } from 'pdfjs-dist';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import type { LiteratureNote, PDFHighlight, TextSelection, HighlightCategory } from '@pulp/shared';
 import { HIGHLIGHT_CATEGORIES } from '@pulp/shared';
-import { useReaderStore, type ZoomMode, type SearchMatch } from '../../stores/reader';
+import { useReaderStore, type SearchMatch } from '../../stores/reader';
 import { useReadingStatsStore } from '../../stores/readingStats';
 import { useProgress } from '../../hooks/useProgress';
 import { useHighlights } from '../../hooks/useNote';
 import { useCreateHighlight } from '../../hooks/useHighlights';
 import { useToast } from '../../contexts/ToastContext';
-import { useMobile } from '../../hooks/useMobile';
 import { useTouchDevice } from '../../hooks/useTouchDevice';
 import { usePerformanceMode } from '../../hooks/usePerformanceMode';
 import { usePinchZoom } from '../../hooks/usePinchZoom';
@@ -26,6 +25,7 @@ import { BookmarksPanel } from './shared/BookmarksPanel';
 import { HighlightsPanel } from './shared/HighlightsPanel';
 import { api } from '../../lib/api';
 import { PdfRenderQueue, type TextContentData } from '../../lib/pdf-render-queue';
+import { usePdfZoomController } from './hooks/usePdfZoomController';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 const ReadingStatsPanel = lazy(() =>
@@ -56,17 +56,6 @@ interface Selection {
   position: { x: number; y: number };
 }
 
-interface ZoomAnchorSnapshot {
-  page: number;
-  pageOffsetRatio: number;
-}
-
-interface PinchPreviewState {
-  scale: number;
-  originX: number;
-  originY: number;
-}
-
 interface PageDimensions {
   width: number;
   height: number;
@@ -86,8 +75,6 @@ const BACKGROUND_DIMENSION_BATCH_SIZE = 25;
 const PDF_RANGE_CHUNK_SIZE = 512 * 1024;
 const FALLBACK_PAGE_DIMENSIONS: PageDimensions = { width: 816, height: 1056 };
 const MOBILE_SELECTION_SETTLE_MS = 450;
-const PINCH_COMMIT_MAX_SETTLE_MS = 400;
-
 function findPageAtOffset(heights: number[], totalPages: number, offset: number): number {
   if (totalPages === 0) return 1;
 
@@ -216,7 +203,6 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   const [loadProgress, setLoadProgress] = useState<PdfLoadProgress | null>(null);
 
   // Mobile support
-  const isMobile = useMobile();
   const isTouchDevice = useTouchDevice();
   const { isLowEnd } = usePerformanceMode();
   const pageBuffer = isLowEnd ? 1 : DEFAULT_PAGE_BUFFER;
@@ -231,9 +217,6 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     start: 1,
     end: isLowEnd ? 6 : 10,
   });
-  const [pinchPreview, setPinchPreview] = useState<PinchPreviewState | null>(null);
-  const [isPinchSettling, setIsPinchSettling] = useState(false);
-
   // Scroll direction tracking for predictive preloading
   const lastScrollTopRef = useRef(0);
   const scrollDirectionRef = useRef<'up' | 'down' | 'none'>('none');
@@ -245,11 +228,20 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   const searchLayerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const loadGenerationRef = useRef(0);
   const restoreTargetPageRef = useRef<number | null>(null);
-  const pendingZoomAnchorRef = useRef<ZoomAnchorSnapshot | null>(null);
+  const pendingZoomAnchorRef = useRef<{ page: number; pageOffsetRatio: number } | null>(null);
   const pinchSettleTimeoutRef = useRef<number | null>(null);
   const mobileSelectionCheckTimeoutRef = useRef<number | null>(null);
   const mobileSelectionDismissedRef = useRef(false);
   const lastMobileSelectionSignatureRef = useRef<string | null>(null);
+  const [renderVersion, setRenderVersion] = useState(0);
+
+  // Track pages currently being rendered to avoid duplicates
+  const renderingRef = useRef<Set<number>>(new Set());
+  // Track rendered pages in a ref to avoid stale closures
+  const renderedPagesRef = useRef<Set<number>>(new Set());
+  // Track the zoom level each page was rendered at
+  const pageZoomRef = useRef<Map<number, number>>(new Map());
+  const textLayerZoomRef = useRef<Map<number, number>>(new Map());
 
   const getPageDimensions = useCallback((pageNum: number): PageDimensions | null => {
     return pageDimensions.get(pageNum) || defaultPageDimensions;
@@ -357,8 +349,6 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     restoreTargetPageRef.current = null;
     mobileSelectionDismissedRef.current = false;
     lastMobileSelectionSignatureRef.current = null;
-    setPinchPreview(null);
-    setIsPinchSettling(false);
     if (pinchSettleTimeoutRef.current !== null) {
       window.clearTimeout(pinchSettleTimeoutRef.current);
       pinchSettleTimeoutRef.current = null;
@@ -395,7 +385,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
       renderQueueRef.current = null;
       pdfDocRef.current?.destroy();
     };
-  }, [note.id, isMobile]);
+  }, [note.id]);
 
   const loadPDF = async (loadGeneration: number) => {
     try {
@@ -531,52 +521,6 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     }
   }, [currentPage, isLoading, totalPages, updateStatsCurrentPage]);
 
-  const captureZoomAnchor = useCallback((center?: { x: number; y: number }) => {
-    const scrollContainer = scrollContainerRef.current;
-    if (!scrollContainer || totalPages === 0 || pdfColorMode === 'eink') {
-      pendingZoomAnchorRef.current = null;
-      return;
-    }
-
-    const rect = scrollContainer.getBoundingClientRect();
-    const anchorY = center ? center.y - rect.top : rect.height / 2;
-    const viewportAnchor = scrollContainer.scrollTop + anchorY;
-    const anchorPage = findPageAtOffset(pageHeights, totalPages, viewportAnchor);
-    const pageTop = pageHeights[anchorPage] ?? 0;
-    const pageBottom = pageHeights[anchorPage + 1] ?? pageTop;
-    const pageHeight = Math.max(1, pageBottom - pageTop);
-    const pageOffsetRatio = Math.max(0, Math.min(1, (viewportAnchor - pageTop) / pageHeight));
-
-    pendingZoomAnchorRef.current = {
-      page: anchorPage,
-      pageOffsetRatio,
-    };
-  }, [pageHeights, pdfColorMode, totalPages]);
-
-  // Keep the viewport anchored to the same place in the document when zoom changes.
-  useLayoutEffect(() => {
-    const scrollContainer = scrollContainerRef.current;
-    const zoomAnchor = pendingZoomAnchorRef.current;
-
-    if (
-      scrollContainer &&
-      zoomAnchor &&
-      restoreTargetPageRef.current === null &&
-      totalPages > 0 &&
-      pdfColorMode !== 'eink'
-    ) {
-      const pageTop = pageHeights[zoomAnchor.page] ?? 0;
-      const pageBottom = pageHeights[zoomAnchor.page + 1] ?? pageTop;
-      const pageHeight = Math.max(1, pageBottom - pageTop);
-      const viewportAnchor = pageTop + zoomAnchor.pageOffsetRatio * pageHeight;
-      const nextScrollTop = Math.max(0, viewportAnchor - scrollContainer.clientHeight / 2);
-
-      scrollContainer.scrollTop = nextScrollTop;
-    }
-
-    pendingZoomAnchorRef.current = null;
-  }, [pageHeights, pdfColorMode, totalPages, zoom]);
-
   // Wait until layout is measured through the restore target, then scroll once.
   useEffect(() => {
     const targetPage = restoreTargetPageRef.current;
@@ -611,100 +555,36 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     return maxWidth;
   }, [defaultPageDimensions?.width, pageDimensions]);
 
-  const applyCustomZoom = useCallback((nextZoom: number) => {
-    captureZoomAnchor();
-    setCustomZoom(nextZoom);
-  }, [captureZoomAnchor, setCustomZoom]);
-
-  const handlePinchPreviewChange = useCallback((preview: { scale: number; center: { x: number; y: number } } | null) => {
-    if (!preview) {
-      setPinchPreview(null);
-      return;
-    }
-
-    const scrollContainer = scrollContainerRef.current;
-    if (!scrollContainer) return;
-
-    const rect = scrollContainer.getBoundingClientRect();
-    setPinchPreview({
-      scale: preview.scale,
-      originX: preview.center.x - rect.left,
-      originY: preview.center.y - rect.top + scrollContainer.scrollTop,
-    });
-  }, []);
-
-  const handlePinchZoomCommit = useCallback((nextZoom: number, center: { x: number; y: number }) => {
-    setIsPinchSettling(true);
-    if (pinchSettleTimeoutRef.current !== null) {
-      window.clearTimeout(pinchSettleTimeoutRef.current);
-    }
-    pinchSettleTimeoutRef.current = window.setTimeout(() => {
-      setIsPinchSettling(false);
-      pinchSettleTimeoutRef.current = null;
-    }, PINCH_COMMIT_MAX_SETTLE_MS);
-    captureZoomAnchor(center);
-    setCustomZoom(nextZoom);
-  }, [captureZoomAnchor, setCustomZoom]);
-
-  useEffect(() => {
-    if (!isPinchSettling) return;
-
-    const visiblePagesReady = Array.from(visiblePages).every((pageNum) => (
-      renderedPagesRef.current.has(pageNum) &&
-      pageZoomRef.current.get(pageNum) === zoom &&
-      textLayerZoomRef.current.get(pageNum) === zoom
-    ));
-
-    if (!visiblePagesReady) return;
-
-    const settleFrame = window.requestAnimationFrame(() => {
-      setIsPinchSettling(false);
-      if (pinchSettleTimeoutRef.current !== null) {
-        window.clearTimeout(pinchSettleTimeoutRef.current);
-        pinchSettleTimeoutRef.current = null;
-      }
-    });
-
-    return () => window.cancelAnimationFrame(settleFrame);
-  }, [isPinchSettling, visiblePages, zoom]);
-
-  const applyZoomMode = useCallback((mode: ZoomMode) => {
-    if (pageDimensions.size === 0 || !scrollContainerRef.current) return;
-
-    const firstPage = getPageDimensions(1);
-    if (!firstPage) return;
-
-    let nextZoom = zoom;
-    if (mode === 'fit-width') {
-      const containerWidth = scrollContainerRef.current.clientWidth;
-      const maxWidth = getMaxPageWidth();
-      nextZoom = calculateFitWidthZoom(containerWidth, maxWidth);
-    } else if (mode === 'fit-page') {
-      const containerWidth = scrollContainerRef.current.clientWidth;
-      const containerHeight = scrollContainerRef.current.clientHeight;
-      nextZoom = calculateFitPageZoom(containerWidth, containerHeight, firstPage.width, firstPage.height);
-    }
-
-    captureZoomAnchor();
-    setZoomMode(mode);
-    setZoomValue(nextZoom);
-  }, [calculateFitPageZoom, calculateFitWidthZoom, captureZoomAnchor, getMaxPageWidth, getPageDimensions, pageDimensions.size, scrollContainerRef, setZoomMode, setZoomValue, zoom]);
-
-  // Recalculate zoom on window resize for fit modes
-  useEffect(() => {
-    if (pageDimensions.size === 0 || !scrollContainerRef.current) return;
-
-    const handleResize = () => {
-      if (zoomMode === 'fit-width') {
-        applyZoomMode('fit-width');
-      } else if (zoomMode === 'fit-page') {
-        applyZoomMode('fit-page');
-      }
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [applyZoomMode, pageDimensions.size, zoomMode]);
+  const {
+    pinchPreview,
+    isPinchSettling,
+    applyCustomZoom,
+    applyZoomMode,
+    handlePinchPreviewChange,
+    handlePinchZoomCommit,
+  } = usePdfZoomController({
+    scrollContainerRef,
+    totalPages,
+    zoom,
+    zoomMode,
+    pdfColorMode,
+    pageHeights,
+    pageDimensionsSize: pageDimensions.size,
+    visiblePages,
+    restoreTargetPageRef,
+    pendingZoomAnchorRef,
+    pinchSettleTimeoutRef,
+    renderedPagesRef,
+    pageZoomRef,
+    textLayerZoomRef,
+    getPageDimensions,
+    getMaxPageWidth,
+    calculateFitWidthZoom,
+    calculateFitPageZoom,
+    setCustomZoom,
+    setZoomMode,
+    setZoomValue,
+  });
 
   // Update visible pages based on virtualized range
   // This replaces the IntersectionObserver approach for better performance
@@ -904,17 +784,6 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     }
     setScrollToPage(null);
   }, [scrollToPage, defaultPageDimensions, pageDimensions, zoom, setScrollToPage, getScrollOffsetToPage]);
-
-  // Version counter to trigger re-renders when debounced zoom changes
-  const [renderVersion, setRenderVersion] = useState(0);
-
-  // Track pages currently being rendered to avoid duplicates
-  const renderingRef = useRef<Set<number>>(new Set());
-  // Track rendered pages in a ref to avoid stale closures
-  const renderedPagesRef = useRef<Set<number>>(new Set());
-  // Track the zoom level each page was rendered at
-  const pageZoomRef = useRef<Map<number, number>>(new Map());
-  const textLayerZoomRef = useRef<Map<number, number>>(new Map());
 
   // Clear rendered pages and bump version when debounced zoom changes
   useEffect(() => {

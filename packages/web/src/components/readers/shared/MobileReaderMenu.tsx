@@ -90,12 +90,6 @@ export function MobileReaderMenu({
                 Fit Width
               </MenuButton>
               <MenuButton
-                active={zoomMode === 'fit-page'}
-                onClick={() => handleZoomOption('fit-page')}
-              >
-                Fit Page
-              </MenuButton>
-              <MenuButton
                 active={zoomMode === 'custom' && Math.round(zoom * 100) === 100}
                 onClick={() => handleZoomOption(100)}
               >

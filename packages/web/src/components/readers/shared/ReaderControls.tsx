@@ -449,14 +449,6 @@ export function ReaderControls({
               >
                 Fit Width
               </button>
-              <button
-                className={`w-full px-3 py-1.5 text-sm text-left hover:bg-bg-deep focus:outline-none focus:bg-bg-deep ${zoomMode === 'fit-page' ? 'text-accent-primary' : 'text-text-primary'}`}
-                onClick={() => handleZoomModeSelect('fit-page')}
-                role="option"
-                aria-selected={zoomMode === 'fit-page'}
-              >
-                Fit Page
-              </button>
               <div className="h-px bg-text-secondary/20 my-1" aria-hidden="true" />
               {[50, 75, 100, 125, 150, 200].map((pct) => (
                 <button
