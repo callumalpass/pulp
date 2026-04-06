@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import type { SortOption, SortOrder, TypeFilter, ProgressFilter, TagMatchMode } from '../../stores/libraryFilters';
 
 const SORT_LABELS: Record<SortOption, string> = {
@@ -24,6 +24,7 @@ interface MobileLibraryFiltersProps {
   includedTags: string[];
   excludedTags: string[];
   tagMatchMode: TagMatchMode;
+  showTagFilters: boolean;
   sort: SortOption;
   sortOrder: SortOrder;
   availableTags: Array<{ key: string; label: string; count: number }>;
@@ -31,6 +32,7 @@ interface MobileLibraryFiltersProps {
   onProgressChange: (progress: ProgressFilter) => void;
   onCycleTag: (tagKey: string) => void;
   onTagMatchModeChange: (mode: TagMatchMode) => void;
+  onShowTagFiltersChange: (show: boolean) => void;
   onSortChange: (sort: SortOption) => void;
   onSortOrderToggle: () => void;
   onClearFilters: () => void;
@@ -45,6 +47,7 @@ export function MobileLibraryFilters({
   includedTags,
   excludedTags,
   tagMatchMode,
+  showTagFilters,
   sort,
   sortOrder,
   availableTags,
@@ -52,14 +55,13 @@ export function MobileLibraryFilters({
   onProgressChange,
   onCycleTag,
   onTagMatchModeChange,
+  onShowTagFiltersChange,
   onSortChange,
   onSortOrderToggle,
   onClearFilters,
   hasActiveFilters,
   onClose,
 }: MobileLibraryFiltersProps) {
-  const [showTagFilters, setShowTagFilters] = useState(includedTags.length > 0 || excludedTags.length > 0);
-
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -79,9 +81,9 @@ export function MobileLibraryFilters({
 
   useEffect(() => {
     if (includedTags.length > 0 || excludedTags.length > 0) {
-      setShowTagFilters(true);
+      onShowTagFiltersChange(true);
     }
-  }, [includedTags, excludedTags]);
+  }, [includedTags, excludedTags, onShowTagFiltersChange]);
 
   const handleTypeSelect = (type: TypeFilter) => {
     onTypeChange(type);
@@ -220,7 +222,7 @@ export function MobileLibraryFilters({
             <section className="bg-bg-deep/50 rounded-2xl p-4">
               <button
                 type="button"
-                onClick={() => setShowTagFilters((prev) => !prev)}
+                onClick={() => onShowTagFiltersChange(!showTagFilters)}
                 className="w-full flex items-center justify-between gap-3 text-left"
                 aria-expanded={showTagFilters}
                 aria-controls={`${dialogId}-tag-filters`}

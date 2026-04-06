@@ -61,6 +61,8 @@ function LibraryPageContent() {
     includedTags,
     excludedTags,
     tagMatchMode,
+    showDesktopTagFilters,
+    showMobileTagFilters,
     searchMode,
     viewMode,
     setSort,
@@ -71,6 +73,8 @@ function LibraryPageContent() {
     setIncludedTags,
     setExcludedTags,
     setTagMatchMode,
+    setShowDesktopTagFilters,
+    setShowMobileTagFilters,
     setSearchMode,
     setViewMode,
     clearFilters,
@@ -81,7 +85,6 @@ function LibraryPageContent() {
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [showTagFilters, setShowTagFilters] = useState(false);
   const deferredQuery = useDeferredValue(searchQuery);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
@@ -235,9 +238,9 @@ function LibraryPageContent() {
 
   useEffect(() => {
     if (hasTagFilters) {
-      setShowTagFilters(true);
+      setShowDesktopTagFilters(true);
     }
-  }, [hasTagFilters]);
+  }, [hasTagFilters, setShowDesktopTagFilters]);
 
   const isShowingSearchResults = searchMode === 'content' && debouncedQuery.length >= 2;
 
@@ -602,9 +605,9 @@ function LibraryPageContent() {
           <div className="rounded-2xl border border-subtle bg-bg-surface/60 p-3">
             <button
               type="button"
-              onClick={() => setShowTagFilters((prev) => !prev)}
+              onClick={() => setShowDesktopTagFilters(!showDesktopTagFilters)}
               className="w-full flex items-center justify-between gap-3 text-left"
-              aria-expanded={showTagFilters}
+              aria-expanded={showDesktopTagFilters}
               aria-controls="library-tag-filters"
             >
               <span className="text-xs text-text-secondary uppercase tracking-wider font-medium flex items-center gap-2">
@@ -615,9 +618,9 @@ function LibraryPageContent() {
                   </span>
                 )}
               </span>
-              <span className="text-sm text-text-secondary">{showTagFilters ? 'Hide' : 'Show'}</span>
+              <span className="text-sm text-text-secondary">{showDesktopTagFilters ? 'Hide' : 'Show'}</span>
             </button>
-            {showTagFilters && (
+            {showDesktopTagFilters && (
               <div id="library-tag-filters" className="mt-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <button
@@ -770,6 +773,7 @@ function LibraryPageContent() {
             includedTags={includedTags}
             excludedTags={excludedTags}
             tagMatchMode={tagMatchMode}
+            showTagFilters={showMobileTagFilters}
             sort={sort}
             sortOrder={sortOrder}
             availableTags={availableTags}
@@ -777,6 +781,7 @@ function LibraryPageContent() {
             onProgressChange={setProgressFilter}
             onCycleTag={cycleTagFilterState}
             onTagMatchModeChange={setTagMatchMode}
+            onShowTagFiltersChange={setShowMobileTagFilters}
             onSortChange={setSort}
             onSortOrderToggle={toggleSortOrder}
             onClearFilters={handleClearFilters}
