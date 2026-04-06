@@ -161,6 +161,19 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
     handleSave();
   };
 
+  const preserveSelectionPress = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const triggerTouchAction = useCallback((action: () => void) => {
+    return (e: React.TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      action();
+    };
+  }, []);
+
   const popupBody = !showNoteInput ? (
     <>
       {saveState === 'error' && errorMessage && (
@@ -181,6 +194,9 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
       <div className="flex">
         <button
           onClick={handleQuickHighlight}
+          onMouseDown={preserveSelectionPress}
+          onTouchStart={preserveSelectionPress}
+          onTouchEnd={triggerTouchAction(handleQuickHighlight)}
           className="flex items-center gap-2 px-4 py-3 text-sm text-text-primary hover:bg-accent-primary/20 transition-colors disabled:opacity-50"
           disabled={saveState === 'saving' || saveState === 'success'}
         >
@@ -190,6 +206,9 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
         <div className="w-px bg-text-secondary/20" />
         <button
           onClick={handleAddNote}
+          onMouseDown={preserveSelectionPress}
+          onTouchStart={preserveSelectionPress}
+          onTouchEnd={triggerTouchAction(handleAddNote)}
           className="flex items-center gap-2 px-4 py-3 text-sm text-text-primary hover:bg-accent-primary/20 transition-colors"
           disabled={saveState === 'saving' || saveState === 'success'}
         >
@@ -199,6 +218,9 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
         <div className="w-px bg-text-secondary/20" />
         <button
           onClick={onClose}
+          onMouseDown={preserveSelectionPress}
+          onTouchStart={preserveSelectionPress}
+          onTouchEnd={triggerTouchAction(onClose)}
           className="flex items-center justify-center px-3 py-3 text-text-secondary hover:text-text-primary hover:bg-accent-primary/20 transition-colors"
           aria-label="Close"
         >

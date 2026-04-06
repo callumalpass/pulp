@@ -23,15 +23,20 @@ export function useFocusTrap<T extends HTMLElement = HTMLElement>(
 ) {
   const containerRef = useRef<T>(null);
   const previousActiveElement = useRef<HTMLElement | null>(null);
+  const onEscapeRef = useRef(onEscape);
+
+  useEffect(() => {
+    onEscapeRef.current = onEscape;
+  }, [onEscape]);
 
   // Handle Tab key for focus trapping
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (!isActive || !containerRef.current) return;
 
-      if (e.key === 'Escape' && onEscape) {
+      if (e.key === 'Escape' && onEscapeRef.current) {
         e.preventDefault();
-        onEscape();
+        onEscapeRef.current();
         return;
       }
 
@@ -65,7 +70,7 @@ export function useFocusTrap<T extends HTMLElement = HTMLElement>(
         firstElement.focus();
       }
     },
-    [isActive, onEscape]
+    [isActive]
   );
 
   // Store previous active element and set up focus trap

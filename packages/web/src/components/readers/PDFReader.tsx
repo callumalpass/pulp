@@ -1829,6 +1829,9 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     if (!isTouchDevice) return;
 
     const queueSelectionCheck = () => {
+      if (selection) {
+        return;
+      }
       if (mobileSelectionCheckTimeoutRef.current !== null) {
         window.clearTimeout(mobileSelectionCheckTimeoutRef.current);
       }
@@ -1859,6 +1862,9 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     };
 
     const handleSelectionChange = () => {
+      if (selection) {
+        return;
+      }
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || !sel.toString().trim()) {
         pendingMobileSelectionCheckRef.current = false;
@@ -1914,7 +1920,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
       mobileTouchSelectionActiveRef.current = false;
       pendingMobileSelectionCheckRef.current = false;
     };
-  }, [isTouchDevice, resolveCurrentSelection]);
+  }, [isTouchDevice, resolveCurrentSelection, selection]);
 
   // Prevent native context menu when there's a text selection
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
