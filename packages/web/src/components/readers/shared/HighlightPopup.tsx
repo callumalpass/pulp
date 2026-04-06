@@ -7,6 +7,7 @@ import { useToast } from '../../../contexts/ToastContext';
 import { DictionaryDefinition } from './DictionaryDefinition';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
 import { usePopupPosition } from '../../../hooks/usePopupPosition';
+import { useTouchDevice } from '../../../hooks/useTouchDevice';
 
 const categoryOrder: HighlightCategory[] = ['highlight', 'important', 'question', 'todo', 'definition'];
 
@@ -17,7 +18,7 @@ interface BaseSelection {
 }
 
 interface PDFSelection extends BaseSelection {
-  selection: TextSelection;
+  selection: TextSelection | null;
   pageLabel?: string;
 }
 
@@ -45,6 +46,7 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const isTouchDevice = useTouchDevice();
 
   // Use focus trap for accessibility - trap focus and close on Escape
   const focusTrapRef = useFocusTrap<HTMLDivElement>(true, onClose);
@@ -87,9 +89,18 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
         onClose();
       }
     };
+    const handleTouchStart = (e: TouchEvent) => {
+      if (focusTrapRef.current && !focusTrapRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
 
     document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
+    document.addEventListener('touchstart', handleTouchStart, { passive: true });
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('touchstart', handleTouchStart);
+    };
   }, [onClose, focusTrapRef]);
 
   const handleSave = useCallback(async (overrideCategory?: HighlightCategory) => {
@@ -100,6 +111,11 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
 
     try {
       if (type === 'pdf' && 'selection' in selection) {
+        if (!selection.selection) {
+          setSaveState('error');
+          setErrorMessage('Could not resolve the selected PDF text');
+          return;
+        }
         await createHighlight.mutateAsync({
           type: 'pdf',
           page: selection.page,
@@ -166,6 +182,188 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
     handleSave();
   };
 
+  const popupBody = !showNoteInput ? (
+    <>
+      {saveState === 'error' && errorMessage && (
+        <div className="px-3 py-2 bg-red-500/10 border-b border-red-500/20">
+          <div className="flex items-center gap-2 text-sm text-red-400">
+            <ErrorIcon />
+            <span className="flex-1 truncate">{errorMessage}</span>
+          </div>
+          <button
+            onClick={handleRetry}
+            className="mt-1 text-xs text-red-400 hover:text-red-300 underline"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      <div className="p-2 border-b border-text-secondary/20">
+        <div className="grid grid-cols-5 gap-1">
+          {categoryOrder.map((cat) => {
+            const info = HIGHLIGHT_CATEGORIES[cat];
+            const isSelected = category === cat;
+            return (
+              <button
+                key={cat}
+                onClick={() => handleCategorySelect(cat)}
+                className={`flex flex-col items-center gap-1 p-2 rounded transition-colors ${
+                  isSelected ? 'bg-accent-primary/10' : 'hover:bg-accent-primary/10'
+                }`}
+                title={info.label}
+                disabled={saveState === 'saving' || saveState === 'success'}
+              >
+                <div
+                  className="w-5 h-5 rounded-full border border-black/20"
+                  style={{ backgroundColor: info.color.replace('0.4', '0.8') }}
+                />
+                <span className="text-[10px] text-text-secondary truncate w-full text-center">
+                  {info.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex">
+        <button
+          onClick={handleQuickHighlight}
+          className="flex items-center gap-2 px-4 py-3 text-sm text-text-primary hover:bg-accent-primary/20 transition-colors disabled:opacity-50"
+          disabled={saveState === 'saving' || saveState === 'success'}
+        >
+          {saveState === 'saving' ? <SpinnerIcon /> : saveState === 'success' ? <CheckIcon /> : <HighlightIcon />}
+          {saveState === 'saving' ? 'Saving...' : saveState === 'success' ? 'Saved!' : 'Save'}
+        </button>
+        <div className="w-px bg-text-secondary/20" />
+        <button
+          onClick={handleAddNote}
+          className="flex items-center gap-2 px-4 py-3 text-sm text-text-primary hover:bg-accent-primary/20 transition-colors"
+          disabled={saveState === 'saving' || saveState === 'success'}
+        >
+          <NoteIcon />
+          Note
+        </button>
+        <div className="w-px bg-text-secondary/20" />
+        <button
+          onClick={onClose}
+          className="flex items-center justify-center px-3 py-3 text-text-secondary hover:text-text-primary hover:bg-accent-primary/20 transition-colors"
+          aria-label="Close"
+        >
+          <CloseIcon />
+        </button>
+      </div>
+
+      <DictionaryDefinition text={selection.text} />
+    </>
+  ) : (
+    <div className="w-full p-3">
+      {saveState === 'error' && errorMessage && (
+        <div className="mb-2 px-2 py-1.5 bg-red-500/10 rounded border border-red-500/20">
+          <div className="flex items-center gap-1.5 text-xs text-red-400">
+            <ErrorIcon />
+            <span className="flex-1">{errorMessage}</span>
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs text-text-secondary mb-2 line-clamp-2 italic">
+        &ldquo;{selection.text.slice(0, 100)}{selection.text.length > 100 ? '...' : ''}&rdquo;
+      </p>
+
+      <div className="mb-2">
+        <span className="text-xs text-text-secondary mb-1 block">Category:</span>
+        <div className="flex gap-1">
+          {categoryOrder.map((cat) => {
+            const info = HIGHLIGHT_CATEGORIES[cat];
+            const isSelected = category === cat;
+            return (
+              <button
+                key={cat}
+                onClick={() => setCategory(cat)}
+                className={`flex-1 flex flex-col items-center gap-0.5 p-1.5 rounded border transition-colors ${
+                  isSelected
+                    ? 'border-accent-primary bg-accent-primary/10'
+                    : 'border-transparent hover:bg-accent-primary/5'
+                }`}
+                title={info.label}
+                disabled={saveState === 'saving' || saveState === 'success'}
+              >
+                <div
+                  className="w-4 h-4 rounded-full border border-black/20"
+                  style={{ backgroundColor: info.color.replace('0.4', '0.8') }}
+                />
+                <span className="text-[9px] text-text-secondary truncate w-full text-center">
+                  {info.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <textarea
+        ref={inputRef}
+        value={note}
+        onChange={(e) => setNote(e.target.value.slice(0, 2000))}
+        placeholder="Add a note..."
+        className="w-full h-20 p-2 text-sm bg-bg-deep border border-text-secondary/20 rounded text-text-primary resize-none focus:outline-none focus:border-accent-primary"
+        disabled={saveState === 'saving' || saveState === 'success'}
+        maxLength={2000}
+        aria-describedby="note-char-count"
+      />
+      <div id="note-char-count" className="flex justify-end mt-1">
+        <span className={`text-xs ${note.length > 1800 ? 'text-yellow-500' : 'text-text-secondary/60'} ${note.length >= 2000 ? '!text-red-400' : ''}`}>
+          {note.length}/2000
+        </span>
+      </div>
+
+      <div className="flex gap-2 mt-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onClose}
+          className="flex-1"
+          disabled={saveState === 'saving' || saveState === 'success'}
+        >
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => handleSave()}
+          disabled={saveState === 'saving' || saveState === 'success'}
+          className="flex-1"
+        >
+          {saveState === 'saving' ? 'Saving...' : saveState === 'success' ? (
+            <span className="flex items-center gap-1.5">
+              <CheckIcon /> Saved!
+            </span>
+          ) : saveState === 'error' ? 'Retry' : 'Save'}
+        </Button>
+      </div>
+    </div>
+  );
+
+  if (isTouchDevice) {
+    return (
+      <>
+        <div className="mobile-bottom-sheet-backdrop animate-fade-in z-40" onClick={onClose} />
+        <div
+          ref={popupRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={showNoteInput ? 'Add highlight with note' : 'Create highlight'}
+          className="mobile-bottom-sheet animate-slide-up pb-safe z-50"
+        >
+          <div className="w-12 h-1 bg-text-secondary/30 rounded-full mx-auto mt-3 mb-2" />
+          {popupBody}
+        </div>
+      </>
+    );
+  }
+
   return (
     <div
       ref={popupRef}
@@ -180,182 +378,7 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
     >
       {/* Arrow indicator */}
       <div className={`highlight-popup-arrow ${popupPosition.placement}`} />
-      {!showNoteInput ? (
-        <>
-          {/* Error state banner */}
-          {saveState === 'error' && errorMessage && (
-            <div className="px-3 py-2 bg-red-500/10 border-b border-red-500/20">
-              <div className="flex items-center gap-2 text-sm text-red-400">
-                <ErrorIcon />
-                <span className="flex-1 truncate">{errorMessage}</span>
-              </div>
-              <button
-                onClick={handleRetry}
-                className="mt-1 text-xs text-red-400 hover:text-red-300 underline"
-              >
-                Try again
-              </button>
-            </div>
-          )}
-
-          {/* Category selector - always visible */}
-          <div className="p-2 border-b border-text-secondary/20">
-            <div className="grid grid-cols-5 gap-1">
-              {categoryOrder.map((cat) => {
-                const info = HIGHLIGHT_CATEGORIES[cat];
-                const isSelected = category === cat;
-                return (
-                  <button
-                    key={cat}
-                    onClick={() => handleCategorySelect(cat)}
-                    className={`flex flex-col items-center gap-1 p-2 rounded transition-colors ${
-                      isSelected
-                        ? 'bg-accent-primary/10'
-                        : 'hover:bg-accent-primary/10'
-                    }`}
-                    title={info.label}
-                    disabled={saveState === 'saving' || saveState === 'success'}
-                  >
-                    <div
-                      className="w-5 h-5 rounded-full border border-black/20"
-                      style={{ backgroundColor: info.color.replace('0.4', '0.8') }}
-                    />
-                    <span className="text-[10px] text-text-secondary truncate w-full text-center">
-                      {info.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Action buttons row */}
-          <div className="flex">
-            <button
-              onClick={handleQuickHighlight}
-              className="flex items-center gap-2 px-4 py-3 text-sm text-text-primary hover:bg-accent-primary/20 transition-colors disabled:opacity-50"
-              disabled={saveState === 'saving' || saveState === 'success'}
-            >
-              {saveState === 'saving' ? (
-                <SpinnerIcon />
-              ) : saveState === 'success' ? (
-                <CheckIcon />
-              ) : (
-                <HighlightIcon />
-              )}
-              {saveState === 'saving' ? 'Saving...' : saveState === 'success' ? 'Saved!' : 'Save'}
-            </button>
-            <div className="w-px bg-text-secondary/20" />
-            <button
-              onClick={handleAddNote}
-              className="flex items-center gap-2 px-4 py-3 text-sm text-text-primary hover:bg-accent-primary/20 transition-colors"
-              disabled={saveState === 'saving' || saveState === 'success'}
-            >
-              <NoteIcon />
-              Note
-            </button>
-            <div className="w-px bg-text-secondary/20" />
-            <button
-              onClick={onClose}
-              className="flex items-center justify-center px-3 py-3 text-text-secondary hover:text-text-primary hover:bg-accent-primary/20 transition-colors"
-              aria-label="Close"
-            >
-              <CloseIcon />
-            </button>
-          </div>
-
-          <DictionaryDefinition text={selection.text} />
-        </>
-      ) : (
-        <div className="w-72 p-3">
-          {/* Error state in note mode */}
-          {saveState === 'error' && errorMessage && (
-            <div className="mb-2 px-2 py-1.5 bg-red-500/10 rounded border border-red-500/20">
-              <div className="flex items-center gap-1.5 text-xs text-red-400">
-                <ErrorIcon />
-                <span className="flex-1">{errorMessage}</span>
-              </div>
-            </div>
-          )}
-
-          <p className="text-xs text-text-secondary mb-2 line-clamp-2 italic">
-            &ldquo;{selection.text.slice(0, 100)}{selection.text.length > 100 ? '...' : ''}&rdquo;
-          </p>
-
-          {/* Category selector in note mode */}
-          <div className="mb-2">
-            <span className="text-xs text-text-secondary mb-1 block">Category:</span>
-            <div className="flex gap-1">
-              {categoryOrder.map((cat) => {
-                const info = HIGHLIGHT_CATEGORIES[cat];
-                const isSelected = category === cat;
-                return (
-                  <button
-                    key={cat}
-                    onClick={() => setCategory(cat)}
-                    className={`flex-1 flex flex-col items-center gap-0.5 p-1.5 rounded border transition-colors ${
-                      isSelected
-                        ? 'border-accent-primary bg-accent-primary/10'
-                        : 'border-transparent hover:bg-accent-primary/5'
-                    }`}
-                    title={info.label}
-                    disabled={saveState === 'saving' || saveState === 'success'}
-                  >
-                    <div
-                      className="w-4 h-4 rounded-full border border-black/20"
-                      style={{ backgroundColor: info.color.replace('0.4', '0.8') }}
-                    />
-                    <span className="text-[9px] text-text-secondary truncate w-full text-center">
-                      {info.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <textarea
-            ref={inputRef}
-            value={note}
-            onChange={(e) => setNote(e.target.value.slice(0, 2000))}
-            placeholder="Add a note..."
-            className="w-full h-20 p-2 text-sm bg-bg-deep border border-text-secondary/20 rounded text-text-primary resize-none focus:outline-none focus:border-accent-primary"
-            disabled={saveState === 'saving' || saveState === 'success'}
-            maxLength={2000}
-            aria-describedby="note-char-count"
-          />
-          <div id="note-char-count" className="flex justify-end mt-1">
-            <span className={`text-xs ${note.length > 1800 ? 'text-yellow-500' : 'text-text-secondary/60'} ${note.length >= 2000 ? '!text-red-400' : ''}`}>
-              {note.length}/2000
-            </span>
-          </div>
-
-          <div className="flex gap-2 mt-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onClose}
-              className="flex-1"
-              disabled={saveState === 'saving' || saveState === 'success'}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => handleSave()}
-              disabled={saveState === 'saving' || saveState === 'success'}
-              className="flex-1"
-            >
-              {saveState === 'saving' ? 'Saving...' : saveState === 'success' ? (
-                <span className="flex items-center gap-1.5">
-                  <CheckIcon /> Saved!
-                </span>
-              ) : saveState === 'error' ? 'Retry' : 'Save'}
-            </Button>
-          </div>
-        </div>
-      )}
+      {popupBody}
     </div>
   );
 }
