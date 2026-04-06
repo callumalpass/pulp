@@ -21,6 +21,7 @@
     "chokidar": "^3.5.3",
     "epub2": "^3.0.2",
     "fastify": "^4.25.2",
+    "fastify-plugin": "^4.5.1",
     "gray-matter": "^4.0.3",
     "handlebars": "^4.7.8",
     "nanoid": "^5.0.4",

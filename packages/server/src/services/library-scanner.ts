@@ -18,7 +18,7 @@ import {
   getPinned,
   getPaused,
   getPausedAt,
-  getReadingStats,
+  getComputedReadingStats,
   getAuthor,
   getRating,
   getTotalPages,
@@ -124,6 +124,8 @@ export class LibraryScanner {
 
       // Parse bookmarks from frontmatter
       const bookmarks = getBookmarks(frontmatter, this.config.bookmarks_key);
+      const progress = getProgress(frontmatter, this.config.progress_key);
+      const totalPages = getTotalPages(frontmatter, this.config.total_pages_key);
 
       const note: LiteratureNote = {
         id,
@@ -134,7 +136,7 @@ export class LibraryScanner {
         sourceType,
         filePath: resolvedSource,
         notePath,
-        progress: getProgress(frontmatter, this.config.progress_key),
+        progress,
         lastRead: getLastRead(frontmatter, this.config.last_read_key),
         lastOpenedCfi: sourceType === 'epub' ? getLastOpenedCfi(frontmatter, this.config.last_opened_cfi_key) : null,
         dateCreated: getDateCreated(frontmatter, this.config.date_created_key),
@@ -148,8 +150,14 @@ export class LibraryScanner {
         paused: getPaused(frontmatter, this.config.paused_key),
         pausedAt: getPausedAt(frontmatter, this.config.paused_at_key),
         rating: getRating(frontmatter, this.config.rating_key),
-        readingStats: getReadingStats(frontmatter, this.config.reading_stats_key),
-        totalPages: getTotalPages(frontmatter, this.config.total_pages_key),
+        readingStats: getComputedReadingStats(frontmatter, {
+          readingStatsKey: this.config.reading_stats_key,
+          historyKey: this.config.reading_history_key,
+          sessionsKey: this.config.reading_sessions_key,
+          totalPages,
+          progress,
+        }),
+        totalPages,
         readerPreferences: getReaderPreferences(frontmatter, this.config.reader_preferences_key),
         currentChapter: getCurrentChapter(frontmatter, this.config.current_chapter_key),
         bookNotes: getBookNotes(frontmatter, this.config.book_notes_key),

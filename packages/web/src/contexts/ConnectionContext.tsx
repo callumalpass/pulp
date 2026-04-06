@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useCallback, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import type { WebSocketEvent, WebSocketClientEvent } from '@pulp/shared';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
@@ -22,6 +23,7 @@ export function ConnectionProvider({ children }: ConnectionProviderProps) {
   const failureCountRef = useRef(0);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const handleMessage = useCallback((event: WebSocketEvent) => {
     switch (event.type) {
@@ -42,8 +44,22 @@ export function ConnectionProvider({ children }: ConnectionProviderProps) {
         // Refetch library
         queryClient.invalidateQueries({ queryKey: ['library'] });
         break;
+
+      case 'client:open-note': {
+        const params = new URLSearchParams();
+        if (typeof event.page === 'number') {
+          params.set('page', String(event.page));
+        }
+        if (event.cfi) {
+          params.set('cfi', event.cfi);
+        }
+
+        const search = params.toString();
+        navigate(`/read/${event.noteId}${search ? `?${search}` : ''}`);
+        break;
+      }
     }
-  }, [queryClient]);
+  }, [navigate, queryClient]);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -58,9 +74,14 @@ export function ConnectionProvider({ children }: ConnectionProviderProps) {
       failureCountRef.current = 0; // Reset failure count on successful connection
     };
 
-    ws.onmessage = (event) => {
+    ws.onmessage = async (event) => {
       try {
-        const message = JSON.parse(event.data) as WebSocketEvent;
+        const rawData = typeof event.data === 'string'
+          ? event.data
+          : event.data instanceof Blob
+            ? await event.data.text()
+            : String(event.data);
+        const message = JSON.parse(rawData) as WebSocketEvent;
         handleMessage(message);
       } catch (error) {
         console.error('Failed to parse WebSocket message:', error);

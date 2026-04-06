@@ -9,6 +9,7 @@ const EPUBReader = lazy(() => import('./EPUBReader').then(m => ({ default: m.EPU
 interface ReaderShellProps {
   note: LiteratureNote;
   initialPage?: number;
+  initialCfi?: string;
 }
 
 function ReaderLoadingSpinner() {
@@ -35,7 +36,7 @@ function ReaderLoadingSpinner() {
   );
 }
 
-export function ReaderShell({ note, initialPage }: ReaderShellProps) {
+export function ReaderShell({ note, initialPage, initialCfi }: ReaderShellProps) {
   return (
     <div className="h-full flex flex-col" role="main" aria-label={`Reading: ${note.title}`}>
       <ReaderErrorBoundary>
@@ -43,7 +44,7 @@ export function ReaderShell({ note, initialPage }: ReaderShellProps) {
           {note.sourceType === 'pdf' ? (
             <PDFReader note={note} initialPage={initialPage} />
           ) : (
-            <EPUBReader note={note} />
+            <EPUBReader note={note} initialCfi={initialCfi} />
           )}
         </Suspense>
       </ReaderErrorBoundary>

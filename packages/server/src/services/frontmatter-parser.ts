@@ -1,8 +1,14 @@
 import matter from 'gray-matter';
 import { readFileSync } from 'node:fs';
-
-/** Maximum number of days of reading history to retain */
-const READING_HISTORY_MAX_DAYS = 90;
+import type {
+  CSLMetadata,
+  ProgressMilestone,
+  ProgressMilestoneRecord,
+  ReadingMomentum,
+  ReadingStats,
+  SessionQuality,
+} from '@pulp/shared';
+import { computeReadingStatsFromHistoryAndSessions } from './frontmatter-reading-metrics.js';
 
 /** Minimum valid rating value */
 const MIN_RATING = 1;
@@ -353,140 +359,12 @@ export function getTotalPages(
   return null;
 }
 
-export interface ParsedBookmark {
-  id: string;
-  label: string;
-  notes?: string;      // Optional notes/context about this bookmark
-  page?: number;
-  cfi?: string;
-  createdAt: string;
-}
-
-/**
- * Parse bookmarks from frontmatter.
- * Supports two formats for backward compatibility:
- *
- * 1. Legacy wikilink format (string array):
- *    - PDF: [[source.pdf#page=18|Chapter 3]]
- *    - EPUB: [[source.epub#cfi=epubcfi(/6/4)|Introduction]]
- *    - With timestamp: [[source.pdf#page=18|Chapter 3|2024-01-15]]
- *
- * 2. New object format (with notes support):
- *    - { link: "[[source.pdf#page=18|Chapter 3|2024-01-15]]", notes: "My thoughts..." }
- */
-export function getBookmarks(
-  frontmatter: Record<string, unknown>,
-  bookmarksKey: string
-): ParsedBookmark[] {
-  const bookmarks = frontmatter[bookmarksKey];
-
-  if (!bookmarks || !Array.isArray(bookmarks)) return [];
-
-  const parsed: ParsedBookmark[] = [];
-
-  for (const bookmark of bookmarks) {
-    let wikilink: string;
-    let notes: string | undefined;
-
-    // Handle both string (legacy) and object (new) formats
-    if (typeof bookmark === 'string') {
-      wikilink = bookmark;
-    } else if (bookmark && typeof bookmark === 'object') {
-      const bookmarkObj = bookmark as Record<string, unknown>;
-      if (typeof bookmarkObj.link === 'string') {
-        wikilink = bookmarkObj.link;
-        notes = typeof bookmarkObj.notes === 'string' && bookmarkObj.notes.trim() ? bookmarkObj.notes.trim() : undefined;
-      } else {
-        continue;
-      }
-    } else {
-      continue;
-    }
-
-    // Parse wikilink format: [[path#fragment|label]] or [[path#fragment|label|timestamp]]
-    const wikiMatch = wikilink.match(/^\[\[([^\]|]+)(?:\|([^\]|]+))?(?:\|([^\]]+))?\]\]$/);
-    if (!wikiMatch) continue;
-
-    const [, pathWithFragment, label, timestamp] = wikiMatch;
-    if (!pathWithFragment) continue;
-
-    // Extract fragment (page or cfi)
-    const fragmentMatch = pathWithFragment.match(/#(.+)$/);
-    if (!fragmentMatch) continue;
-
-    const fragment = fragmentMatch[1];
-    const parsedBookmark: ParsedBookmark = {
-      id: `bm-${Buffer.from(pathWithFragment).toString('base64').slice(0, 12)}`,
-      label: label || 'Bookmark',
-      notes,
-      createdAt: timestamp || new Date().toISOString(),
-    };
-
-    // Parse page number for PDFs
-    const pageMatch = fragment.match(/page=(\d+)/);
-    if (pageMatch) {
-      parsedBookmark.page = parseInt(pageMatch[1], 10);
-    }
-
-    // Parse CFI for EPUBs
-    const cfiMatch = fragment.match(/cfi=(.+)$/);
-    if (cfiMatch) {
-      try {
-        parsedBookmark.cfi = decodeURIComponent(cfiMatch[1]);
-      } catch (decodeError) {
-        // If URL decoding fails, use the raw value
-        console.warn(`Failed to decode CFI: ${cfiMatch[1]}`, decodeError);
-        parsedBookmark.cfi = cfiMatch[1];
-      }
-    }
-
-    parsed.push(parsedBookmark);
-  }
-
-  return parsed;
-}
-
-/**
- * Convert a bookmark to an Obsidian wikilink string for storage in frontmatter.
- */
-export function bookmarkToWikilink(
-  sourceRelative: string,
-  bookmark: { label: string; page?: number; cfi?: string; createdAt?: string }
-): string {
-  let fragment = '';
-
-  if (bookmark.page !== undefined) {
-    fragment = `#page=${bookmark.page}`;
-  } else if (bookmark.cfi) {
-    // URL-encode the CFI for safety in wikilinks
-    fragment = `#cfi=${encodeURIComponent(bookmark.cfi)}`;
-  }
-
-  const timestamp = bookmark.createdAt || new Date().toISOString();
-
-  return `[[${sourceRelative}${fragment}|${bookmark.label}|${timestamp}]]`;
-}
-
-/**
- * Convert a bookmark to frontmatter storage format.
- * Returns a string (wikilink) for bookmarks without notes,
- * or an object with link and notes for bookmarks with notes.
- */
-export function bookmarkToFrontmatter(
-  sourceRelative: string,
-  bookmark: { label: string; notes?: string; page?: number; cfi?: string; createdAt?: string }
-): string | { link: string; notes: string } {
-  const wikilink = bookmarkToWikilink(sourceRelative, bookmark);
-
-  // Only use object format if notes are present
-  if (bookmark.notes?.trim()) {
-    return { link: wikilink, notes: bookmark.notes.trim() };
-  }
-
-  return wikilink;
-}
-
-import type { ProgressMilestone, ReadingMomentum, ProgressMilestoneRecord, ReadingStats, CSLMetadata } from '@pulp/shared';
+export {
+  getBookmarks,
+  bookmarkToWikilink,
+  bookmarkToFrontmatter,
+  type ParsedBookmark,
+} from './frontmatter-bookmarks.js';
 
 // Re-export ReadingStats as ParsedReadingStats for backward compatibility
 // Uses the shared type which has optional milestones, momentum, momentumScore
@@ -665,6 +543,29 @@ export function createReadingStatsForFrontmatter(
   return result;
 }
 
+export function getComputedReadingStats(
+  frontmatter: Record<string, unknown>,
+  options: {
+    readingStatsKey: string;
+    historyKey: string;
+    sessionsKey: string;
+    totalPages: number | null;
+    progress: number;
+  }
+): ParsedReadingStats | null {
+  const legacyStats = getReadingStats(frontmatter, options.readingStatsKey);
+  const history = getDailyReadingHistory(frontmatter, options.historyKey);
+  const sessions = getReadingSessions(frontmatter, options.sessionsKey);
+
+  return computeReadingStatsFromHistoryAndSessions({
+    history,
+    sessions,
+    totalPages: options.totalPages,
+    progress: options.progress,
+    legacyStats,
+  });
+}
+
 export interface ParsedDailyReadingEntry {
   date: string;              // YYYY-MM-DD
   durationMs: number;
@@ -746,7 +647,8 @@ export function createDailyReadingEntryForFrontmatter(
 
 /**
  * Update or add a daily reading entry in the history array.
- * Keeps only the last 90 days of history to avoid bloating frontmatter.
+ * We retain the full history because it is now the source of truth for
+ * computed reading stats and all-time totals.
  */
 export function updateDailyReadingHistory(
   existingHistory: ParsedDailyReadingEntry[],
@@ -777,10 +679,9 @@ export function updateDailyReadingHistory(
     });
   }
 
-  // Sort by date descending and keep only recent history
+  // Sort by date descending so recent entries remain easy to access.
   return updated
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, READING_HISTORY_MAX_DAYS);
+    .sort((a, b) => b.date.localeCompare(a.date));
 }
 
 /** Valid zoom modes */
@@ -797,11 +698,6 @@ export interface ParsedReaderPreferences {
   lineHeight?: number;
   dailyGoalMinutes?: number;
 }
-
-/** Maximum number of reading sessions to retain per book */
-const READING_SESSIONS_MAX_COUNT = 100;
-
-import type { SessionQuality } from '@pulp/shared';
 
 export interface ParsedReadingSession {
   startTime: string;
@@ -1194,7 +1090,7 @@ export function createReadingSessionForFrontmatter(
 
 /**
  * Add a new reading session to the sessions array.
- * Keeps only the most recent sessions to avoid bloating frontmatter.
+ * We retain the full session log because it now backs computed aggregates.
  */
 export function addReadingSession(
   existingSessions: ParsedReadingSession[],
@@ -1202,176 +1098,14 @@ export function addReadingSession(
 ): ParsedReadingSession[] {
   const updated = [newSession, ...existingSessions];
 
-  // Sort by start time descending and keep only recent sessions
+  // Sort by start time descending so recent sessions remain easy to access.
   return updated
-    .sort((a, b) => b.startTime.localeCompare(a.startTime))
-    .slice(0, READING_SESSIONS_MAX_COUNT);
+    .sort((a, b) => b.startTime.localeCompare(a.startTime));
 }
 
-/**
- * Calculate session quality based on idle pause metrics.
- * - deep: No idle pauses, long sessions (30+ min)
- * - focused: 0-1 idle pauses, or short idle time (<5% of session)
- * - normal: 2-4 idle pauses, or moderate idle time (5-15% of session)
- * - distracted: 5+ idle pauses, or high idle time (>15% of session)
- */
-export function calculateSessionQuality(
-  durationMs: number,
-  idlePauseCount: number | undefined,
-  idlePauseTotalMs: number | undefined
-): SessionQuality {
-  // Minimum session duration for meaningful quality assessment (5 minutes)
-  if (durationMs < 5 * 60 * 1000) {
-    return 'normal';
-  }
-
-  const pauseCount = idlePauseCount ?? 0;
-  const pauseTotalMs = idlePauseTotalMs ?? 0;
-  const idlePercentage = durationMs > 0 ? (pauseTotalMs / durationMs) * 100 : 0;
-
-  // Deep focus: no pauses and long session (30+ min)
-  if (pauseCount === 0 && durationMs >= 30 * 60 * 1000) {
-    return 'deep';
-  }
-
-  // Focused: minimal interruptions
-  if (pauseCount <= 1 && idlePercentage < 5) {
-    return 'focused';
-  }
-
-  // Distracted: many interruptions or lots of idle time
-  if (pauseCount >= 5 || idlePercentage > 15) {
-    return 'distracted';
-  }
-
-  // Normal: moderate interruptions
-  return 'normal';
-}
-
-/**
- * Check if progress milestones have been crossed.
- * Returns ALL milestones crossed that haven't been recorded yet (in ascending order).
- * This handles cases where progress jumps across multiple milestones in one session
- * (e.g., jumping from 5% to 80% should record 10%, 25%, 50%, and 75%).
- */
-export function checkMilestones(
-  previousProgress: number,
-  currentProgress: number,
-  existingMilestones: ProgressMilestoneRecord[]
-): ProgressMilestone[] {
-  const milestones: ProgressMilestone[] = [10, 25, 50, 75, 100];
-  const recordedMilestones = new Set(existingMilestones.map(m => m.milestone));
-
-  // Find ALL milestones that were crossed and not yet recorded
-  const crossed: ProgressMilestone[] = [];
-  for (const milestone of milestones) {
-    if (currentProgress >= milestone && previousProgress < milestone && !recordedMilestones.has(milestone)) {
-      crossed.push(milestone);
-    }
-  }
-
-  return crossed;
-}
-
-/**
- * Calculate days between two dates.
- */
-function daysBetweenDates(date1: string, date2: string): number {
-  const d1 = new Date(date1);
-  const d2 = new Date(date2);
-  const diffTime = Math.abs(d2.getTime() - d1.getTime());
-  return Math.floor(diffTime / (1000 * 60 * 60 * 24));
-}
-
-/**
- * Create a milestone record.
- */
-export function createMilestoneRecord(
-  milestone: ProgressMilestone,
-  firstReadDate: string | null,
-  totalReadingTimeMs: number
-): ProgressMilestoneRecord {
-  const now = new Date().toISOString();
-  return {
-    milestone,
-    reachedAt: now,
-    daysFromStart: firstReadDate ? daysBetweenDates(firstReadDate, now) : null,
-    totalReadingTimeMs,
-  };
-}
-
-/**
- * Calculate reading momentum based on recent activity.
- * Compares reading activity in the last 7 days vs the previous 7 days.
- * Returns a momentum classification and a numeric score from -100 to 100.
- */
-export function calculateMomentum(
-  readingHistory: ParsedDailyReadingEntry[]
-): { momentum: ReadingMomentum; score: number } {
-  const today = new Date();
-
-  // Get data for the last 14 days
-  const last7Days: number[] = [];
-  const previous7Days: number[] = [];
-
-  for (let i = 0; i < 14; i++) {
-    const date = new Date(today);
-    date.setDate(date.getDate() - i);
-    const dateStr = date.toISOString().split('T')[0];
-
-    const entry = readingHistory.find(h => h.date === dateStr);
-    const durationMs = entry?.durationMs ?? 0;
-
-    if (i < 7) {
-      last7Days.push(durationMs);
-    } else {
-      previous7Days.push(durationMs);
-    }
-  }
-
-  const recentTotal = last7Days.reduce((sum, d) => sum + d, 0);
-  const previousTotal = previous7Days.reduce((sum, d) => sum + d, 0);
-
-  // Count active days
-  const recentActiveDays = last7Days.filter(d => d > 0).length;
-  const previousActiveDays = previous7Days.filter(d => d > 0).length;
-
-  // No reading in either period
-  if (recentTotal === 0 && previousTotal === 0) {
-    return { momentum: 'inactive', score: 0 };
-  }
-
-  // Calculate momentum score
-  // Based on both total reading time and active days
-  let score = 0;
-
-  if (previousTotal > 0) {
-    // Percentage change in reading time, weighted
-    const timeChange = ((recentTotal - previousTotal) / previousTotal) * 50;
-    score += Math.max(-50, Math.min(50, timeChange));
-  } else if (recentTotal > 0) {
-    // Coming back from inactivity - positive momentum
-    score += 25;
-  }
-
-  // Active days change
-  const daysDiff = recentActiveDays - previousActiveDays;
-  score += daysDiff * 10; // Each additional active day adds 10 points
-
-  // Clamp score to -100 to 100
-  score = Math.max(-100, Math.min(100, Math.round(score)));
-
-  // Classify momentum
-  let momentum: ReadingMomentum;
-  if (recentTotal === 0 && recentActiveDays === 0) {
-    momentum = 'inactive';
-  } else if (score >= 20) {
-    momentum = 'accelerating';
-  } else if (score <= -20) {
-    momentum = 'slowing';
-  } else {
-    momentum = 'steady';
-  }
-
-  return { momentum, score };
-}
+export {
+  calculateSessionQuality,
+  checkMilestones,
+  createMilestoneRecord,
+  calculateMomentum,
+} from './frontmatter-reading-metrics.js';

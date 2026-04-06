@@ -26,6 +26,7 @@ import { BookmarksPanel } from './shared/BookmarksPanel';
 import { HighlightsPanel } from './shared/HighlightsPanel';
 import { api } from '../../lib/api';
 import { PdfRenderQueue, type TextContentData } from '../../lib/pdf-render-queue';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 const ReadingStatsPanel = lazy(() =>
   import('./shared/ReadingStatsPanel').then((m) => ({ default: m.ReadingStatsPanel }))
@@ -35,7 +36,7 @@ const ReadingGoalsPanel = lazy(() =>
 );
 
 // Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 // PDF.js resource URLs for accurate text rendering
 const PDFJS_CDN_BASE = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}`;
@@ -60,10 +61,19 @@ interface PageDimensions {
   height: number;
 }
 
+interface PdfLoadProgress {
+  loaded: number;
+  total: number | null;
+  percent: number | null;
+}
+
 const DEFAULT_PAGE_BUFFER = 3; // Number of pages to pre-render above/below viewport
 const DEFAULT_VIRTUALIZATION_BUFFER = 8; // Number of pages above/below to keep in DOM
 const PAGE_DIMENSION_CONCURRENCY = 6; // Parallelism for initial page measurements
 const MAX_TEXT_CACHE_SIZE = 100; // Maximum pages to keep in text content cache
+const BACKGROUND_DIMENSION_BATCH_SIZE = 25;
+const PDF_RANGE_CHUNK_SIZE = 512 * 1024;
+const FALLBACK_PAGE_DIMENSIONS: PageDimensions = { width: 816, height: 1056 };
 
 export function PDFReader({ note, initialPage }: PDFReaderProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -167,9 +177,11 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   const [renderedPages, setRenderedPages] = useState<Set<number>>(new Set());
   const [visiblePages, setVisiblePages] = useState<Set<number>>(new Set([1]));
   const [pageDimensions, setPageDimensions] = useState<Map<number, PageDimensions>>(new Map());
+  const [defaultPageDimensions, setDefaultPageDimensions] = useState<PageDimensions | null>(null);
   const [hasToc, setHasToc] = useState(false);
   const [isPresentation, setIsPresentation] = useState(false);
   const [presentationPage, setPresentationPage] = useState(1);
+  const [loadProgress, setLoadProgress] = useState<PdfLoadProgress | null>(null);
 
   // Mobile support
   const isMobile = useMobile();
@@ -199,6 +211,27 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   const textContentCache = useRef<Map<number, string>>(new Map());
   const textCacheAccessOrder = useRef<number[]>([]); // Track access order for LRU
   const searchLayerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const loadGenerationRef = useRef(0);
+
+  const getPageDimensions = useCallback((pageNum: number): PageDimensions | null => {
+    return pageDimensions.get(pageNum) || defaultPageDimensions;
+  }, [defaultPageDimensions, pageDimensions]);
+
+  const formatLoadedSize = useCallback((bytes: number) => {
+    if (bytes <= 0) return '0 B';
+
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let value = bytes;
+    let unitIndex = 0;
+
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024;
+      unitIndex += 1;
+    }
+
+    const digits = value >= 100 || unitIndex === 0 ? 0 : 1;
+    return `${value.toFixed(digits)} ${units[unitIndex]}`;
+  }, []);
 
   // LRU cache helper for text content
   const setTextCacheEntry = useCallback((pageNum: number, text: string) => {
@@ -238,7 +271,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
     for (let i = 1; i <= totalPages; i++) {
       heights.push(accumulated);
-      const dims = pageDimensions.get(i);
+      const dims = pageDimensions.get(i) || defaultPageDimensions;
       if (dims) {
         accumulated += dims.height * debouncedZoom + 16; // page height + gap
       }
@@ -246,7 +279,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     heights.push(accumulated); // Total document height at index totalPages + 1
 
     return heights;
-  }, [pageDimensions, debouncedZoom, totalPages]);
+  }, [defaultPageDimensions, pageDimensions, debouncedZoom, totalPages]);
 
   // Binary search to find page at a given scroll position - O(log n)
   const findPageAtScrollPosition = useCallback((scrollTop: number): number => {
@@ -285,13 +318,17 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   // Load PDF document
   useEffect(() => {
     reset();
+    setDefaultPageDimensions(null);
+    setLoadProgress(null);
+    loadGenerationRef.current += 1;
+    const loadGeneration = loadGenerationRef.current;
 
     // Initialize render queue for worker-based rendering
     if (!renderQueueRef.current) {
       renderQueueRef.current = new PdfRenderQueue(15); // Cache up to 15 pages
     }
 
-    loadPDF();
+    loadPDF(loadGeneration);
 
     return () => {
       // Cleanup on unmount
@@ -307,7 +344,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     };
   }, [note.id]);
 
-  const loadPDF = async () => {
+  const loadPDF = async (loadGeneration: number) => {
     try {
       setIsLoading(true);
       setLoadError(null);
@@ -323,41 +360,32 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         cMapUrl: CMAP_URL,
         cMapPacked: true,
         standardFontDataUrl: STANDARD_FONT_URL,
+        disableAutoFetch: true,
+        disableStream: false,
+        rangeChunkSize: PDF_RANGE_CHUNK_SIZE,
       });
+      loadingTask.onProgress = ({ loaded, total }: { loaded: number; total?: number }) => {
+        if (loadGeneration !== loadGenerationRef.current) return;
+
+        const safeTotal = typeof total === 'number' && Number.isFinite(total) && total > 0 ? total : null;
+        const percent = safeTotal ? Math.min(100, Math.round((loaded / safeTotal) * 100)) : null;
+        setLoadProgress({ loaded, total: safeTotal, percent });
+      };
       const pdf = await loadingTask.promise;
+      if (loadGeneration !== loadGenerationRef.current) return;
       pdfDocRef.current = pdf;
       setTotalPages(pdf.numPages);
+      setLoadProgress((current) => current ?? { loaded: 0, total: null, percent: null });
 
-      // Get dimensions for all pages (concurrency-limited)
-      const dimensions = new Map<number, PageDimensions>();
-      let maxWidth = 0;
-      let nextPage = 1;
-      const workerCount = Math.min(PAGE_DIMENSION_CONCURRENCY, pdf.numPages);
-      const workers = Array.from({ length: workerCount }, async () => {
-        while (true) {
-          const pageNum = nextPage++;
-          if (pageNum > pdf.numPages) break;
-          const page = await pdf.getPage(pageNum);
-          const viewport = page.getViewport({ scale: 1 });
-          dimensions.set(pageNum, { width: viewport.width, height: viewport.height });
-          if (viewport.width > maxWidth) maxWidth = viewport.width;
-        }
-      });
-      await Promise.all(workers);
-      setPageDimensions(dimensions);
-
-      // Check if PDF has table of contents
-      const outline = await pdf.getOutline();
-      setHasToc(outline !== null && outline.length > 0);
-
-      // Load page labels (logical page numbers like "iv", "12", "A-3")
-      const labels = await pdf.getPageLabels();
-      setPageLabels(labels);
+      // Seed layout with a reasonable page estimate so the reader can paint immediately.
+      const initialDimensions = new Map<number, PageDimensions>();
+      setPageDimensions(initialDimensions);
+      setDefaultPageDimensions(FALLBACK_PAGE_DIMENSIONS);
 
       // Calculate initial zoom based on container and widest page
       if (scrollContainerRef.current && zoomMode === 'fit-width') {
         const containerWidth = scrollContainerRef.current.clientWidth;
-        const fitZoom = calculateFitWidthZoom(containerWidth, maxWidth);
+        const fitZoom = calculateFitWidthZoom(containerWidth, FALLBACK_PAGE_DIMENSIONS.width);
         setZoom(fitZoom);
         // Re-set zoom mode since setZoom changes it to 'custom'
         setZoomMode('fit-width');
@@ -377,10 +405,65 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
       }
 
       setIsLoading(false);
+      setLoadProgress(null);
 
       // Start reading session after PDF is loaded
       const startPage = targetPage || 1;
       startSession(note.id, startPage, pdf.numPages);
+
+      // Fill in document metadata and page dimensions after the reader is usable.
+      void (async () => {
+        try {
+          const [outline, labels] = await Promise.all([
+            pdf.getOutline(),
+            pdf.getPageLabels(),
+          ]);
+          if (loadGeneration !== loadGenerationRef.current) return;
+          setHasToc(outline !== null && outline.length > 0);
+          setPageLabels(labels);
+        } catch (error) {
+          console.warn('Failed to load PDF outline or page labels', error);
+        }
+      })();
+
+      void (async () => {
+        const measuredDimensions = new Map<number, PageDimensions>(initialDimensions);
+        let nextPage = 1;
+        let pagesMeasuredSinceFlush = 0;
+
+        const flushDimensions = () => {
+          pagesMeasuredSinceFlush = 0;
+          if (loadGeneration !== loadGenerationRef.current) return;
+          setPageDimensions(new Map(measuredDimensions));
+          const firstMeasuredPage = measuredDimensions.get(1);
+          if (firstMeasuredPage) {
+            setDefaultPageDimensions(firstMeasuredPage);
+          }
+        };
+
+        const workerCount = Math.min(PAGE_DIMENSION_CONCURRENCY, Math.max(1, pdf.numPages));
+        const workers = Array.from({ length: workerCount }, async () => {
+          while (true) {
+            const pageNum = nextPage++;
+            if (pageNum > pdf.numPages || loadGeneration !== loadGenerationRef.current) break;
+
+            const page = await pdf.getPage(pageNum);
+            if (loadGeneration !== loadGenerationRef.current) break;
+
+            const viewport = page.getViewport({ scale: 1 });
+            measuredDimensions.set(pageNum, { width: viewport.width, height: viewport.height });
+            pagesMeasuredSinceFlush += 1;
+
+            if (pagesMeasuredSinceFlush >= BACKGROUND_DIMENSION_BATCH_SIZE) {
+              flushDimensions();
+            }
+          }
+        });
+
+        await Promise.all(workers);
+        if (loadGeneration !== loadGenerationRef.current) return;
+        flushDimensions();
+      })();
     } catch (error) {
       console.error('Failed to load PDF:', error);
       const errorMessage = error instanceof Error
@@ -388,6 +471,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         : 'An unknown error occurred while loading the PDF';
       setLoadError(errorMessage);
       setIsLoading(false);
+      setLoadProgress(null);
     }
   };
 
@@ -414,12 +498,12 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
   // Get max page width for fit-width calculations
   const getMaxPageWidth = useCallback(() => {
-    let maxWidth = 0;
+    let maxWidth = defaultPageDimensions?.width || 0;
     pageDimensions.forEach((dims) => {
       maxWidth = Math.max(maxWidth, dims.width);
     });
     return maxWidth;
-  }, [pageDimensions]);
+  }, [defaultPageDimensions?.width, pageDimensions]);
 
   // Handle zoom mode changes
   const handleZoomModeChange = useCallback((mode: ZoomMode) => {
@@ -427,7 +511,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
     setZoomMode(mode);
 
-    const firstPage = pageDimensions.get(1);
+    const firstPage = getPageDimensions(1);
     if (!firstPage) return;
 
     if (mode === 'fit-width') {
@@ -443,13 +527,13 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
       setZoom(newZoom);
       setZoomMode('fit-page'); // Re-set because setZoom changes it
     }
-  }, [pageDimensions, getMaxPageWidth, calculateFitWidthZoom, calculateFitPageZoom, setZoom, setZoomMode]);
+  }, [pageDimensions, getMaxPageWidth, calculateFitWidthZoom, calculateFitPageZoom, getPageDimensions, setZoom, setZoomMode]);
 
   // Recalculate zoom on window resize for fit modes
   useEffect(() => {
     if (pageDimensions.size === 0 || !scrollContainerRef.current) return;
 
-    const firstPage = pageDimensions.get(1);
+    const firstPage = getPageDimensions(1);
     if (!firstPage) return;
 
     const handleResize = () => {
@@ -470,7 +554,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [pageDimensions, zoomMode, getMaxPageWidth, calculateFitWidthZoom, calculateFitPageZoom, setZoom, setZoomMode]);
+  }, [pageDimensions, zoomMode, getMaxPageWidth, calculateFitWidthZoom, calculateFitPageZoom, getPageDimensions, setZoom, setZoomMode]);
 
   // Update visible pages based on virtualized range
   // This replaces the IntersectionObserver approach for better performance
@@ -574,7 +658,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
   // Calculate which pages should be in the DOM based on scroll position - O(log n)
   const calculateVirtualizedRange = useCallback((scrollTop: number, viewportHeight: number) => {
-    if (pageDimensions.size === 0 || totalPages === 0) {
+    if ((!defaultPageDimensions && pageDimensions.size === 0) || totalPages === 0) {
       return { start: 1, end: Math.min(virtualizationBuffer + 2, totalPages) };
     }
 
@@ -593,7 +677,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
       start: Math.max(1, startPage - virtualizationBuffer),
       end: Math.min(totalPages, endPage + virtualizationBuffer),
     };
-  }, [pageDimensions, totalPages, findPageAtScrollPosition, virtualizationBuffer]);
+  }, [defaultPageDimensions, pageDimensions, totalPages, findPageAtScrollPosition, virtualizationBuffer]);
 
   // Update current page based on scroll position - O(log n) using binary search
   // Skip in e-ink mode since pages are controlled manually, not by scroll
@@ -602,7 +686,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     if (pdfColorMode === 'eink') return;
 
     const scrollContainer = scrollContainerRef.current;
-    if (!scrollContainer || pageDimensions.size === 0) return;
+    if (!scrollContainer || (!defaultPageDimensions && pageDimensions.size === 0)) return;
 
     const handleScroll = () => {
       const scrollTop = scrollContainer.scrollTop;
@@ -618,7 +702,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
       // Find which page we're on using binary search
       // Consider page "current" when its top half is visible
       const page = findPageAtScrollPosition(scrollTop);
-      const dims = pageDimensions.get(page);
+      const dims = getPageDimensions(page);
       let newCurrentPage = page;
 
       // Adjust for the "50% rule" - if we've scrolled past half the page, go to next
@@ -651,11 +735,11 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
     scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
     return () => scrollContainer.removeEventListener('scroll', handleScroll);
-  }, [pageDimensions, debouncedZoom, totalPages, currentPage, setCurrentPage, updateProgress, calculateVirtualizedRange, findPageAtScrollPosition, pageHeights, pdfColorMode]);
+  }, [defaultPageDimensions, pageDimensions, debouncedZoom, totalPages, currentPage, setCurrentPage, updateProgress, calculateVirtualizedRange, findPageAtScrollPosition, getPageDimensions, pageHeights, pdfColorMode]);
 
   // Handle programmatic scroll to page
   useEffect(() => {
-    if (scrollToPage === null || !scrollContainerRef.current || pageDimensions.size === 0) return;
+    if (scrollToPage === null || !scrollContainerRef.current || (!defaultPageDimensions && pageDimensions.size === 0)) return;
 
     const targetScroll = getScrollOffsetToPage(scrollToPage);
 
@@ -665,7 +749,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     });
 
     setScrollToPage(null);
-  }, [scrollToPage, pageDimensions, zoom, setScrollToPage, getScrollOffsetToPage]);
+  }, [scrollToPage, defaultPageDimensions, pageDimensions, zoom, setScrollToPage, getScrollOffsetToPage]);
 
   // Version counter to trigger re-renders when debounced zoom changes
   const [renderVersion, setRenderVersion] = useState(0);
@@ -1962,7 +2046,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
   // Render a single page container - use debouncedZoom to match canvas size
   const renderPageContainer = (pageNum: number) => {
-    const dims = pageDimensions.get(pageNum);
+    const dims = getPageDimensions(pageNum);
     // Use debouncedZoom for container to match canvas rendering
     const containerZoom = debouncedZoom;
 
@@ -2049,9 +2133,42 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   };
 
   if (isLoading) {
+    const progressPercent = loadProgress?.percent;
+    const progressLabel = progressPercent !== null
+      ? `${progressPercent}% loaded`
+      : loadProgress
+        ? `${formatLoadedSize(loadProgress.loaded)} loaded`
+        : 'Opening document';
+    const progressDetail = loadProgress
+      ? loadProgress.total
+        ? `${formatLoadedSize(loadProgress.loaded)} of ${formatLoadedSize(loadProgress.total)}`
+        : `${formatLoadedSize(loadProgress.loaded)} downloaded so far`
+      : 'Parsing PDF structure and preparing the first page.';
+
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" />
+      <div className="flex-1 flex items-center justify-center p-8">
+        <div className="w-full max-w-md rounded-2xl border border-border-default bg-bg-surface p-6 shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 border-2 border-accent-primary border-t-transparent rounded-full animate-spin shrink-0" />
+            <div>
+              <h2 className="text-lg font-semibold text-text-primary">Opening PDF</h2>
+              <p className="text-sm text-text-secondary">{progressLabel}</p>
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <div className="h-2 overflow-hidden rounded-full bg-bg-deep">
+              <div
+                className="h-full rounded-full bg-accent-primary transition-[width] duration-200"
+                style={{ width: `${progressPercent ?? 20}%` }}
+              />
+            </div>
+            <p className="mt-3 text-sm text-text-secondary">{progressDetail}</p>
+            <p className="mt-1 text-xs text-text-secondary">
+              Large non-linearized PDFs may need to download and parse much more data before the first page is ready.
+            </p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -2078,7 +2195,8 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
             <button
               onClick={() => {
                 setLoadError(null);
-                loadPDF();
+                loadGenerationRef.current += 1;
+                loadPDF(loadGenerationRef.current);
               }}
               className="px-4 py-2 bg-accent-primary text-white rounded-lg hover:bg-accent-primary/90 transition-colors"
             >
@@ -2101,7 +2219,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
   // Presentation mode overlay
   if (isPresentation) {
-    const dims = pageDimensions.get(presentationPage);
+    const dims = getPageDimensions(presentationPage);
     const presZoom = dims ? Math.min(
       (window.innerWidth - 100) / dims.width,
       (window.innerHeight - 150) / dims.height

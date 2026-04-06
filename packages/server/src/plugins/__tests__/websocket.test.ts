@@ -93,6 +93,10 @@ async function setupPlugin() {
     getAll: vi.fn(() => notes),
     refresh: vi.fn(),
   };
+  const searchIndex = {
+    invalidateIndex: vi.fn(),
+    indexNote: vi.fn(async () => {}),
+  };
 
   const fastify: FastifyInstance = Fastify();
   // Capture the route handler that the plugin registers on /ws
@@ -114,6 +118,7 @@ async function setupPlugin() {
   await fastify.register(websocketPlugin, {
     fileWatcher: fileWatcher as never,
     scanner: scanner as never,
+    searchIndex: searchIndex as never,
   });
 
   await fastify.ready();
@@ -132,6 +137,7 @@ async function setupPlugin() {
     fastify,
     fileWatcher,
     scanner,
+    searchIndex,
     notes,
     connect,
     emitFileEvent,
@@ -430,6 +436,28 @@ describe('websocketPlugin', () => {
         action: 'added',
       });
     });
+
+    it('broadcasts client:open-note to all connected clients and returns the delivery count', () => {
+      const conn1 = ctx.connect();
+      const conn2 = ctx.connect();
+
+      const delivered = ctx.fastify.openNoteOnClients({
+        noteId: 'note-1',
+        page: 12,
+      });
+
+      expect(delivered).toBe(2);
+      expect(conn1.getWrittenParsed()).toEqual([{
+        type: 'client:open-note',
+        noteId: 'note-1',
+        page: 12,
+      }]);
+      expect(conn2.getWrittenParsed()).toEqual([{
+        type: 'client:open-note',
+        noteId: 'note-1',
+        page: 12,
+      }]);
+    });
   });
 
   // ----- File watcher event handling -----
@@ -451,6 +479,8 @@ describe('websocketPlugin', () => {
         });
 
         expect(ctx.scanner.refresh).toHaveBeenCalledOnce();
+        expect(ctx.searchIndex.invalidateIndex).toHaveBeenCalledWith('new-note');
+        expect(ctx.searchIndex.indexNote).toHaveBeenCalledWith(note);
         const messages = conn.getWrittenParsed();
         expect(messages).toHaveLength(1);
         expect(messages[0]).toEqual({
@@ -499,6 +529,8 @@ describe('websocketPlugin', () => {
         });
 
         expect(ctx.scanner.refresh).toHaveBeenCalledOnce();
+        expect(ctx.searchIndex.invalidateIndex).toHaveBeenCalledWith('removed-note');
+        expect(ctx.searchIndex.indexNote).not.toHaveBeenCalled();
         // The note ID should have been captured before refresh
         expect(notesAtRefreshTime).toHaveLength(1);
 
@@ -547,6 +579,8 @@ describe('websocketPlugin', () => {
         });
 
         expect(ctx.scanner.refresh).toHaveBeenCalledOnce();
+        expect(ctx.searchIndex.invalidateIndex).toHaveBeenCalledWith('note-1');
+        expect(ctx.searchIndex.indexNote).toHaveBeenCalledWith(note);
         const messages = conn.getWrittenParsed();
         expect(messages).toHaveLength(1);
         expect(messages[0]).toEqual({
@@ -591,6 +625,36 @@ describe('websocketPlugin', () => {
 
         expect(ctx.scanner.refresh).not.toHaveBeenCalled();
         expect(conn.getWritten()).toHaveLength(0);
+      });
+
+      it('treats changed notes that lose literature metadata as removals', () => {
+        const conn = ctx.connect();
+        const note = createTestNote({
+          id: 'note-1',
+          notePath: '/test/library/was-lit.md',
+        });
+        ctx.notes.push(note);
+
+        ctx.scanner.refresh.mockImplementation(() => {
+          ctx.notes.length = 0;
+        });
+
+        ctx.emitFileEvent({
+          type: 'changed',
+          path: '/test/library/was-lit.md',
+          isLiteratureNote: false,
+        });
+
+        expect(ctx.scanner.refresh).toHaveBeenCalledOnce();
+        expect(ctx.searchIndex.invalidateIndex).toHaveBeenCalledWith('note-1');
+        expect(ctx.searchIndex.indexNote).not.toHaveBeenCalled();
+        const messages = conn.getWrittenParsed();
+        expect(messages).toHaveLength(1);
+        expect(messages[0]).toEqual({
+          type: 'library:updated',
+          action: 'removed',
+          noteId: 'note-1',
+        });
       });
 
       it('processes removed events even for non-literature notes', () => {

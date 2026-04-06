@@ -630,7 +630,7 @@ describe('updateDailyReadingHistory', () => {
     expect(result[2].date).toBe('2024-01-10');
   });
 
-  it('keeps only last 90 days', () => {
+  it('retains all history entries', () => {
     const existing = Array.from({ length: 95 }, (_, i) => ({
       date: `2024-${String(Math.floor(i / 28) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}`,
       durationMs: 1000,
@@ -640,7 +640,7 @@ describe('updateDailyReadingHistory', () => {
 
     const result = updateDailyReadingHistory(existing, '2024-12-31', 1000, 5);
 
-    expect(result.length).toBe(90);
+    expect(result.length).toBe(96);
     expect(result[0].date).toBe('2024-12-31');
   });
 
@@ -2049,7 +2049,7 @@ describe('addReadingSession', () => {
     expect(result).toHaveLength(2);
   });
 
-  it('limits to 100 sessions', () => {
+  it('retains all sessions', () => {
     const sessions = Array.from({ length: 100 }, (_, i) => ({
       startTime: `2024-01-${String(i + 1).padStart(2, '0')}T10:00:00Z`,
       endTime: `2024-01-${String(i + 1).padStart(2, '0')}T11:00:00Z`,
@@ -2069,12 +2069,12 @@ describe('addReadingSession', () => {
     };
 
     const result = addReadingSession(sessions, newSession);
-    expect(result).toHaveLength(100);
+    expect(result).toHaveLength(101);
     // The newest session should be first
     expect(result[0].startTime).toBe('2024-05-01T10:00:00Z');
   });
 
-  it('keeps most recent sessions when over limit', () => {
+  it('keeps sessions sorted by recency when appending beyond 100', () => {
     const sessions = Array.from({ length: 100 }, (_, i) => ({
       startTime: `2024-${String(Math.floor(i / 28) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}T10:00:00Z`,
       endTime: `2024-${String(Math.floor(i / 28) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}T11:00:00Z`,
@@ -2094,8 +2094,7 @@ describe('addReadingSession', () => {
     };
 
     const result = addReadingSession(sessions, newSession);
-    expect(result).toHaveLength(100);
-    // Oldest session should be dropped
+    expect(result).toHaveLength(101);
     expect(result[0].startTime).toBe('2025-01-01T10:00:00Z');
   });
 });
@@ -3796,7 +3795,7 @@ describe('addReadingSession (ordering edge cases)', () => {
     expect(result[1].startTime).toBe('2024-01-10T10:00:00Z');
   });
 
-  it('trims to exactly 100 sessions even if input is already at limit', () => {
+  it('keeps all sessions even if input is already at the old limit', () => {
     const sessions = Array.from({ length: 100 }, (_, i) => ({
       startTime: `2024-02-${String(Math.min(i + 1, 28)).padStart(2, '0')}T${String(i % 24).padStart(2, '0')}:00:00Z`,
       endTime: `2024-02-${String(Math.min(i + 1, 28)).padStart(2, '0')}T${String((i % 24) + 1).padStart(2, '0')}:00:00Z`,
@@ -3816,7 +3815,7 @@ describe('addReadingSession (ordering edge cases)', () => {
     };
 
     const result = addReadingSession(sessions, newSession);
-    expect(result).toHaveLength(100);
+    expect(result).toHaveLength(101);
     expect(result[0].startTime).toBe('2025-12-31T23:00:00Z');
   });
 });
@@ -4001,7 +4000,7 @@ describe('updateDailyReadingHistory (additional edge cases)', () => {
     expect(history[0].pagesRead).toBe(18);
   });
 
-  it('correctly handles adding to a full 90-entry history', () => {
+  it('correctly handles adding to a full 90-entry history without truncating', () => {
     // Create exactly 90 entries for consecutive days
     const entries = Array.from({ length: 90 }, (_, i) => {
       const date = new Date('2024-06-01');
@@ -4016,7 +4015,7 @@ describe('updateDailyReadingHistory (additional edge cases)', () => {
 
     const result = updateDailyReadingHistory(entries, '2024-12-01', 2000, 10);
 
-    expect(result).toHaveLength(90);
+    expect(result).toHaveLength(91);
     expect(result[0].date).toBe('2024-12-01');
   });
 });
@@ -4372,7 +4371,7 @@ describe('updateDailyReadingHistory (zero and edge values)', () => {
     expect(result[0].pagesRead).toBe(3);
   });
 
-  it('drops oldest entry when exceeding 90-entry limit with new date', () => {
+  it('retains the oldest entry when exceeding the old 90-entry limit with a new date', () => {
     const entries = Array.from({ length: 90 }, (_, i) => {
       const date = new Date('2024-06-01');
       date.setDate(date.getDate() - i);
@@ -4388,11 +4387,10 @@ describe('updateDailyReadingHistory (zero and edge values)', () => {
     const oldestDate = entries[entries.length - 1].date;
 
     const result = updateDailyReadingHistory(entries, '2024-06-02', 2000, 5);
-    expect(result).toHaveLength(90);
+    expect(result).toHaveLength(91);
     // Newest should be first
     expect(result[0].date).toBe('2024-06-02');
-    // Oldest should have been dropped
-    expect(result.find(e => e.date === oldestDate)).toBeUndefined();
+    expect(result.find(e => e.date === oldestDate)).toBeDefined();
   });
 });
 

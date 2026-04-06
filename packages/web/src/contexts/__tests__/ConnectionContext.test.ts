@@ -145,12 +145,17 @@ vi.mock('react', () => ({
 
 const mockInvalidateQueries = vi.fn();
 const mockRemoveQueries = vi.fn();
+const mockNavigate = vi.fn();
 
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({
     invalidateQueries: mockInvalidateQueries,
     removeQueries: mockRemoveQueries,
   }),
+}));
+
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => mockNavigate,
 }));
 
 import { ConnectionProvider, useConnection, useNoteSubscription } from '../ConnectionContext';
@@ -456,6 +461,24 @@ describe('ConnectionProvider', () => {
 
       expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['library'] });
       expect(mockInvalidateQueries).toHaveBeenCalledTimes(1);
+    });
+
+    it('handles client:open-note by navigating to the reader route', () => {
+      mountProvider();
+      getLatestWS().simulateOpen();
+
+      getLatestWS().simulateMessage({
+        type: 'client:open-note',
+        noteId: 'note-999',
+        page: 7,
+        cfi: '/6/2[test]!/4/1:0',
+      });
+
+      expect(mockNavigate).toHaveBeenCalledWith(
+        '/read/note-999?page=7&cfi=%2F6%2F2%5Btest%5D%21%2F4%2F1%3A0',
+      );
+      expect(mockInvalidateQueries).not.toHaveBeenCalled();
+      expect(mockRemoveQueries).not.toHaveBeenCalled();
     });
 
     it('does not crash on invalid JSON messages', () => {

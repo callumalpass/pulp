@@ -21,6 +21,7 @@ import { libraryStatsRoutes } from './routes/library-stats.js';
 import { readerPreferencesRoutes } from './routes/reader-preferences.js';
 import { bookNotesRoutes } from './routes/book-notes.js';
 import { pausedRoutes } from './routes/paused.js';
+import { commandRoutes } from './routes/commands.js';
 import { websocketPlugin } from './plugins/websocket.js';
 import { ReadingGoalsService } from './services/reading-goals.js';
 
@@ -63,7 +64,7 @@ async function main() {
   });
 
   // Register WebSocket plugin
-  await fastify.register(websocketPlugin, { fileWatcher, scanner });
+  await fastify.register(websocketPlugin, { fileWatcher, scanner, searchIndex });
 
   // Register routes
   await fastify.register(libraryRoutes, { scanner });
@@ -82,6 +83,7 @@ async function main() {
   await fastify.register(readerPreferencesRoutes, { scanner, config });
   await fastify.register(bookNotesRoutes, { scanner, config });
   await fastify.register(pausedRoutes, { scanner, config });
+  await fastify.register(commandRoutes, { scanner });
 
   // Health check
   fastify.get('/health', async () => ({ status: 'ok' }));

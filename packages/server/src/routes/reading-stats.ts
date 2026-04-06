@@ -5,7 +5,7 @@ import type { Config } from '../config/schema.js';
 import type { ReadingGoalsService } from '../services/reading-goals.js';
 import {
   getReadingStats,
-  createReadingStatsForFrontmatter,
+  getComputedReadingStats,
   getDailyReadingHistory,
   updateDailyReadingHistory,
   createDailyReadingEntryForFrontmatter,
@@ -13,9 +13,9 @@ import {
   addReadingSession,
   createReadingSessionForFrontmatter,
   calculateSessionQuality,
+  calculateMomentum,
   checkMilestones,
   createMilestoneRecord,
-  calculateMomentum,
 } from '../services/frontmatter-parser.js';
 import { atomicFrontmatterUpdate } from '../services/file-lock.js';
 
@@ -23,6 +23,25 @@ interface ReadingStatsRouteOptions {
   scanner: LibraryScanner;
   config: Config;
   goalsService: ReadingGoalsService;
+}
+
+function buildPersistedReadingStatsMetadata(stats: ReadingStats): Record<string, unknown> | null {
+  const result: Record<string, unknown> = {};
+
+  if (stats.firstReadDate) {
+    result.first_read = stats.firstReadDate;
+  }
+
+  if (stats.milestones && stats.milestones.length > 0) {
+    result.milestones = stats.milestones.map((milestone) => ({
+      milestone: milestone.milestone,
+      reached_at: milestone.reachedAt,
+      days_from_start: milestone.daysFromStart,
+      total_time_ms: milestone.totalReadingTimeMs,
+    }));
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
 }
 
 export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = async (fastify, opts) => {
@@ -92,184 +111,35 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
 
       // Use atomic update to prevent race conditions
       await atomicFrontmatterUpdate(note.notePath, ({ frontmatter }) => {
-        // Get existing stats or create new
-        const existingStats = getReadingStats(frontmatter, config.reading_stats_key);
+        const legacyStats = getReadingStats(frontmatter, config.reading_stats_key);
+        const existingHistory = getDailyReadingHistory(frontmatter, config.reading_history_key);
+        const existingSessions = getReadingSessions(frontmatter, config.reading_sessions_key);
 
-        // Calculate new totals
-        const totalReadingTimeMs = (existingStats?.totalReadingTimeMs || 0) + sessionDurationMs;
-        const totalSessions = (existingStats?.totalSessions || 0) + 1;
-        const totalPagesRead = (existingStats?.totalPagesRead || 0) + pagesRead;
-
-        // Calculate average session
-        const averageSessionMs = totalReadingTimeMs / totalSessions;
-
-        // Calculate reading speed (pages per hour) using weighted recent sessions
-        // Recent sessions are weighted more heavily for better accuracy
-        let pagesPerHour: number | null = existingStats?.pagesPerHour || null;
-
-        // Get existing sessions for weighted calculation
-        const existingSessionsForSpeed = getReadingSessions(frontmatter, config.reading_sessions_key);
-
-        // Create array with current session for calculation
-        const sessionsForSpeed = [
-          { durationMs: sessionDurationMs, pagesRead, startTime },
-          ...existingSessionsForSpeed.slice(0, 19), // Last 20 sessions including current
-        ].filter(s => s.durationMs >= 60000 && s.pagesRead > 0); // At least 1 min and 1 page
-
-        if (sessionsForSpeed.length > 0) {
-          // Weight more recent sessions more heavily (exponential decay)
-          // Most recent session gets weight 1.0, each older session decays by 0.85
-          const DECAY_FACTOR = 0.85;
-          let weightedPagesPerHour = 0;
-          let totalWeight = 0;
-
-          for (let i = 0; i < sessionsForSpeed.length; i++) {
-            const session = sessionsForSpeed[i];
-            const hours = session.durationMs / (1000 * 60 * 60);
-            const sessionPPH = session.pagesRead / hours;
-            const weight = Math.pow(DECAY_FACTOR, i);
-
-            weightedPagesPerHour += sessionPPH * weight;
-            totalWeight += weight;
-          }
-
-          if (totalWeight > 0) {
-            pagesPerHour = Math.round((weightedPagesPerHour / totalWeight) * 10) / 10;
-          }
-        } else if (totalPagesRead > 0 && totalReadingTimeMs >= 60000) {
-          // Fallback to overall average if no valid sessions
-          const hoursRead = totalReadingTimeMs / (1000 * 60 * 60);
-          if (hoursRead > 0) {
-            pagesPerHour = Math.round((totalPagesRead / hoursRead) * 10) / 10;
-          }
-        }
-
-        // Track longest session
-        const longestSessionMs = Math.max(
-          existingStats?.longestSessionMs || 0,
-          sessionDurationMs
-        );
+        const seededHistory = existingHistory.length === 0 && legacyStats && (
+          legacyStats.totalReadingTimeMs > 0 ||
+          legacyStats.totalSessions > 0 ||
+          legacyStats.totalPagesRead > 0
+        )
+          ? [{
+            date: (legacyStats.firstReadDate ?? today).split('T')[0],
+            durationMs: legacyStats.totalReadingTimeMs,
+            sessions: legacyStats.totalSessions,
+            pagesRead: legacyStats.totalPagesRead,
+          }]
+          : existingHistory;
 
         // Update daily reading history
-        const existingHistory = getDailyReadingHistory(frontmatter, config.reading_history_key);
         const updatedHistory = updateDailyReadingHistory(
-          existingHistory,
+          seededHistory,
           today,
           sessionDurationMs,
           pagesRead
         );
 
-        // Calculate average daily reading time from recent history (last 14 days with activity)
-        // Use weighted average - more recent days count more
-        const recentHistory = updatedHistory.filter(h => h.durationMs > 0).slice(0, 14);
-        let averageDailyReadingMs: number | null = null;
-        if (recentHistory.length >= 2) {
-          // Weight more recent days more heavily
-          const DAILY_DECAY = 0.9;
-          let weightedDailyMs = 0;
-          let totalDailyWeight = 0;
-
-          for (let i = 0; i < recentHistory.length; i++) {
-            const weight = Math.pow(DAILY_DECAY, i);
-            weightedDailyMs += recentHistory[i].durationMs * weight;
-            totalDailyWeight += weight;
-          }
-
-          if (totalDailyWeight > 0) {
-            averageDailyReadingMs = Math.round(weightedDailyMs / totalDailyWeight);
-          }
-        }
-
-        // Calculate estimated completion date with improved accuracy
-        let estimatedCompletionDate: string | null = null;
-        if (
-          pagesPerHour !== null &&
-          pagesPerHour > 0 &&
-          note.totalPages !== null &&
-          note.progress < 100
-        ) {
-          // Calculate remaining pages (clamp to valid range to avoid rounding overflow)
-          const currentPage = Math.min(note.totalPages, Math.round((note.progress / 100) * note.totalPages));
-          const remainingPages = note.totalPages - currentPage;
-
-          if (remainingPages > 0) {
-            // Use weighted daily average if available, otherwise estimate from sessions
-            let hoursPerDay: number;
-
-            if (averageDailyReadingMs !== null && averageDailyReadingMs > 0) {
-              hoursPerDay = averageDailyReadingMs / (1000 * 60 * 60);
-            } else if (sessionsForSpeed.length > 0) {
-              // Estimate from recent session frequency
-              // If user has been reading recently, assume they'll continue at similar rate
-              const recentDays = Math.min(7, sessionsForSpeed.length);
-              const recentTotalMs = sessionsForSpeed.slice(0, recentDays).reduce((s, x) => s + x.durationMs, 0);
-              hoursPerDay = (recentTotalMs / recentDays) / (1000 * 60 * 60);
-            } else {
-              // No good data - skip estimation
-              hoursPerDay = 0;
-            }
-
-            if (hoursPerDay > 0) {
-              const pagesPerDay = pagesPerHour * hoursPerDay;
-
-              if (pagesPerDay > 0) {
-                // Calculate days to complete
-                // Add a small buffer (5%) for more realistic estimates
-                const daysToComplete = Math.ceil((remainingPages / pagesPerDay) * 1.05);
-
-                // Calculate the target date
-                const targetDate = new Date();
-                targetDate.setDate(targetDate.getDate() + daysToComplete);
-                estimatedCompletionDate = targetDate.toISOString().split('T')[0];
-              }
-            }
-          }
-        }
-
-        // Calculate reading momentum from updated history
-        const { momentum, score: momentumScore } = calculateMomentum(updatedHistory);
-
         // Calculate session quality
         const sessionQuality = calculateSessionQuality(sessionDurationMs, idlePauseCount, idlePauseTotalMs);
 
-        // Check for milestone achievements
-        const existingMilestones = existingStats?.milestones || [];
-        const milestones = [...existingMilestones];
-
-        if (currentProgress !== undefined) {
-          const previousProgress = note.progress;
-          const newMilestones = checkMilestones(previousProgress, currentProgress, existingMilestones);
-          for (const milestone of newMilestones) {
-            const milestoneRecord = createMilestoneRecord(
-              milestone,
-              existingStats?.firstReadDate || now,
-              totalReadingTimeMs
-            );
-            milestones.push(milestoneRecord);
-          }
-          // Sort milestones by milestone value
-          if (newMilestones.length > 0) {
-            milestones.sort((a, b) => a.milestone - b.milestone);
-          }
-        }
-
-        newStats = {
-          totalReadingTimeMs,
-          totalSessions,
-          averageSessionMs,
-          firstReadDate: existingStats?.firstReadDate || now,
-          pagesPerHour,
-          totalPagesRead,
-          longestSessionMs,
-          estimatedCompletionDate,
-          averageDailyReadingMs,
-          ...(milestones.length > 0 ? { milestones } : {}),
-          ...(momentum ? { momentum } : {}),
-          ...(momentumScore !== undefined ? { momentumScore } : {}),
-        };
-
         // Add individual session record with hour of day for time-of-day analysis
-        const existingSessions = getReadingSessions(frontmatter, config.reading_sessions_key);
         const startDate = new Date(startTime);
         const newSession = {
           startTime,
@@ -285,11 +155,49 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
         };
         const updatedSessions = addReadingSession(existingSessions, newSession);
 
+        const nextProgress = currentProgress ?? note.progress;
+        const existingMilestones = legacyStats?.milestones ?? [];
+        const crossedMilestones = currentProgress !== undefined
+          ? checkMilestones(note.progress, nextProgress, existingMilestones)
+          : [];
+
         // Update frontmatter
-        frontmatter[config.reading_stats_key] = createReadingStatsForFrontmatter(newStats);
         frontmatter[config.reading_history_key] = updatedHistory.map(createDailyReadingEntryForFrontmatter);
         frontmatter[config.reading_sessions_key] = updatedSessions.map(createReadingSessionForFrontmatter);
         frontmatter[config.last_read_key] = now;
+
+        newStats = getComputedReadingStats(frontmatter, {
+          readingStatsKey: config.reading_stats_key,
+          historyKey: config.reading_history_key,
+          sessionsKey: config.reading_sessions_key,
+          totalPages: note.totalPages,
+          progress: nextProgress,
+        });
+
+        if (newStats && crossedMilestones.length > 0) {
+          const milestoneRecords = [
+            ...existingMilestones,
+            ...crossedMilestones.map((milestone) =>
+              createMilestoneRecord(
+                milestone,
+                newStats!.firstReadDate,
+                newStats!.totalReadingTimeMs
+              )
+            ),
+          ].sort((a, b) => a.milestone - b.milestone);
+
+          newStats = {
+            ...newStats,
+            milestones: milestoneRecords,
+          };
+        }
+
+        const persistedMetadata = newStats ? buildPersistedReadingStatsMetadata(newStats) : null;
+        if (persistedMetadata) {
+          frontmatter[config.reading_stats_key] = persistedMetadata;
+        } else {
+          delete frontmatter[config.reading_stats_key];
+        }
 
         updatedFrontmatter = frontmatter;
         return frontmatter;
@@ -338,7 +246,13 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
     }
 
     return {
-      readingStats: note.readingStats,
+      readingStats: getComputedReadingStats(note.frontmatter, {
+        readingStatsKey: config.reading_stats_key,
+        historyKey: config.reading_history_key,
+        sessionsKey: config.reading_sessions_key,
+        totalPages: note.totalPages,
+        progress: note.progress,
+      }) ?? note.readingStats,
     };
   });
 

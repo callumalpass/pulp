@@ -15,6 +15,7 @@ import { statSync, createReadStream } from 'node:fs';
 
 const mockStatSync = vi.mocked(statSync);
 const mockCreateReadStream = vi.mocked(createReadStream);
+const TEST_FILE_MTIME = new Date('2024-01-20T12:34:56.000Z');
 
 // Helper to create a test literature note
 function createTestNote(overrides: Partial<LiteratureNote> = {}): LiteratureNote {
@@ -88,6 +89,8 @@ describe('filesRoutes', () => {
       // Mock file stats - 10000 bytes file
       mockStatSync.mockReturnValue({
         size: 10000,
+        mtime: TEST_FILE_MTIME,
+        mtimeMs: TEST_FILE_MTIME.getTime(),
         isFile: () => true,
       } as any);
 
@@ -548,6 +551,78 @@ describe('filesRoutes', () => {
 
         expect(response.headers['content-type']).toBe('application/pdf');
       });
+
+      it('includes cache validators on full responses', async () => {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/api/files/test-note',
+        });
+
+        expect(response.headers.etag).toBeDefined();
+        expect(response.headers['last-modified']).toBe(TEST_FILE_MTIME.toUTCString());
+        expect(response.headers['cache-control']).toBe('private, max-age=0, must-revalidate');
+      });
+
+      it('includes cache validators on range responses', async () => {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/api/files/test-note',
+          headers: {
+            range: 'bytes=0-499',
+          },
+        });
+
+        expect(response.headers.etag).toBeDefined();
+        expect(response.headers['last-modified']).toBe(TEST_FILE_MTIME.toUTCString());
+        expect(response.headers['cache-control']).toBe('private, max-age=0, must-revalidate');
+      });
+    });
+
+    describe('conditional requests', () => {
+      it('returns 304 when If-None-Match matches', async () => {
+        const initialResponse = await app.inject({
+          method: 'GET',
+          url: '/api/files/test-note',
+        });
+
+        const response = await app.inject({
+          method: 'GET',
+          url: '/api/files/test-note',
+          headers: {
+            'if-none-match': initialResponse.headers.etag as string,
+          },
+        });
+
+        expect(response.statusCode).toBe(304);
+        expect(response.headers.etag).toBe(initialResponse.headers.etag);
+        expect(mockCreateReadStream).toHaveBeenCalledTimes(1);
+      });
+
+      it('returns 304 when If-Modified-Since is current', async () => {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/api/files/test-note',
+          headers: {
+            'if-modified-since': TEST_FILE_MTIME.toUTCString(),
+          },
+        });
+
+        expect(response.statusCode).toBe(304);
+        expect(mockCreateReadStream).not.toHaveBeenCalled();
+      });
+
+      it('returns file when If-Modified-Since is stale', async () => {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/api/files/test-note',
+          headers: {
+            'if-modified-since': new Date(TEST_FILE_MTIME.getTime() - 60_000).toUTCString(),
+          },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(mockCreateReadStream).toHaveBeenCalledOnce();
+      });
     });
 
     describe('error handling', () => {
@@ -606,6 +681,8 @@ describe('filesRoutes', () => {
 
         mockStatSync.mockReturnValue({
           size: 1,
+          mtime: TEST_FILE_MTIME,
+          mtimeMs: TEST_FILE_MTIME.getTime(),
           isFile: () => true,
         } as any);
 
@@ -624,6 +701,8 @@ describe('filesRoutes', () => {
 
         mockStatSync.mockReturnValue({
           size: 1,
+          mtime: TEST_FILE_MTIME,
+          mtimeMs: TEST_FILE_MTIME.getTime(),
           isFile: () => true,
         } as any);
 
@@ -646,6 +725,8 @@ describe('filesRoutes', () => {
 
         mockStatSync.mockReturnValue({
           size: 1,
+          mtime: TEST_FILE_MTIME,
+          mtimeMs: TEST_FILE_MTIME.getTime(),
           isFile: () => true,
         } as any);
 

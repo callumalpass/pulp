@@ -12,6 +12,24 @@ const MIME_TYPES: Record<string, string> = {
   '.epub': 'application/epub+zip',
 };
 
+function createFileEtag(fileSize: number, mtimeMs: number): string {
+  return `W/"${fileSize.toString(16)}-${Math.trunc(mtimeMs).toString(16)}"`;
+}
+
+function normalizeEtag(etag: string): string {
+  return etag.trim().replace(/^W\//, '');
+}
+
+function matchesIfNoneMatch(ifNoneMatch: string, etag: string): boolean {
+  if (ifNoneMatch.trim() === '*') return true;
+
+  const normalizedEtag = normalizeEtag(etag);
+  return ifNoneMatch
+    .split(',')
+    .map(normalizeEtag)
+    .some((candidate) => candidate === normalizedEtag);
+}
+
 export const filesRoutes: FastifyPluginAsync<FilesRouteOptions> = async (fastify, opts) => {
   const { scanner } = opts;
 
@@ -37,9 +55,32 @@ export const filesRoutes: FastifyPluginAsync<FilesRouteOptions> = async (fastify
     const ext = extname(filePath).toLowerCase();
     const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
     const fileSize = stat.size;
+    const lastModified = stat.mtime instanceof Date ? stat.mtime.toUTCString() : new Date().toUTCString();
+    const etag = createFileEtag(fileSize, typeof stat.mtimeMs === 'number' ? stat.mtimeMs : Date.parse(lastModified));
+    const cacheHeaders = {
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'private, max-age=0, must-revalidate',
+      'ETag': etag,
+      'Last-Modified': lastModified,
+    };
 
     // Handle range requests
     const range = request.headers.range;
+    const ifNoneMatch = request.headers['if-none-match'];
+    const ifModifiedSince = request.headers['if-modified-since'];
+
+    if (!range) {
+      const notModifiedByEtag = typeof ifNoneMatch === 'string' && matchesIfNoneMatch(ifNoneMatch, etag);
+      const notModifiedByDate = typeof ifModifiedSince === 'string'
+        && Number.isFinite(Date.parse(ifModifiedSince))
+        && stat.mtime.getTime() <= Date.parse(ifModifiedSince);
+
+      if (notModifiedByEtag || (!ifNoneMatch && notModifiedByDate)) {
+        reply.code(304);
+        reply.headers(cacheHeaders);
+        return reply.send();
+      }
+    }
 
     if (range) {
       const parts = range.replace(/bytes=/, '').split('-');
@@ -114,8 +155,8 @@ export const filesRoutes: FastifyPluginAsync<FilesRouteOptions> = async (fastify
 
       reply.code(206);
       reply.headers({
+        ...cacheHeaders,
         'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-        'Accept-Ranges': 'bytes',
         'Content-Length': chunkSize,
         'Content-Type': mimeType,
       });
@@ -125,9 +166,9 @@ export const filesRoutes: FastifyPluginAsync<FilesRouteOptions> = async (fastify
 
     // Full file response
     reply.headers({
+      ...cacheHeaders,
       'Content-Length': fileSize,
       'Content-Type': mimeType,
-      'Accept-Ranges': 'bytes',
     });
 
     return reply.send(createReadStream(filePath));

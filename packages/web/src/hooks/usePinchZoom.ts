@@ -121,12 +121,12 @@ export function usePinchZoom({
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent) => {
       if (e.touches.length < 2) {
-        if (frameHandle.current !== null) {
-          if (frameUsesRaf.current && typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
-            window.cancelAnimationFrame(frameHandle.current);
-          } else {
-            clearTimeout(frameHandle.current as ReturnType<typeof setTimeout>);
-          }
+          if (frameHandle.current !== null) {
+            if (frameUsesRaf.current && typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+              window.cancelAnimationFrame(frameHandle.current as number);
+            } else {
+              clearTimeout(frameHandle.current as ReturnType<typeof setTimeout>);
+            }
           frameHandle.current = null;
           frameUsesRaf.current = false;
         }

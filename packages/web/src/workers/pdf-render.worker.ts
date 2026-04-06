@@ -11,9 +11,10 @@ declare const self: DedicatedWorkerGlobalScope;
 
 import * as pdfjsLib from 'pdfjs-dist';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 // Configure PDF.js worker (same as main thread)
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 // PDF.js resource URLs for accurate text rendering
 const PDFJS_CDN_BASE = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}`;

@@ -532,7 +532,8 @@ export interface LibraryStatistics {
 export type WebSocketEvent =
   | FileChangedEvent
   | FileDeletedEvent
-  | LibraryUpdatedEvent;
+  | LibraryUpdatedEvent
+  | ClientOpenNoteEvent;
 
 export interface FileChangedEvent {
   type: 'file:changed';
@@ -552,6 +553,13 @@ export interface LibraryUpdatedEvent {
   noteId: string;
 }
 
+export interface ClientOpenNoteEvent {
+  type: 'client:open-note';
+  noteId: string;
+  page?: number;
+  cfi?: string;
+}
+
 export type WebSocketClientEvent =
   | SubscribeNoteEvent
   | UnsubscribeNoteEvent;
@@ -564,6 +572,12 @@ export interface SubscribeNoteEvent {
 export interface UnsubscribeNoteEvent {
   type: 'unsubscribe:note';
   noteId: string;
+}
+
+export interface OpenNoteCommand {
+  noteId: string;
+  page?: number;
+  cfi?: string;
 }
 
 // Highlight export types

@@ -25,7 +25,7 @@ vi.mock('../frontmatter-parser.js', () => ({
   getPinned: vi.fn(),
   getPaused: vi.fn(),
   getPausedAt: vi.fn(),
-  getReadingStats: vi.fn(),
+  getComputedReadingStats: vi.fn(),
   getAuthor: vi.fn(),
   getRating: vi.fn(),
   getTotalPages: vi.fn(),
@@ -61,7 +61,7 @@ const mockGetBookmarks = vi.mocked(frontmatterParser.getBookmarks);
 const mockGetPinned = vi.mocked(frontmatterParser.getPinned);
 const mockGetPaused = vi.mocked(frontmatterParser.getPaused);
 const mockGetPausedAt = vi.mocked(frontmatterParser.getPausedAt);
-const mockGetReadingStats = vi.mocked(frontmatterParser.getReadingStats);
+const mockGetComputedReadingStats = vi.mocked(frontmatterParser.getComputedReadingStats);
 const mockGetAuthor = vi.mocked(frontmatterParser.getAuthor);
 const mockGetRating = vi.mocked(frontmatterParser.getRating);
 const mockGetTotalPages = vi.mocked(frontmatterParser.getTotalPages);
@@ -148,7 +148,7 @@ function setupDefaultNoteMocks() {
   mockGetPinned.mockReturnValue(false);
   mockGetPaused.mockReturnValue(false);
   mockGetPausedAt.mockReturnValue(null);
-  mockGetReadingStats.mockReturnValue(null);
+  mockGetComputedReadingStats.mockReturnValue(null);
   mockGetAuthor.mockReturnValue(null);
   mockGetRating.mockReturnValue(null);
   mockGetTotalPages.mockReturnValue(null);
@@ -1641,7 +1641,7 @@ describe('LibraryScanner', () => {
       mockGetPaused.mockReturnValue(false);
       mockGetPausedAt.mockReturnValue(null);
       mockGetRating.mockReturnValue(4);
-      mockGetReadingStats.mockReturnValue({
+      mockGetComputedReadingStats.mockReturnValue({
         totalReadingTimeMs: 120 * 60 * 1000,
         totalSessions: 2,
         averageSessionMs: 60 * 60 * 1000,

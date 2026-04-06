@@ -43,6 +43,7 @@ const ReadingGoalsPanel = lazy(() =>
 
 interface EPUBReaderProps {
   note: LiteratureNote;
+  initialCfi?: string;
 }
 
 type EPUBTheme = 'light' | 'dark' | 'sepia' | 'eink';
@@ -56,7 +57,7 @@ const THEME_STYLES: Record<EPUBTheme, { bg: string; text: string; link: string }
 const TOUCH_LONG_PRESS_MS = 350;
 const TOUCH_MOVE_CANCEL_PX = 8;
 
-export function EPUBReader({ note }: EPUBReaderProps) {
+export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<Book | null>(null);
   const renditionRef = useRef<Rendition | null>(null);
@@ -296,7 +297,7 @@ export function EPUBReader({ note }: EPUBReaderProps) {
       renditionRef.current?.destroy();
       bookRef.current?.destroy();
     };
-  }, [note.id, clearTouchLongPressTimer]);
+  }, [note.id, initialCfi, clearTouchLongPressTimer]);
 
   // Track page changes for reading stats
   useEffect(() => {
@@ -406,6 +407,15 @@ export function EPUBReader({ note }: EPUBReaderProps) {
       });
 
       const restoreFromSavedPosition = async () => {
+        if (initialCfi) {
+          try {
+            await rendition.display(initialCfi);
+            return;
+          } catch (error) {
+            console.warn('Failed to open EPUB from requested CFI, falling back to saved position', error);
+          }
+        }
+
         if (note.lastOpenedCfi) {
           try {
             await rendition.display(note.lastOpenedCfi);

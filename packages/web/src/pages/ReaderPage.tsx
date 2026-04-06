@@ -9,6 +9,7 @@ export function ReaderPage() {
 
   // Get initial page from URL query parameter (for deep linking from search)
   const initialPage = searchParams.get('page') ? parseInt(searchParams.get('page')!, 10) : undefined;
+  const initialCfi = searchParams.get('cfi') || undefined;
 
   if (isLoading) {
     return <ReaderSkeleton />;
@@ -55,7 +56,7 @@ export function ReaderPage() {
     );
   }
 
-  return <ReaderShell note={note} initialPage={initialPage} />;
+  return <ReaderShell note={note} initialPage={initialPage} initialCfi={initialCfi} />;
 }
 
 function ReaderSkeleton() {

@@ -177,7 +177,7 @@ export const LibraryListView = memo(function LibraryListView({ notes }: LibraryL
     >
       {/* Column headers (desktop only) */}
       <div
-        className="library-list-header hidden sm:flex items-center gap-3 px-2 py-2 text-xs text-text-secondary uppercase tracking-wider font-semibold border-b border-subtle bg-bg-deep rounded-lg mb-2"
+        className="library-list-header hidden lg:flex items-center gap-3 px-2 py-2 text-xs text-text-secondary uppercase tracking-wider font-semibold border-b border-subtle bg-bg-deep rounded-lg mb-2"
         role="row"
         aria-hidden="true"
       >
@@ -298,7 +298,7 @@ const ListRow = memo(function ListRow({ note }: { note: LiteratureNoteSummary })
         </div>
 
         {/* Mobile: show author and pub info inline */}
-        <div className="sm:hidden flex items-center gap-2 mt-0.5 text-xs text-text-secondary">
+        <div className="lg:hidden flex items-center gap-2 mt-0.5 text-xs text-text-secondary">
           {note.author && (
             <span className="truncate max-w-[150px]">{note.author}</span>
           )}
@@ -309,7 +309,7 @@ const ListRow = memo(function ListRow({ note }: { note: LiteratureNoteSummary })
         </div>
 
         {/* Container title for chapters (mobile) */}
-        <div className="sm:hidden">
+        <div className="lg:hidden">
           {csl?.containerTitle && (
             <p className="text-xs text-text-secondary/60 truncate mt-0.5 italic">
               in {csl.containerTitle}
@@ -319,7 +319,7 @@ const ListRow = memo(function ListRow({ note }: { note: LiteratureNoteSummary })
       </div>
 
       {/* Desktop metadata columns */}
-      <div className="hidden sm:flex items-center gap-3 flex-shrink-0">
+      <div className="hidden lg:flex items-center gap-3 flex-shrink-0">
         {/* Author column */}
         <div className="w-36 min-w-0" data-testid="list-row-author">
           {note.author ? (
@@ -400,7 +400,7 @@ const ListRow = memo(function ListRow({ note }: { note: LiteratureNoteSummary })
       </div>
 
       {/* Mobile metadata (right side) */}
-      <div className="sm:hidden flex items-center gap-2 flex-shrink-0">
+      <div className="lg:hidden flex items-center gap-2 flex-shrink-0">
         {note.progress > 0 && note.progress < 100 && (
           <span className="text-xs text-accent-primary">{Math.round(note.progress)}%</span>
         )}
