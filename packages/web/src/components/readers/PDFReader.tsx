@@ -22,6 +22,7 @@ import { PDFTableOfContents } from './shared/PDFTableOfContents';
 import { KeyboardShortcutsPanel } from './shared/KeyboardShortcutsPanel';
 import { BookmarksPanel } from './shared/BookmarksPanel';
 import { HighlightsPanel } from './shared/HighlightsPanel';
+import { Button } from '../ui/Button';
 import { api } from '../../lib/api';
 import { PdfRenderQueue, type TextContentData } from '../../lib/pdf-render-queue';
 import { usePdfZoomController } from './hooks/usePdfZoomController';
@@ -73,7 +74,8 @@ const MAX_TEXT_CACHE_SIZE = 100; // Maximum pages to keep in text content cache
 const BACKGROUND_DIMENSION_BATCH_SIZE = 25;
 const PDF_RANGE_CHUNK_SIZE = 512 * 1024;
 const FALLBACK_PAGE_DIMENSIONS: PageDimensions = { width: 816, height: 1056 };
-const MOBILE_SELECTION_SETTLE_MS = 450;
+const MOBILE_SELECTION_SETTLE_MS = 140;
+
 function findPageAtOffset(heights: number[], totalPages: number, offset: number): number {
   if (totalPages === 0) return 1;
 
@@ -191,6 +193,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   useSaveShortcut(saveImmediately);
 
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [pendingMobileSelection, setPendingMobileSelection] = useState<Selection | null>(null);
   const [editingHighlight, setEditingHighlight] = useState<{ highlight: PDFHighlight; position: { x: number; y: number } } | null>(null);
   const [renderedPages, setRenderedPages] = useState<Set<number>>(new Set());
   const [visiblePages, setVisiblePages] = useState<Set<number>>(new Set([1]));
@@ -230,8 +233,8 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   const pendingZoomAnchorRef = useRef<{ page: number; pageOffsetRatio: number } | null>(null);
   const pinchSettleTimeoutRef = useRef<number | null>(null);
   const mobileSelectionCheckTimeoutRef = useRef<number | null>(null);
-  const mobileSelectionDismissedRef = useRef(false);
-  const lastMobileSelectionSignatureRef = useRef<string | null>(null);
+  const mobileTouchSelectionActiveRef = useRef(false);
+  const pendingMobileSelectionCheckRef = useRef(false);
   const [renderVersion, setRenderVersion] = useState(0);
 
   // Track pages currently being rendered to avoid duplicates
@@ -346,8 +349,6 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     setDefaultPageDimensions(null);
     setLoadProgress(null);
     restoreTargetPageRef.current = null;
-    mobileSelectionDismissedRef.current = false;
-    lastMobileSelectionSignatureRef.current = null;
     if (pinchSettleTimeoutRef.current !== null) {
       window.clearTimeout(pinchSettleTimeoutRef.current);
       pinchSettleTimeoutRef.current = null;
@@ -1749,25 +1750,22 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     return offset;
   };
 
-  // Handle text selection (shared logic for mouse and touch)
-  const checkTextSelection = useCallback(() => {
+  const resolveCurrentSelection = useCallback((): Selection | null => {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed) {
-      setSelection(null);
-      return;
+      return null;
     }
 
     const text = sel.toString().trim();
     if (!text) {
-      setSelection(null);
-      return;
+      return null;
     }
 
     const range = sel.getRangeAt(0);
     const rect = range.getBoundingClientRect();
     const containerRect = containerRef.current?.getBoundingClientRect();
 
-    if (!containerRect) return;
+    if (!containerRect) return null;
 
     // Get the page element
     const pageElement = getPageElementForNode(range.startContainer) ?? getPageElementForNode(range.commonAncestorContainer);
@@ -1777,43 +1775,30 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     const textSelection = pageElement ? getTextSelectionRange(pageElement, range) : null;
     if (!textSelection && !isTouchDevice) {
       console.warn('Could not get text selection range');
-      return;
+      return null;
     }
     if (!pageElement && !isTouchDevice) {
       console.warn('Could not determine selected PDF page');
-      return;
-    }
-    if (!textSelection) {
-      // On mobile, still show the bottom sheet even if we can't yet derive the
-      // exact PDF++ selection payload. Saving will surface a concrete error.
+      return null;
     }
     if (!pageElement && isTouchDevice) {
       // Fall back to the reader's current page when the browser selection DOM
       // doesn't map cleanly back to a rendered PDF page element.
     }
 
-    if (!textSelection && isTouchDevice) {
-      setSelection({
-        text,
-        page: currentPage,
-        pageLabel: pageLabels?.[currentPage - 1],
-        selection: null,
-        position: {
-          x: rect.left + rect.width / 2 - containerRect.left,
-          y: rect.bottom - containerRect.top + 10,
-        },
-      });
-      return;
-    }
-
     if (!textSelection) {
-      if (!isTouchDevice) {
-        console.warn('Could not get text selection range');
-        return;
+      if (isTouchDevice) {
+        // Mobile selection can temporarily spill into non-text nodes while the
+        // user is still dragging. Don't open the popup until we can resolve a
+        // concrete PDF text selection again.
+        return null;
       }
+
+      console.warn('Could not get text selection range');
+      return null;
     }
 
-    setSelection({
+    return {
       text,
       page: pageNum,
       pageLabel: pageLabels?.[pageNum - 1],
@@ -1822,35 +1807,26 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         x: rect.left + rect.width / 2 - containerRect.left,
         y: rect.bottom - containerRect.top + 10,
       },
-    });
+    };
   }, [currentPage, isTouchDevice, pageLabels]);
+
+  // Handle text selection (shared logic for mouse and touch)
+  const checkTextSelection = useCallback(() => {
+    const resolvedSelection = resolveCurrentSelection();
+    setSelection(resolvedSelection);
+    if (isTouchDevice) {
+      setPendingMobileSelection(null);
+    }
+  }, [isTouchDevice, resolveCurrentSelection]);
 
   // Handle mouse up for desktop
   const handleMouseUp = useCallback(() => {
     checkTextSelection();
   }, [checkTextSelection]);
 
-  // On mobile, open the bottom sheet only after selection has settled.
+  // On mobile, arm a settled selection and let the user explicitly open actions.
   useEffect(() => {
     if (!isTouchDevice) return;
-
-    const getSelectionSignature = (): string | null => {
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed || !sel.toString().trim() || sel.rangeCount === 0) {
-        return null;
-      }
-
-      const range = sel.getRangeAt(0);
-      const pageElement = getPageElementForNode(range.startContainer) ?? getPageElementForNode(range.commonAncestorContainer);
-      const page = pageElement?.getAttribute('data-page') || 'unknown';
-      const rect = range.getBoundingClientRect();
-      const top = Math.round(rect.top);
-      const left = Math.round(rect.left);
-      const width = Math.round(rect.width);
-      const height = Math.round(rect.height);
-
-      return `${page}:${sel.toString().trim()}:${top}:${left}:${width}:${height}`;
-    };
 
     const queueSelectionCheck = () => {
       if (mobileSelectionCheckTimeoutRef.current !== null) {
@@ -1858,42 +1834,87 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
       }
       mobileSelectionCheckTimeoutRef.current = window.setTimeout(() => {
         mobileSelectionCheckTimeoutRef.current = null;
-        if (mobileSelectionDismissedRef.current) return;
         const sel = window.getSelection();
         if (sel && !sel.isCollapsed && sel.toString().trim()) {
-          checkTextSelection();
+          const resolvedSelection = resolveCurrentSelection();
+          if (resolvedSelection) {
+            setSelection(null);
+            setPendingMobileSelection(resolvedSelection);
+          } else {
+            setSelection(null);
+            setPendingMobileSelection(null);
+          }
         } else {
           setSelection(null);
+          setPendingMobileSelection(null);
         }
       }, MOBILE_SELECTION_SETTLE_MS);
     };
 
+    const flushPendingSelectionCheck = () => {
+      if (pendingMobileSelectionCheckRef.current) {
+        pendingMobileSelectionCheckRef.current = false;
+        queueSelectionCheck();
+      }
+    };
+
     const handleSelectionChange = () => {
-      const signature = getSelectionSignature();
-      if (!signature) {
-        lastMobileSelectionSignatureRef.current = null;
-        mobileSelectionDismissedRef.current = false;
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+        pendingMobileSelectionCheckRef.current = false;
         setSelection(null);
+        setPendingMobileSelection(null);
         return;
       }
 
-      if (signature !== lastMobileSelectionSignatureRef.current) {
-        lastMobileSelectionSignatureRef.current = signature;
-        mobileSelectionDismissedRef.current = false;
+      if (mobileTouchSelectionActiveRef.current) {
+        pendingMobileSelectionCheckRef.current = true;
+        return;
       }
 
       queueSelectionCheck();
     };
 
-    document.addEventListener('selectionchange', handleSelectionChange);
-    return () => {
-      document.removeEventListener('selectionchange', handleSelectionChange);
+    const handleTouchStart = () => {
+      mobileTouchSelectionActiveRef.current = true;
       if (mobileSelectionCheckTimeoutRef.current !== null) {
         window.clearTimeout(mobileSelectionCheckTimeoutRef.current);
         mobileSelectionCheckTimeoutRef.current = null;
       }
     };
-  }, [isTouchDevice, checkTextSelection]);
+
+    const handleTouchMove = () => {
+      mobileTouchSelectionActiveRef.current = true;
+      if (mobileSelectionCheckTimeoutRef.current !== null) {
+        window.clearTimeout(mobileSelectionCheckTimeoutRef.current);
+        mobileSelectionCheckTimeoutRef.current = null;
+      }
+    };
+
+    const handleTouchEnd = () => {
+      mobileTouchSelectionActiveRef.current = false;
+      flushPendingSelectionCheck();
+    };
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+    document.addEventListener('touchstart', handleTouchStart, { passive: true });
+    document.addEventListener('touchmove', handleTouchMove, { passive: true });
+    document.addEventListener('touchend', handleTouchEnd, { passive: true });
+    document.addEventListener('touchcancel', handleTouchEnd, { passive: true });
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+      document.removeEventListener('touchstart', handleTouchStart);
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleTouchEnd);
+      document.removeEventListener('touchcancel', handleTouchEnd);
+      if (mobileSelectionCheckTimeoutRef.current !== null) {
+        window.clearTimeout(mobileSelectionCheckTimeoutRef.current);
+        mobileSelectionCheckTimeoutRef.current = null;
+      }
+      mobileTouchSelectionActiveRef.current = false;
+      pendingMobileSelectionCheckRef.current = false;
+    };
+  }, [isTouchDevice, resolveCurrentSelection]);
 
   // Prevent native context menu when there's a text selection
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -1906,7 +1927,9 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
   const closeSelectionPopup = useCallback((options?: { clearDomSelection?: boolean; dismissOnly?: boolean }) => {
     if (options?.dismissOnly) {
-      mobileSelectionDismissedRef.current = true;
+      if (isTouchDevice) {
+        setPendingMobileSelection(selection);
+      }
       setSelection(null);
       return;
     }
@@ -1914,10 +1937,15 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     if (options?.clearDomSelection !== false) {
       window.getSelection()?.removeAllRanges();
     }
-    mobileSelectionDismissedRef.current = false;
-    lastMobileSelectionSignatureRef.current = null;
     setSelection(null);
-  }, []);
+    setPendingMobileSelection(null);
+  }, [isTouchDevice, selection]);
+
+  const openPendingMobileSelection = useCallback(() => {
+    if (!pendingMobileSelection) return;
+    setSelection(pendingMobileSelection);
+    setPendingMobileSelection(null);
+  }, [pendingMobileSelection]);
 
   const quickHighlight = useCallback(async () => {
     if (!selection) return;
@@ -2552,6 +2580,20 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
           </Suspense>
         )}
       </div>
+
+      {isTouchDevice && pendingMobileSelection && !selection && (
+        <div className="fixed inset-x-0 bottom-6 z-40 flex justify-center px-4 pointer-events-none">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="pointer-events-auto min-h-[40px] rounded-full border-accent-primary/20 bg-bg-surface/95 px-4 py-2 text-sm shadow-lg shadow-black/20 backdrop-blur"
+            onClick={openPendingMobileSelection}
+          >
+            Selection actions
+          </Button>
+        </div>
+      )}
 
       {selection && (
         <HighlightPopup
