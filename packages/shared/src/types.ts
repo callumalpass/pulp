@@ -81,6 +81,7 @@ export interface LiteratureNoteSummary {
   totalPages: number | null;   // Total pages in document
   highlightCount: number;      // Number of highlights in this note
   collections: string[];       // User-defined collections/shelves this book belongs to
+  tags: string[];
   currentChapter: string | null; // Current chapter/section for display in library
   csl: CSLMetadata | null;     // CSL citation metadata from frontmatter
 }

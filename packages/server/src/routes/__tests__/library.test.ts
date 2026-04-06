@@ -65,6 +65,7 @@ function createTestSummary(overrides: Partial<LiteratureNoteSummary> = {}): Lite
     readingStats: null,
     highlightCount: 1,
     collections: [],
+    tags: ['literature-note'],
     totalPages: 100,
     currentChapter: null,
     paused: false,
@@ -94,6 +95,7 @@ function createMockScanner(notes: Map<string, LiteratureNote> = new Map()): Libr
           progress: note.progress,
           lastRead: note.lastRead,
           highlightCount: note.highlights.length,
+          tags: note.tags,
         })
       );
 
@@ -154,6 +156,7 @@ describe('libraryRoutes', () => {
       expect(body).toHaveLength(2);
       expect(body.map((n: LiteratureNoteSummary) => n.title)).toContain('Book A');
       expect(body.map((n: LiteratureNoteSummary) => n.title)).toContain('Book B');
+      expect(body[0].tags).toEqual(['literature-note']);
     });
 
     it('uses default sort (lastRead desc) when no query params', async () => {

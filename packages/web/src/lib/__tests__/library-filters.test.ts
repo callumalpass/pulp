@@ -31,6 +31,7 @@ function makeNote(overrides: Partial<LiteratureNoteSummary> = {}): LiteratureNot
     totalPages: 100,
     highlightCount: 0,
     collections: [],
+    tags: [],
     currentChapter: null,
     csl: null,
     ...overrides,
@@ -38,11 +39,11 @@ function makeNote(overrides: Partial<LiteratureNoteSummary> = {}): LiteratureNot
 }
 
 const sampleNotes: LiteratureNoteSummary[] = [
-  makeNote({ id: '1', title: 'Deep Learning', sourceType: 'pdf', progress: 0, collections: ['AI'] }),
-  makeNote({ id: '2', title: 'Clean Code', sourceType: 'epub', progress: 50, lastRead: '2025-06-10T12:00:00Z', collections: ['Programming'] }),
-  makeNote({ id: '3', title: 'Design Patterns', sourceType: 'pdf', progress: 100, collections: ['Programming'], citekey: 'gamma1994' }),
-  makeNote({ id: '4', title: 'EPUB Guide', sourceType: 'epub', progress: 0, collections: [] }),
-  makeNote({ id: '5', title: 'Advanced React', sourceType: 'epub', progress: 75, lastRead: '2025-06-15T10:00:00Z', collections: ['Programming', 'AI'] }),
+  makeNote({ id: '1', title: 'Deep Learning', sourceType: 'pdf', progress: 0, collections: ['AI'], tags: ['literature-note', 'ml'] }),
+  makeNote({ id: '2', title: 'Clean Code', sourceType: 'epub', progress: 50, lastRead: '2025-06-10T12:00:00Z', collections: ['Programming'], tags: ['literature-note', 'craft'] }),
+  makeNote({ id: '3', title: 'Design Patterns', sourceType: 'pdf', progress: 100, collections: ['Programming'], citekey: 'gamma1994', tags: ['literature-note', 'architecture'] }),
+  makeNote({ id: '4', title: 'EPUB Guide', sourceType: 'epub', progress: 0, collections: [], tags: ['literature-note'] }),
+  makeNote({ id: '5', title: 'Advanced React', sourceType: 'epub', progress: 75, lastRead: '2025-06-15T10:00:00Z', collections: ['Programming', 'AI'], tags: ['literature-note', 'frontend'] }),
 ];
 
 const defaultFilterOptions = {
@@ -51,6 +52,9 @@ const defaultFilterOptions = {
   typeFilter: 'all' as const,
   progressFilter: 'all' as const,
   collectionFilter: null,
+  includedTags: [],
+  excludedTags: [],
+  tagMatchMode: 'any' as const,
 };
 
 // ── filterNotes ─────────────────────────────────────────────────────────
@@ -291,6 +295,58 @@ describe('filterNotes', () => {
     });
   });
 
+  describe('tag filter', () => {
+    it('filters by included tag in match-any mode', () => {
+      const result = filterNotes(sampleNotes, {
+        ...defaultFilterOptions,
+        includedTags: ['frontend'],
+      });
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe('5');
+    });
+
+    it('returns empty when no notes belong to an included tag', () => {
+      const result = filterNotes(sampleNotes, {
+        ...defaultFilterOptions,
+        includedTags: ['nonexistent'],
+      });
+      expect(result).toHaveLength(0);
+    });
+
+    it('excludes notes with excluded tags', () => {
+      const result = filterNotes(sampleNotes, {
+        ...defaultFilterOptions,
+        excludedTags: ['craft'],
+      });
+      expect(result).toHaveLength(4);
+      expect(result.map(n => n.id)).not.toContain('2');
+    });
+
+    it('supports match-all across multiple included tags', () => {
+      const notes = [
+        makeNote({ id: 'a', tags: ['literature-note', 'project', 'shared'] }),
+        makeNote({ id: 'b', tags: ['literature-note', 'project'] }),
+        makeNote({ id: 'c', tags: ['literature-note', 'shared'] }),
+      ];
+      const result = filterNotes(notes, {
+        ...defaultFilterOptions,
+        includedTags: ['project', 'shared'],
+        tagMatchMode: 'all',
+      });
+      expect(result.map(n => n.id)).toEqual(['a']);
+    });
+
+    it('combines collection and included tags', () => {
+      const result = filterNotes(sampleNotes, {
+        ...defaultFilterOptions,
+        collectionFilter: 'Programming',
+        includedTags: ['craft'],
+      });
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe('2');
+    });
+  });
+
   // ── Combined filters ────────────────────────────────────────────────
 
   describe('combined filters', () => {
@@ -321,6 +377,9 @@ describe('filterNotes', () => {
         typeFilter: 'epub',
         progressFilter: 'reading',
         collectionFilter: 'Programming',
+        includedTags: ['frontend'],
+        excludedTags: [],
+        tagMatchMode: 'any',
       });
       expect(result).toHaveLength(1);
       expect(result[0].id).toBe('5');
@@ -377,34 +436,42 @@ describe('filterNotes', () => {
 
 describe('hasActiveFilters', () => {
   it('returns false when all defaults', () => {
-    expect(hasActiveFilters('', 'all', 'all', null)).toBe(false);
+    expect(hasActiveFilters('', 'all', 'all', null, [], [])).toBe(false);
   });
 
   it('returns true when search query is set', () => {
-    expect(hasActiveFilters('test', 'all', 'all', null)).toBe(true);
+    expect(hasActiveFilters('test', 'all', 'all', null, [], [])).toBe(true);
   });
 
   it('returns true when type filter is not "all"', () => {
-    expect(hasActiveFilters('', 'pdf', 'all', null)).toBe(true);
-    expect(hasActiveFilters('', 'epub', 'all', null)).toBe(true);
+    expect(hasActiveFilters('', 'pdf', 'all', null, [], [])).toBe(true);
+    expect(hasActiveFilters('', 'epub', 'all', null, [], [])).toBe(true);
   });
 
   it('returns true when progress filter is not "all"', () => {
-    expect(hasActiveFilters('', 'all', 'unread', null)).toBe(true);
-    expect(hasActiveFilters('', 'all', 'reading', null)).toBe(true);
-    expect(hasActiveFilters('', 'all', 'completed', null)).toBe(true);
+    expect(hasActiveFilters('', 'all', 'unread', null, [], [])).toBe(true);
+    expect(hasActiveFilters('', 'all', 'reading', null, [], [])).toBe(true);
+    expect(hasActiveFilters('', 'all', 'completed', null, [], [])).toBe(true);
   });
 
   it('returns true when collection filter is set', () => {
-    expect(hasActiveFilters('', 'all', 'all', 'Science')).toBe(true);
+    expect(hasActiveFilters('', 'all', 'all', 'Science', [], [])).toBe(true);
+  });
+
+  it('returns true when included tags are set', () => {
+    expect(hasActiveFilters('', 'all', 'all', null, ['frontend'], [])).toBe(true);
+  });
+
+  it('returns true when excluded tags are set', () => {
+    expect(hasActiveFilters('', 'all', 'all', null, [], ['frontend'])).toBe(true);
   });
 
   it('returns true when multiple filters are active', () => {
-    expect(hasActiveFilters('query', 'pdf', 'reading', 'Science')).toBe(true);
+    expect(hasActiveFilters('query', 'pdf', 'reading', 'Science', ['frontend'], [])).toBe(true);
   });
 
   it('treats empty string search as no filter', () => {
-    expect(hasActiveFilters('', 'all', 'all', null)).toBe(false);
+    expect(hasActiveFilters('', 'all', 'all', null, [], [])).toBe(false);
   });
 });
 
@@ -412,32 +479,40 @@ describe('hasActiveFilters', () => {
 
 describe('countActiveFilters', () => {
   it('returns 0 when no filters are active', () => {
-    expect(countActiveFilters('all', 'all', null)).toBe(0);
+    expect(countActiveFilters('all', 'all', null, [], [])).toBe(0);
   });
 
   it('counts type filter', () => {
-    expect(countActiveFilters('pdf', 'all', null)).toBe(1);
+    expect(countActiveFilters('pdf', 'all', null, [], [])).toBe(1);
   });
 
   it('counts progress filter', () => {
-    expect(countActiveFilters('all', 'reading', null)).toBe(1);
+    expect(countActiveFilters('all', 'reading', null, [], [])).toBe(1);
   });
 
   it('counts collection filter', () => {
-    expect(countActiveFilters('all', 'all', 'Science')).toBe(1);
+    expect(countActiveFilters('all', 'all', 'Science', [], [])).toBe(1);
   });
 
-  it('counts all three filters', () => {
-    expect(countActiveFilters('epub', 'completed', 'History')).toBe(3);
+  it('counts included tags as one filter bucket', () => {
+    expect(countActiveFilters('all', 'all', null, ['frontend'], [])).toBe(1);
+  });
+
+  it('counts excluded tags as one filter bucket', () => {
+    expect(countActiveFilters('all', 'all', null, [], ['frontend'])).toBe(1);
+  });
+
+  it('counts all four filters', () => {
+    expect(countActiveFilters('epub', 'completed', 'History', ['frontend'], [])).toBe(4);
   });
 
   it('counts two filters', () => {
-    expect(countActiveFilters('pdf', 'unread', null)).toBe(2);
+    expect(countActiveFilters('pdf', 'unread', null, [], [])).toBe(2);
   });
 
   it('does not count search query (separate from filter badges)', () => {
     // countActiveFilters does not take searchQuery as a parameter
-    expect(countActiveFilters('all', 'all', null)).toBe(0);
+    expect(countActiveFilters('all', 'all', null, [], [])).toBe(0);
   });
 });
 

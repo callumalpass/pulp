@@ -1,5 +1,5 @@
 import type { LiteratureNoteSummary } from '@pulp/shared';
-import type { TypeFilter, ProgressFilter, SearchMode } from '../stores/libraryFilters';
+import type { TypeFilter, ProgressFilter, SearchMode, TagMatchMode } from '../stores/libraryFilters';
 
 export interface LibraryFilterOptions {
   searchQuery: string;
@@ -7,16 +7,28 @@ export interface LibraryFilterOptions {
   typeFilter: TypeFilter;
   progressFilter: ProgressFilter;
   collectionFilter: string | null;
+  includedTags: string[];
+  excludedTags: string[];
+  tagMatchMode: TagMatchMode;
 }
 
 /**
- * Filter library notes based on search query, type, progress, and collection filters.
+ * Filter library notes based on search query, type, progress, collection, and tag filters.
  */
 export function filterNotes(
   notes: LiteratureNoteSummary[],
   options: LibraryFilterOptions,
 ): LiteratureNoteSummary[] {
-  const { searchQuery, searchMode, typeFilter, progressFilter, collectionFilter } = options;
+  const {
+    searchQuery,
+    searchMode,
+    typeFilter,
+    progressFilter,
+    collectionFilter,
+    includedTags,
+    excludedTags,
+    tagMatchMode,
+  } = options;
   const normalizedQuery = searchQuery.trim().toLowerCase();
 
   return notes.filter((note) => {
@@ -47,6 +59,20 @@ export function filterNotes(
       if (!note.collections.includes(collectionFilter)) return false;
     }
 
+    const noteTags = new Set(note.tags.map((tag) => tag.toLowerCase()));
+
+    if (excludedTags.some((tag) => noteTags.has(tag.toLowerCase()))) {
+      return false;
+    }
+
+    if (includedTags.length > 0) {
+      if (tagMatchMode === 'all') {
+        if (!includedTags.every((tag) => noteTags.has(tag.toLowerCase()))) return false;
+      } else if (!includedTags.some((tag) => noteTags.has(tag.toLowerCase()))) {
+        return false;
+      }
+    }
+
     return true;
   });
 }
@@ -59,22 +85,32 @@ export function hasActiveFilters(
   typeFilter: TypeFilter,
   progressFilter: ProgressFilter,
   collectionFilter: string | null,
+  includedTags: string[],
+  excludedTags: string[],
 ): boolean {
-  return Boolean(searchQuery) || typeFilter !== 'all' || progressFilter !== 'all' || collectionFilter !== null;
+  return Boolean(searchQuery)
+    || typeFilter !== 'all'
+    || progressFilter !== 'all'
+    || collectionFilter !== null
+    || includedTags.length > 0
+    || excludedTags.length > 0;
 }
 
 /**
- * Count the number of active non-search filters (type, progress, collection).
+ * Count the number of active non-search filters (type, progress, collection, tag).
  */
 export function countActiveFilters(
   typeFilter: TypeFilter,
   progressFilter: ProgressFilter,
   collectionFilter: string | null,
+  includedTags: string[],
+  excludedTags: string[],
 ): number {
   return [
     typeFilter !== 'all',
     progressFilter !== 'all',
     collectionFilter !== null,
+    includedTags.length > 0 || excludedTags.length > 0,
   ].filter(Boolean).length;
 }
 

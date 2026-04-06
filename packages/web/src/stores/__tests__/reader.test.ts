@@ -124,48 +124,56 @@ describe('useReaderStore', () => {
   });
 
   describe('zoom controls', () => {
-    it('sets zoom directly', () => {
-      useReaderStore.getState().setZoom(1.5);
+    it('sets custom zoom directly', () => {
+      useReaderStore.getState().setCustomZoom(1.5);
       const state = useReaderStore.getState();
       expect(state.zoom).toBe(1.5);
       expect(state.zoomMode).toBe('custom');
     });
 
-    it('switches to custom zoom mode when zoom is set', () => {
+    it('switches to custom zoom mode when custom zoom is set', () => {
       useReaderStore.getState().setZoomMode('fit-page');
       expect(useReaderStore.getState().zoomMode).toBe('fit-page');
 
-      useReaderStore.getState().setZoom(2);
+      useReaderStore.getState().setCustomZoom(2);
       expect(useReaderStore.getState().zoomMode).toBe('custom');
     });
 
-    it('clamps zoom to minimum of 0.5', () => {
-      useReaderStore.getState().setZoom(0.1);
+    it('updates zoom value without changing mode', () => {
+      useReaderStore.getState().setZoomMode('fit-page');
+      useReaderStore.getState().setZoomValue(1.5);
+      const state = useReaderStore.getState();
+      expect(state.zoom).toBe(1.5);
+      expect(state.zoomMode).toBe('fit-page');
+    });
+
+    it('clamps custom zoom to minimum of 0.5', () => {
+      useReaderStore.getState().setCustomZoom(0.1);
       expect(useReaderStore.getState().zoom).toBe(0.5);
     });
 
-    it('clamps zoom to maximum of 3', () => {
-      useReaderStore.getState().setZoom(5);
+    it('clamps custom zoom to maximum of 3', () => {
+      useReaderStore.getState().setCustomZoom(5);
       expect(useReaderStore.getState().zoom).toBe(3);
     });
 
     it('clamps zoom at exactly 0.5', () => {
-      useReaderStore.getState().setZoom(0.5);
+      useReaderStore.getState().setCustomZoom(0.5);
       expect(useReaderStore.getState().zoom).toBe(0.5);
     });
 
     it('clamps zoom at exactly 3', () => {
-      useReaderStore.getState().setZoom(3);
+      useReaderStore.getState().setCustomZoom(3);
       expect(useReaderStore.getState().zoom).toBe(3);
     });
 
     it('clamps negative zoom to minimum', () => {
-      useReaderStore.getState().setZoom(-1);
+      useReaderStore.getState().setCustomZoom(-1);
       expect(useReaderStore.getState().zoom).toBe(0.5);
     });
 
     it('clamps zero zoom to minimum', () => {
-      useReaderStore.getState().setZoom(0);
+      useReaderStore.getState().setCustomZoom(0);
       expect(useReaderStore.getState().zoom).toBe(0.5);
     });
 
@@ -184,25 +192,25 @@ describe('useReaderStore', () => {
     });
 
     it('does not zoom in beyond max of 3', () => {
-      useReaderStore.getState().setZoom(2.9);
+      useReaderStore.getState().setCustomZoom(2.9);
       useReaderStore.getState().zoomIn();
       expect(useReaderStore.getState().zoom).toBe(3);
     });
 
     it('does not zoom out below min of 0.5', () => {
-      useReaderStore.getState().setZoom(0.6);
+      useReaderStore.getState().setCustomZoom(0.6);
       useReaderStore.getState().zoomOut();
       expect(useReaderStore.getState().zoom).toBe(0.5);
     });
 
     it('caps at max when zooming in from max', () => {
-      useReaderStore.getState().setZoom(3);
+      useReaderStore.getState().setCustomZoom(3);
       useReaderStore.getState().zoomIn();
       expect(useReaderStore.getState().zoom).toBe(3);
     });
 
     it('caps at min when zooming out from min', () => {
-      useReaderStore.getState().setZoom(0.5);
+      useReaderStore.getState().setCustomZoom(0.5);
       useReaderStore.getState().zoomOut();
       expect(useReaderStore.getState().zoom).toBe(0.5);
     });
@@ -657,15 +665,15 @@ describe('useReaderStore', () => {
       expect(useReaderStore.getState().zoom).toBe(0.5);
     });
 
-    it('setZoom followed by zoomIn respects clamping', () => {
-      useReaderStore.getState().setZoom(2.9);
+    it('setCustomZoom followed by zoomIn respects clamping', () => {
+      useReaderStore.getState().setCustomZoom(2.9);
       useReaderStore.getState().zoomIn();
       // 2.9 + 0.25 = 3.15, clamped to 3
       expect(useReaderStore.getState().zoom).toBe(3);
     });
 
-    it('setZoom followed by zoomOut respects clamping', () => {
-      useReaderStore.getState().setZoom(0.6);
+    it('setCustomZoom followed by zoomOut respects clamping', () => {
+      useReaderStore.getState().setCustomZoom(0.6);
       useReaderStore.getState().zoomOut();
       // 0.6 - 0.25 = 0.35, clamped to 0.5
       expect(useReaderStore.getState().zoom).toBe(0.5);

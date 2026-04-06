@@ -11,11 +11,11 @@
     "dev": "npm run dev:server & npm run dev:web & wait",
     "dev:server": "npm run dev -w @pulp/server",
     "dev:web": "npm run dev -w @pulp/web",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build -w @pulp/shared && npm run build -w @pulp/server && npm run build -w @pulp/web",
     "test": "npm run test --workspaces --if-present",
     "test:e2e": "playwright test",
     "lint": "eslint packages/*/src --ext .ts,.tsx",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck -w @pulp/shared && npm run typecheck -w @pulp/server && npm run typecheck -w @pulp/web"
   },
   "devDependencies": {
     "@playwright/test": "^1.41.0",

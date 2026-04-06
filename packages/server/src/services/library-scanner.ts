@@ -315,6 +315,7 @@ export class LibraryScanner {
       totalPages: note.totalPages,
       highlightCount: note.highlights.length,
       collections: note.collections,
+      tags: note.tags,
       currentChapter: note.currentChapter,
       csl: getCSLMetadata(note.frontmatter),
     }));

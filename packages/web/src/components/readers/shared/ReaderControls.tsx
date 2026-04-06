@@ -239,6 +239,7 @@ export function ReaderControls({
         {/* Mobile menu bottom sheet */}
         {showMobileMenu && (
           <MobileReaderMenu
+            onZoomChange={onZoomChange}
             onZoomModeChange={onZoomModeChange}
             onViewModeChange={onViewModeChange}
             onEnterPresentation={onEnterPresentation}

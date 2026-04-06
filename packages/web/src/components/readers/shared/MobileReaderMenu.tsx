@@ -1,6 +1,7 @@
 import { useReaderStore, type ZoomMode, type PDFViewMode, type PDFColorMode } from '../../../stores/reader';
 
 interface MobileReaderMenuProps {
+  onZoomChange: (zoom: number) => void;
   onZoomModeChange?: (mode: ZoomMode) => void;
   onViewModeChange?: (mode: PDFViewMode) => void;
   onEnterPresentation?: () => void;
@@ -8,6 +9,7 @@ interface MobileReaderMenuProps {
 }
 
 export function MobileReaderMenu({
+  onZoomChange,
   onZoomModeChange,
   onViewModeChange,
   onEnterPresentation,
@@ -20,13 +22,12 @@ export function MobileReaderMenu({
     pdfColorMode,
     toggleSearch,
     setPdfColorMode,
-    setZoom,
     setPdfViewMode,
   } = useReaderStore();
 
   const handleZoomOption = (mode: ZoomMode | number) => {
     if (typeof mode === 'number') {
-      setZoom(mode / 100);
+      onZoomChange(mode / 100);
     } else {
       onZoomModeChange?.(mode);
     }

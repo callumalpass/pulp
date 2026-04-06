@@ -58,6 +58,9 @@ function LibraryPageContent() {
     typeFilter,
     progressFilter,
     collectionFilter,
+    includedTags,
+    excludedTags,
+    tagMatchMode,
     searchMode,
     viewMode,
     setSort,
@@ -65,6 +68,9 @@ function LibraryPageContent() {
     setTypeFilter,
     setProgressFilter,
     setCollectionFilter,
+    setIncludedTags,
+    setExcludedTags,
+    setTagMatchMode,
     setSearchMode,
     setViewMode,
     clearFilters,
@@ -75,6 +81,7 @@ function LibraryPageContent() {
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showTagFilters, setShowTagFilters] = useState(false);
   const deferredQuery = useDeferredValue(searchQuery);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
@@ -154,23 +161,43 @@ function LibraryPageContent() {
       typeFilter,
       progressFilter,
       collectionFilter,
+      includedTags,
+      excludedTags,
+      tagMatchMode,
     });
-  }, [notes, deferredQuery, typeFilter, progressFilter, collectionFilter, searchMode]);
+  }, [notes, deferredQuery, typeFilter, progressFilter, collectionFilter, includedTags, excludedTags, tagMatchMode, searchMode]);
 
   // Memoize filter calculations to prevent recalculation on unrelated state changes
   const hasActiveFilters = useMemo(() =>
-    computeHasActiveFilters(searchQuery, typeFilter, progressFilter, collectionFilter),
-    [searchQuery, typeFilter, progressFilter, collectionFilter]
+    computeHasActiveFilters(searchQuery, typeFilter, progressFilter, collectionFilter, includedTags, excludedTags),
+    [searchQuery, typeFilter, progressFilter, collectionFilter, includedTags, excludedTags]
   );
 
   // Count active filters for badge display
   const activeFilterCount = useMemo(() =>
-    countActiveFilters(typeFilter, progressFilter, collectionFilter),
-    [typeFilter, progressFilter, collectionFilter]
+    countActiveFilters(typeFilter, progressFilter, collectionFilter, includedTags, excludedTags),
+    [typeFilter, progressFilter, collectionFilter, includedTags, excludedTags]
   );
 
   // Get available collections
   const availableCollections = collectionsData?.collections || [];
+  const availableTags = useMemo(() => {
+    const tagMap = new Map<string, { key: string; label: string; count: number }>();
+    for (const note of notes || []) {
+      for (const tag of note.tags) {
+        const trimmed = tag.trim();
+        if (!trimmed) continue;
+        const key = trimmed.toLowerCase();
+        const existing = tagMap.get(key);
+        if (existing) {
+          existing.count += 1;
+        } else {
+          tagMap.set(key, { key, label: trimmed, count: 1 });
+        }
+      }
+    }
+    return Array.from(tagMap.values()).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+  }, [notes]);
   // E-ink mode prioritizes readability and fast refresh; force list rendering
   // while preserving the stored preference for standard mode.
   const effectiveViewMode: ViewMode = einkMode ? 'list' : viewMode;
@@ -179,6 +206,38 @@ function LibraryPageContent() {
     setSearchQuery('');
     clearFilters();
   }, [clearFilters]);
+
+  const cycleTagFilterState = useCallback((tagKey: string) => {
+    const isIncluded = includedTags.includes(tagKey);
+    const isExcluded = excludedTags.includes(tagKey);
+
+    if (!isIncluded && !isExcluded) {
+      setIncludedTags([...includedTags, tagKey]);
+      return;
+    }
+
+    if (isIncluded) {
+      setIncludedTags(includedTags.filter((tag) => tag !== tagKey));
+      setExcludedTags([...excludedTags, tagKey]);
+      return;
+    }
+
+    setExcludedTags(excludedTags.filter((tag) => tag !== tagKey));
+  }, [excludedTags, includedTags, setExcludedTags, setIncludedTags]);
+
+  const tagStateFor = useCallback((tagKey: string): 'off' | 'include' | 'exclude' => {
+    if (includedTags.includes(tagKey)) return 'include';
+    if (excludedTags.includes(tagKey)) return 'exclude';
+    return 'off';
+  }, [excludedTags, includedTags]);
+
+  const hasTagFilters = includedTags.length > 0 || excludedTags.length > 0;
+
+  useEffect(() => {
+    if (hasTagFilters) {
+      setShowTagFilters(true);
+    }
+  }, [hasTagFilters]);
 
   const isShowingSearchResults = searchMode === 'content' && debouncedQuery.length >= 2;
 
@@ -539,6 +598,95 @@ function LibraryPageContent() {
           )
         )}
 
+        {!isShowingSearchResults && !isMobile && availableTags.length > 0 && (
+          <div className="rounded-2xl border border-subtle bg-bg-surface/60 p-3">
+            <button
+              type="button"
+              onClick={() => setShowTagFilters((prev) => !prev)}
+              className="w-full flex items-center justify-between gap-3 text-left"
+              aria-expanded={showTagFilters}
+              aria-controls="library-tag-filters"
+            >
+              <span className="text-xs text-text-secondary uppercase tracking-wider font-medium flex items-center gap-2">
+                Tag filters
+                {hasTagFilters && (
+                  <span className="rounded-full bg-accent-primary/15 px-2 py-0.5 text-[10px] text-accent-primary">
+                    {includedTags.length + excludedTags.length}
+                  </span>
+                )}
+              </span>
+              <span className="text-sm text-text-secondary">{showTagFilters ? 'Hide' : 'Show'}</span>
+            </button>
+            {showTagFilters && (
+              <div id="library-tag-filters" className="mt-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTagMatchMode('any')}
+                    className={`rounded-lg px-2.5 py-1 text-xs transition-colors ${
+                      tagMatchMode === 'any'
+                        ? 'bg-accent-primary text-white'
+                        : 'border border-subtle text-text-secondary hover:text-text-primary'
+                    }`}
+                  >
+                    Match any
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTagMatchMode('all')}
+                    className={`rounded-lg px-2.5 py-1 text-xs transition-colors ${
+                      tagMatchMode === 'all'
+                        ? 'bg-accent-primary text-white'
+                        : 'border border-subtle text-text-secondary hover:text-text-primary'
+                    }`}
+                  >
+                    Match all
+                  </button>
+                  {hasTagFilters && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIncludedTags([]);
+                        setExcludedTags([]);
+                      }}
+                      className="rounded-lg border border-subtle px-2.5 py-1 text-xs text-text-secondary hover:text-text-primary"
+                    >
+                      Clear tags
+                    </button>
+                  )}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {availableTags.map((tag) => {
+                    const state = tagStateFor(tag.key);
+                    const stateClass =
+                      state === 'include'
+                        ? 'border-emerald-400/50 bg-emerald-500/15 text-emerald-300'
+                        : state === 'exclude'
+                          ? 'border-rose-400/50 bg-rose-500/15 text-rose-300'
+                          : 'border-subtle bg-bg-base text-text-secondary hover:text-text-primary';
+
+                    return (
+                      <button
+                        key={tag.key}
+                        type="button"
+                        onClick={() => cycleTagFilterState(tag.key)}
+                        className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${stateClass}`}
+                        aria-label={`${tag.label} (${state})`}
+                      >
+                        #{tag.label}
+                        <span className="ml-1 opacity-70">{tag.count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-2 text-xs text-text-secondary">
+                  Click a tag to include it, click again to exclude it, click a third time to clear.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Active filters summary */}
         {!isShowingSearchResults && hasActiveFilters && (
           <div className="flex items-center gap-2 text-sm">
@@ -619,10 +767,16 @@ function LibraryPageContent() {
             dialogId="library-filters-sheet"
             typeFilter={typeFilter}
             progressFilter={progressFilter}
+            includedTags={includedTags}
+            excludedTags={excludedTags}
+            tagMatchMode={tagMatchMode}
             sort={sort}
             sortOrder={sortOrder}
+            availableTags={availableTags}
             onTypeChange={setTypeFilter}
             onProgressChange={setProgressFilter}
+            onCycleTag={cycleTagFilterState}
+            onTagMatchModeChange={setTagMatchMode}
             onSortChange={setSort}
             onSortOrderToggle={toggleSortOrder}
             onClearFilters={handleClearFilters}

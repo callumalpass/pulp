@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import type { SortOption, SortOrder, TypeFilter, ProgressFilter } from '../../stores/libraryFilters';
+import { useEffect, useState } from 'react';
+import type { SortOption, SortOrder, TypeFilter, ProgressFilter, TagMatchMode } from '../../stores/libraryFilters';
 
 const SORT_LABELS: Record<SortOption, string> = {
   lastRead: 'Recent',
@@ -21,10 +21,16 @@ interface MobileLibraryFiltersProps {
   dialogId?: string;
   typeFilter: TypeFilter;
   progressFilter: ProgressFilter;
+  includedTags: string[];
+  excludedTags: string[];
+  tagMatchMode: TagMatchMode;
   sort: SortOption;
   sortOrder: SortOrder;
+  availableTags: Array<{ key: string; label: string; count: number }>;
   onTypeChange: (type: TypeFilter) => void;
   onProgressChange: (progress: ProgressFilter) => void;
+  onCycleTag: (tagKey: string) => void;
+  onTagMatchModeChange: (mode: TagMatchMode) => void;
   onSortChange: (sort: SortOption) => void;
   onSortOrderToggle: () => void;
   onClearFilters: () => void;
@@ -36,16 +42,24 @@ export function MobileLibraryFilters({
   dialogId = 'mobile-library-filters',
   typeFilter,
   progressFilter,
+  includedTags,
+  excludedTags,
+  tagMatchMode,
   sort,
   sortOrder,
+  availableTags,
   onTypeChange,
   onProgressChange,
+  onCycleTag,
+  onTagMatchModeChange,
   onSortChange,
   onSortOrderToggle,
   onClearFilters,
   hasActiveFilters,
   onClose,
 }: MobileLibraryFiltersProps) {
+  const [showTagFilters, setShowTagFilters] = useState(includedTags.length > 0 || excludedTags.length > 0);
+
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -63,6 +77,12 @@ export function MobileLibraryFilters({
     };
   }, [onClose]);
 
+  useEffect(() => {
+    if (includedTags.length > 0 || excludedTags.length > 0) {
+      setShowTagFilters(true);
+    }
+  }, [includedTags, excludedTags]);
+
   const handleTypeSelect = (type: TypeFilter) => {
     onTypeChange(type);
   };
@@ -73,6 +93,12 @@ export function MobileLibraryFilters({
 
   const handleSortSelect = (sortOption: SortOption) => {
     onSortChange(sortOption);
+  };
+
+  const tagStateFor = (tagKey: string): 'off' | 'include' | 'exclude' => {
+    if (includedTags.includes(tagKey)) return 'include';
+    if (excludedTags.includes(tagKey)) return 'exclude';
+    return 'off';
   };
 
   const handleClearAndClose = () => {
@@ -189,6 +215,86 @@ export function MobileLibraryFilters({
               ))}
             </div>
           </section>
+
+          {availableTags.length > 0 && (
+            <section className="bg-bg-deep/50 rounded-2xl p-4">
+              <button
+                type="button"
+                onClick={() => setShowTagFilters((prev) => !prev)}
+                className="w-full flex items-center justify-between gap-3 text-left"
+                aria-expanded={showTagFilters}
+                aria-controls={`${dialogId}-tag-filters`}
+              >
+                <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide flex items-center gap-2">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-accent-primary">
+                    <path d="M20 10V4a2 2 0 0 0-2-2h-6L2 12l10 10 10-10V10z" />
+                    <circle cx="15" cy="7" r="1.5" />
+                  </svg>
+                  Tags
+                  {(includedTags.length > 0 || excludedTags.length > 0) && (
+                    <span className="rounded-full bg-accent-primary/15 px-2 py-0.5 text-[10px] text-accent-primary">
+                      {includedTags.length + excludedTags.length}
+                    </span>
+                  )}
+                </span>
+                <span className="text-text-secondary text-sm">{showTagFilters ? 'Hide' : 'Show'}</span>
+              </button>
+              {showTagFilters && (
+                <div id={`${dialogId}-tag-filters`} className="mt-3">
+                  <div className="flex flex-wrap items-center gap-2 mb-3">
+                    <button
+                      type="button"
+                      onClick={() => onTagMatchModeChange('any')}
+                      className={`rounded-lg px-2.5 py-1 text-xs ${
+                        tagMatchMode === 'any'
+                          ? 'bg-accent-primary text-white'
+                          : 'bg-bg-surface border border-subtle text-text-secondary'
+                      }`}
+                    >
+                      Match any
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onTagMatchModeChange('all')}
+                      className={`rounded-lg px-2.5 py-1 text-xs ${
+                        tagMatchMode === 'all'
+                          ? 'bg-accent-primary text-white'
+                          : 'bg-bg-surface border border-subtle text-text-secondary'
+                      }`}
+                    >
+                      Match all
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {availableTags.map((tag) => {
+                      const state = tagStateFor(tag.key);
+                      const stateClass =
+                        state === 'include'
+                          ? 'border-emerald-400/50 bg-emerald-500/15 text-emerald-300'
+                          : state === 'exclude'
+                            ? 'border-rose-400/50 bg-rose-500/15 text-rose-300'
+                            : 'border-subtle bg-bg-surface text-text-secondary';
+
+                      return (
+                        <button
+                          key={tag.key}
+                          type="button"
+                          onClick={() => onCycleTag(tag.key)}
+                          className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${stateClass}`}
+                        >
+                          #{tag.label}
+                          <span className="ml-1 opacity-70">{tag.count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-3 text-xs text-text-secondary">
+                    Tap once to include, again to exclude, and a third time to clear.
+                  </p>
+                </div>
+              )}
+            </section>
+          )}
 
           {/* Sort Options */}
           <section className="bg-bg-deep/50 rounded-2xl p-4">

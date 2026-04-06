@@ -81,7 +81,8 @@ interface ReaderState {
   setCurrentPage: (page: number) => void;
   setTotalPages: (total: number) => void;
   setPageLabels: (labels: string[] | null) => void;
-  setZoom: (zoom: number) => void;
+  setZoomValue: (zoom: number) => void;
+  setCustomZoom: (zoom: number) => void;
   setZoomMode: (mode: ZoomMode) => void;
   zoomIn: () => void;
   zoomOut: () => void;
@@ -177,7 +178,8 @@ export const useReaderStore = create<ReaderState>((set) => ({
   setCurrentPage: (page) => set({ currentPage: page }),
   setTotalPages: (total) => set({ totalPages: total }),
   setPageLabels: (labels) => set({ pageLabels: labels }),
-  setZoom: (zoom) => set({ zoom: Math.max(0.5, Math.min(3, zoom)), zoomMode: 'custom' }),
+  setZoomValue: (zoom) => set({ zoom: Math.max(0.5, Math.min(3, zoom)) }),
+  setCustomZoom: (zoom) => set({ zoom: Math.max(0.5, Math.min(3, zoom)), zoomMode: 'custom' }),
   setZoomMode: (mode) => set({ zoomMode: mode }),
   zoomIn: () => set((state) => ({ zoom: Math.min(3, state.zoom + 0.25), zoomMode: 'custom' })),
   zoomOut: () => set((state) => ({ zoom: Math.max(0.5, state.zoom - 0.25), zoomMode: 'custom' })),
