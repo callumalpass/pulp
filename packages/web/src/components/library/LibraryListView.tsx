@@ -6,6 +6,8 @@ import { ProgressIndicator } from './ProgressIndicator';
 import { api } from '../../lib/api';
 import { formatLastRead } from '../../lib/format';
 import { usePerformanceMode } from '../../hooks/usePerformanceMode';
+import { usePinned } from '../../hooks/usePinned';
+import { useMetadataPane } from '../../contexts/MetadataPaneContext';
 
 interface LibraryListViewProps {
   notes: LiteratureNoteSummary[];
@@ -229,6 +231,9 @@ export const LibraryListView = memo(function LibraryListView({ notes }: LibraryL
 
 const ListRow = memo(function ListRow({ note }: { note: LiteratureNoteSummary }) {
   const [imageLoaded, setImageLoaded] = useState(false);
+  const { togglePin, isPending: isPinPending } = usePinned();
+  const { openPane } = useMetadataPane();
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const csl = note.csl;
 
   // Format publication info (for mobile subtitle)
@@ -255,6 +260,41 @@ const ListRow = memo(function ListRow({ note }: { note: LiteratureNoteSummary })
     return parts.join(', ');
   }, [note.title, note.author, note.progress, note.rating]);
 
+  const handleInfoClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openPane(note.id);
+  }, [note.id, openPane]);
+
+  const handlePinClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isPinPending) {
+      togglePin(note.id, note.pinned);
+    }
+  }, [isPinPending, note.id, note.pinned, togglePin]);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    longPressTimer.current = setTimeout(() => {
+      e.preventDefault();
+      openPane(note.id);
+    }, 500);
+  }, [note.id, openPane]);
+
+  const clearLongPress = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'i' || e.key === 'I') {
+      e.preventDefault();
+      openPane(note.id);
+    }
+  }, [note.id, openPane]);
+
   return (
     <Link
       to={`/read/${note.id}`}
@@ -262,6 +302,10 @@ const ListRow = memo(function ListRow({ note }: { note: LiteratureNoteSummary })
       data-testid="library-list-row"
       role="listitem"
       aria-label={accessibleLabel}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={clearLongPress}
+      onTouchMove={clearLongPress}
+      onKeyDown={handleKeyDown}
     >
       {/* Cover thumbnail */}
       <div className="w-11 h-[60px] flex-shrink-0 rounded-md overflow-hidden bg-bg-deep relative transition-transform duration-200 group-hover:scale-105">
@@ -292,9 +336,30 @@ const ListRow = memo(function ListRow({ note }: { note: LiteratureNoteSummary })
           <h3 className="text-sm font-medium text-text-primary truncate flex-1" data-testid="list-row-title">
             {note.title}
           </h3>
-          {note.pinned && (
-            <PinIcon className="w-3.5 h-3.5 text-accent-primary flex-shrink-0 mt-0.5" />
-          )}
+          <div className="hidden lg:flex items-center gap-1 flex-shrink-0">
+            <button
+              onClick={handleInfoClick}
+              type="button"
+              aria-label="Show metadata"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-colors opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+            >
+              <InfoIcon className="w-4 h-4" />
+            </button>
+            <button
+              onClick={handlePinClick}
+              type="button"
+              aria-label={note.pinned ? 'Unpin' : 'Pin'}
+              aria-pressed={note.pinned}
+              disabled={isPinPending}
+              className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
+                note.pinned
+                  ? 'text-accent-primary bg-accent-primary/10 opacity-100'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+              } ${isPinPending ? 'opacity-50' : ''}`}
+            >
+              <PinIcon className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Mobile: show author and pub info inline */}
@@ -401,6 +466,28 @@ const ListRow = memo(function ListRow({ note }: { note: LiteratureNoteSummary })
 
       {/* Mobile metadata (right side) */}
       <div className="lg:hidden flex items-center gap-2 flex-shrink-0">
+        <button
+          onClick={handleInfoClick}
+          type="button"
+          aria-label="Show metadata"
+          className="w-10 h-10 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-deep transition-colors"
+        >
+          <InfoIcon className="w-4 h-4" />
+        </button>
+        <button
+          onClick={handlePinClick}
+          type="button"
+          aria-label={note.pinned ? 'Unpin' : 'Pin'}
+          aria-pressed={note.pinned}
+          disabled={isPinPending}
+          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors ${
+            note.pinned
+              ? 'text-accent-primary bg-accent-primary/10'
+              : 'text-text-secondary hover:text-text-primary hover:bg-bg-deep'
+          } ${isPinPending ? 'opacity-50' : ''}`}
+        >
+          <PinIcon className="w-4 h-4" />
+        </button>
         {note.progress > 0 && note.progress < 100 && (
           <span className="text-xs text-accent-primary">{Math.round(note.progress)}%</span>
         )}
@@ -410,6 +497,16 @@ const ListRow = memo(function ListRow({ note }: { note: LiteratureNoteSummary })
         {note.rating && <StarRating rating={note.rating} size={8} />}
       </div>
     </Link>
+  );
+});
+
+const InfoIcon = memo(function InfoIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="16" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
+    </svg>
   );
 });
 

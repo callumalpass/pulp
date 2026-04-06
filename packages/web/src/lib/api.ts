@@ -155,16 +155,12 @@ export const api = {
       format: HighlightExportFormat,
       options?: {
         includeNotes?: boolean;
-        includeCategories?: boolean;
         includeTimestamps?: boolean;
-        groupByCategory?: boolean;
       }
     ) {
       const params = new URLSearchParams({ format });
       if (options?.includeNotes !== undefined) params.set('includeNotes', String(options.includeNotes));
-      if (options?.includeCategories !== undefined) params.set('includeCategories', String(options.includeCategories));
       if (options?.includeTimestamps !== undefined) params.set('includeTimestamps', String(options.includeTimestamps));
-      if (options?.groupByCategory !== undefined) params.set('groupByCategory', String(options.groupByCategory));
       return fetchJSON<HighlightExportResponse>(`/library/${noteId}/highlights/export?${params.toString()}`);
     },
   },

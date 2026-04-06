@@ -978,12 +978,11 @@ reading_stats:
 
       expect(response.statusCode).toBe(200);
 
-      // Check sessions were written with quality data
+      // Sessions are stored leanly and quality is derived on read.
       expect(mockWriteFileSync).toHaveBeenCalled();
       const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
       expect(writtenContent).toContain('reading_sessions');
-      // A 1-hour session with no pauses should be "deep" quality
-      expect(writtenContent).toContain('deep');
+      expect(writtenContent).not.toContain('quality');
     });
 
     it('generates default startTime when not provided', async () => {
@@ -1532,7 +1531,7 @@ reading_sessions:
       expect(body.focusScore).toBe(92);
     });
 
-    it('returns null quality/focus when no sessions have quality data', async () => {
+    it('derives quality/focus when sessions omit stored quality data', async () => {
       const sessions = [
         {
           start: '2024-01-15T10:00:00Z',
@@ -1555,8 +1554,8 @@ reading_sessions:
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
 
-      expect(body.averageSessionQuality).toBeNull();
-      expect(body.focusScore).toBeNull();
+      expect(body.averageSessionQuality).toBe('deep');
+      expect(body.focusScore).toBe(100);
     });
 
     it('returns momentum data from reading history', async () => {
@@ -2105,7 +2104,7 @@ reading_sessions:
       expect(emptyHour.averageDurationMs).toBe(0);
     });
 
-    it('ignores sessions with invalid hourOfDay values', async () => {
+    it('derives hourOfDay from start time when stored values are invalid', async () => {
       const sessions = [
         { start: '2024-01-15T10:00:00Z', end: '2024-01-15T11:00:00Z', duration_ms: 3600000, pages: 30, start_page: 0, end_page: 30, hour_of_day: 10 },
         { start: '2024-01-14T10:00:00Z', end: '2024-01-14T11:00:00Z', duration_ms: 3600000, pages: 25, start_page: 30, end_page: 55, hour_of_day: -1 },
@@ -2125,7 +2124,7 @@ reading_sessions:
       const totalSessionsInPatterns = body.timeOfDayPatterns.reduce(
         (sum: number, p: { totalSessions: number }) => sum + p.totalSessions, 0
       );
-      expect(totalSessionsInPatterns).toBe(1);
+      expect(totalSessionsInPatterns).toBe(3);
     });
 
     it('correctly calculates average duration per hour', async () => {
@@ -2195,7 +2194,7 @@ reading_progress: 50
 `);
     });
 
-    it('records focused quality for moderate sessions with few pauses', async () => {
+    it('stores lean session data for moderate sessions with few pauses', async () => {
       const response = await fastify.inject({
         method: 'PATCH',
         url: '/api/library/test-note/reading-stats',
@@ -2214,11 +2213,12 @@ reading_progress: 50
       expect(mockWriteFileSync).toHaveBeenCalled();
       const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
       expect(writtenContent).toContain('reading_sessions');
-      // 20 min session, 1 pause, 4.2% idle -> should be 'focused'
-      expect(writtenContent).toContain('focused');
+      expect(writtenContent).not.toContain('quality');
+      expect(writtenContent).toContain('idle_pause_count: 1');
+      expect(writtenContent).toContain('idle_pause_total_ms: 50000');
     });
 
-    it('records distracted quality for sessions with many pauses', async () => {
+    it('stores lean session data for sessions with many pauses', async () => {
       const response = await fastify.inject({
         method: 'PATCH',
         url: '/api/library/test-note/reading-stats',
@@ -2236,11 +2236,12 @@ reading_progress: 50
       expect(response.statusCode).toBe(200);
       expect(mockWriteFileSync).toHaveBeenCalled();
       const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
-      // Heavily distracted session should be flagged as 'distracted'
-      expect(writtenContent).toContain('distracted');
+      expect(writtenContent).not.toContain('quality');
+      expect(writtenContent).toContain('idle_pause_count: 10');
+      expect(writtenContent).toContain('idle_pause_total_ms: 900000');
     });
 
-    it('records normal quality for short sessions under 5 minutes', async () => {
+    it('stores lean session data for short sessions under 5 minutes', async () => {
       const response = await fastify.inject({
         method: 'PATCH',
         url: '/api/library/test-note/reading-stats',
@@ -2258,8 +2259,9 @@ reading_progress: 50
       expect(response.statusCode).toBe(200);
       expect(mockWriteFileSync).toHaveBeenCalled();
       const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
-      // Very short sessions always get 'normal' quality
-      expect(writtenContent).toContain('normal');
+      expect(writtenContent).not.toContain('quality');
+      expect(writtenContent).not.toContain('idle_pause_count');
+      expect(writtenContent).not.toContain('idle_pause_total_ms');
     });
   });
 

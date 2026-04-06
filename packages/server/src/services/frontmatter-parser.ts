@@ -8,7 +8,7 @@ import type {
   ReadingStats,
   SessionQuality,
 } from '@pulp/shared';
-import { computeReadingStatsFromHistoryAndSessions } from './frontmatter-reading-metrics.js';
+import { calculateSessionQuality, computeReadingStatsFromHistoryAndSessions } from './frontmatter-reading-metrics.js';
 
 /** Minimum valid rating value */
 const MIN_RATING = 1;
@@ -1012,22 +1012,6 @@ export function getReadingSessions(
 
     if (!startTime || !endTime) continue;
 
-    // Extract hour of day from start time (or use stored value)
-    let hourOfDay: number | undefined;
-    if (typeof sessionObj.hour_of_day === 'number') {
-      hourOfDay = sessionObj.hour_of_day;
-    } else {
-      // Calculate from startTime if not stored
-      const startDate = new Date(startTime);
-      hourOfDay = startDate.getHours();
-    }
-
-    // Parse quality metrics
-    const validQualities: SessionQuality[] = ['deep', 'focused', 'normal', 'distracted'];
-    const quality = typeof sessionObj.quality === 'string' && validQualities.includes(sessionObj.quality as SessionQuality)
-      ? sessionObj.quality as SessionQuality
-      : undefined;
-
     const idlePauseCount = typeof sessionObj.idle_pause_count === 'number' && sessionObj.idle_pause_count >= 0
       ? sessionObj.idle_pause_count
       : undefined;
@@ -1036,13 +1020,33 @@ export function getReadingSessions(
       ? sessionObj.idle_pause_total_ms
       : undefined;
 
+    const startPage = typeof sessionObj.start_page === 'number' ? sessionObj.start_page : 0;
+    const endPage = typeof sessionObj.end_page === 'number' ? sessionObj.end_page : 0;
+    const derivedDurationMs = Math.max(0, new Date(endTime).getTime() - new Date(startTime).getTime());
+    const durationMs = typeof sessionObj.duration_ms === 'number' && sessionObj.duration_ms >= 0
+      ? sessionObj.duration_ms
+      : derivedDurationMs;
+    const derivedPagesRead = Math.max(0, endPage - startPage);
+    const pagesRead = typeof sessionObj.pages === 'number' && sessionObj.pages >= 0
+      ? sessionObj.pages
+      : derivedPagesRead;
+    const hourOfDay = typeof sessionObj.hour_of_day === 'number'
+      && sessionObj.hour_of_day >= 0
+      && sessionObj.hour_of_day < 24
+      ? sessionObj.hour_of_day
+      : new Date(startTime).getUTCHours();
+    const validQualities: SessionQuality[] = ['deep', 'focused', 'normal', 'distracted'];
+    const quality = typeof sessionObj.quality === 'string' && validQualities.includes(sessionObj.quality as SessionQuality)
+      ? sessionObj.quality as SessionQuality
+      : calculateSessionQuality(durationMs, idlePauseCount, idlePauseTotalMs);
+
     entries.push({
       startTime,
       endTime,
-      durationMs: typeof sessionObj.duration_ms === 'number' ? sessionObj.duration_ms : 0,
-      pagesRead: typeof sessionObj.pages === 'number' ? sessionObj.pages : 0,
-      startPage: typeof sessionObj.start_page === 'number' ? sessionObj.start_page : 0,
-      endPage: typeof sessionObj.end_page === 'number' ? sessionObj.end_page : 0,
+      durationMs,
+      pagesRead,
+      startPage,
+      endPage,
       hourOfDay,
       quality,
       idlePauseCount,
@@ -1063,25 +1067,13 @@ export function createReadingSessionForFrontmatter(
   const result: Record<string, unknown> = {
     start: session.startTime,
     end: session.endTime,
-    duration_ms: session.durationMs,
-    pages: session.pagesRead,
     start_page: session.startPage,
     end_page: session.endPage,
   };
-
-  // Include hour of day if available
-  if (session.hourOfDay !== undefined) {
-    result.hour_of_day = session.hourOfDay;
-  }
-
-  // Include quality metrics if available
-  if (session.quality !== undefined) {
-    result.quality = session.quality;
-  }
-  if (session.idlePauseCount !== undefined) {
+  if (session.idlePauseCount !== undefined && session.idlePauseCount > 0) {
     result.idle_pause_count = session.idlePauseCount;
   }
-  if (session.idlePauseTotalMs !== undefined) {
+  if (session.idlePauseTotalMs !== undefined && session.idlePauseTotalMs > 0) {
     result.idle_pause_total_ms = session.idlePauseTotalMs;
   }
 

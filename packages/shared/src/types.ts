@@ -255,12 +255,10 @@ export interface CreateHighlightRequest {
   cfi?: string;
   text: string;
   note?: string;
-  category?: HighlightCategory; // Category for color coding (defaults to 'highlight')
 }
 
 export interface UpdateHighlightRequest {
   note?: string;
-  category?: HighlightCategory; // Category for color coding
 }
 
 // Bookmark types - stored as wikilinks in frontmatter
@@ -587,9 +585,7 @@ export type HighlightExportFormat = 'markdown' | 'json' | 'csv' | 'plaintext';
 export interface HighlightExportRequest {
   format: HighlightExportFormat;
   includeNotes?: boolean;        // Include note annotations (default true)
-  includeCategories?: boolean;   // Include category information (default true)
   includeTimestamps?: boolean;   // Include created/updated timestamps (default true)
-  groupByCategory?: boolean;     // Group highlights by category (default false)
 }
 
 export interface HighlightExportResponse {

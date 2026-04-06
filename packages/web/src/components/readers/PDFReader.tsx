@@ -2,8 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useCallback, useState, useMemo } fro
 import * as pdfjsLib from 'pdfjs-dist';
 import { TextLayer } from 'pdfjs-dist';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
-import type { LiteratureNote, PDFHighlight, TextSelection, HighlightCategory } from '@pulp/shared';
-import { HIGHLIGHT_CATEGORIES } from '@pulp/shared';
+import type { LiteratureNote, PDFHighlight, TextSelection } from '@pulp/shared';
 import { useReaderStore, type SearchMatch } from '../../stores/reader';
 import { useReadingStatsStore } from '../../stores/readingStats';
 import { useProgress } from '../../hooks/useProgress';
@@ -1288,18 +1287,14 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     // Merge adjacent/overlapping rects on the same line
     const mergedRects = mergeHighlightRects(rects, layerRect);
 
-    // Get category colors (default to highlight if not set)
-    const category: HighlightCategory = highlight.category || 'highlight';
-    const categoryInfo = HIGHLIGHT_CATEGORIES[category];
-    const color = categoryInfo.color;
-    const hoverColor = categoryInfo.hoverColor;
+    const color = 'rgba(255, 235, 59, 0.4)';
+    const hoverColor = 'rgba(255, 235, 59, 0.6)';
 
     // Create highlight elements
     for (const rect of mergedRects) {
       const highlightEl = document.createElement('div');
       highlightEl.className = `pdf-highlight${highlight.note ? ' has-note' : ''}`;
       highlightEl.dataset.highlightId = highlight.id;
-      highlightEl.dataset.category = category;
       highlightEl.style.cssText = `
         position: absolute;
         left: ${rect.left}px;
@@ -1924,8 +1919,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     setSelection(null);
   }, []);
 
-  // Quick highlight with category (for keyboard shortcuts)
-  const quickHighlight = useCallback(async (category: HighlightCategory = 'highlight') => {
+  const quickHighlight = useCallback(async () => {
     if (!selection) return;
     if (!selection.selection) {
       showToast('Could not resolve the selected PDF text', 'error');
@@ -1939,7 +1933,6 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         pageLabel: selection.pageLabel,
         selection: selection.selection,
         text: selection.text,
-        category,
       });
       closeSelectionPopup({ clearDomSelection: true });
       showToast('Highlight saved', 'success');
@@ -2102,26 +2095,11 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         return;
       }
 
-      // Quick highlight shortcuts (when text is selected)
+      // Quick highlight shortcut (when text is selected)
       if (selection) {
-        // H - Quick highlight with default category
         if (e.key === 'h' || e.key === 'H') {
           e.preventDefault();
-          quickHighlight('highlight');
-          return;
-        }
-
-        // 1-5 - Quick highlight with specific category
-        const categoryKeys: Record<string, HighlightCategory> = {
-          '1': 'highlight',
-          '2': 'important',
-          '3': 'question',
-          '4': 'todo',
-          '5': 'definition',
-        };
-        if (categoryKeys[e.key]) {
-          e.preventDefault();
-          quickHighlight(categoryKeys[e.key]);
+          quickHighlight();
           return;
         }
 

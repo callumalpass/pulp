@@ -1,15 +1,12 @@
 import type { FastifyPluginAsync } from 'fastify';
-import type { CreateHighlightRequest, UpdateHighlightRequest, HighlightExportFormat, Highlight, HighlightCategory } from '@pulp/shared';
-import { HIGHLIGHT_CATEGORIES as CATEGORIES } from '@pulp/shared';
+import type { CreateHighlightRequest, UpdateHighlightRequest, HighlightExportFormat, Highlight } from '@pulp/shared';
 import type { LibraryScanner } from '../services/library-scanner.js';
 import type { HighlightWriter } from '../services/highlight-writer.js';
 
 interface ExportQuerystring {
   format: HighlightExportFormat;
   includeNotes?: boolean;
-  includeCategories?: boolean;
   includeTimestamps?: boolean;
-  groupByCategory?: boolean;
 }
 
 interface HighlightsRouteOptions {
@@ -185,9 +182,7 @@ export const highlightsRoutes: FastifyPluginAsync<HighlightsRouteOptions> = asyn
         properties: {
           format: { type: 'string', enum: ['markdown', 'json', 'csv', 'plaintext'] },
           includeNotes: { type: 'boolean', default: true },
-          includeCategories: { type: 'boolean', default: true },
           includeTimestamps: { type: 'boolean', default: true },
-          groupByCategory: { type: 'boolean', default: false },
         },
       },
     },
@@ -201,9 +196,7 @@ export const highlightsRoutes: FastifyPluginAsync<HighlightsRouteOptions> = asyn
     const {
       format,
       includeNotes = true,
-      includeCategories = true,
       includeTimestamps = true,
-      groupByCategory = false,
     } = request.query;
 
     const highlights = note.highlights;
@@ -228,9 +221,7 @@ export const highlightsRoutes: FastifyPluginAsync<HighlightsRouteOptions> = asyn
       case 'markdown':
         content = exportToMarkdown(note.title, sortedHighlights, {
           includeNotes,
-          includeCategories,
           includeTimestamps,
-          groupByCategory,
         });
         mimeType = 'text/markdown';
         extension = 'md';
@@ -239,7 +230,6 @@ export const highlightsRoutes: FastifyPluginAsync<HighlightsRouteOptions> = asyn
       case 'json':
         content = exportToJSON(note.title, sortedHighlights, {
           includeNotes,
-          includeCategories,
           includeTimestamps,
         });
         mimeType = 'application/json';
@@ -249,7 +239,6 @@ export const highlightsRoutes: FastifyPluginAsync<HighlightsRouteOptions> = asyn
       case 'csv':
         content = exportToCSV(sortedHighlights, {
           includeNotes,
-          includeCategories,
           includeTimestamps,
         });
         mimeType = 'text/csv';
@@ -285,9 +274,7 @@ export const highlightsRoutes: FastifyPluginAsync<HighlightsRouteOptions> = asyn
 
 interface ExportOptions {
   includeNotes?: boolean;
-  includeCategories?: boolean;
   includeTimestamps?: boolean;
-  groupByCategory?: boolean;
 }
 
 function exportToMarkdown(
@@ -297,35 +284,9 @@ function exportToMarkdown(
 ): string {
   const lines: string[] = [`# Highlights from "${title}"`, ''];
 
-  if (options.groupByCategory) {
-    // Group highlights by category
-    const byCategory = new Map<HighlightCategory, Highlight[]>();
-    for (const h of highlights) {
-      const cat = h.category || 'highlight';
-      if (!byCategory.has(cat)) {
-        byCategory.set(cat, []);
-      }
-      byCategory.get(cat)!.push(h);
-    }
-
-    const categoryOrder: HighlightCategory[] = ['highlight', 'important', 'question', 'todo', 'definition'];
-    for (const cat of categoryOrder) {
-      const catHighlights = byCategory.get(cat);
-      if (!catHighlights || catHighlights.length === 0) continue;
-
-      const catInfo = CATEGORIES[cat];
-      lines.push(`## ${catInfo.label}`, '');
-
-      for (const h of catHighlights) {
-        lines.push(...formatHighlightMarkdown(h, options));
-        lines.push('');
-      }
-    }
-  } else {
-    for (const h of highlights) {
-      lines.push(...formatHighlightMarkdown(h, options));
-      lines.push('');
-    }
+  for (const h of highlights) {
+    lines.push(...formatHighlightMarkdown(h, options));
+    lines.push('');
   }
 
   return lines.join('\n');
@@ -339,18 +300,13 @@ function formatHighlightMarkdown(h: Highlight, options: ExportOptions): string[]
     ? `Page ${h.pageLabel || h.page}`
     : 'EPUB';
 
-  // Category badge
-  const categoryBadge = options.includeCategories && h.category
-    ? ` [${CATEGORIES[h.category].label}]`
-    : '';
-
   // Timestamp
   const timestamp = options.includeTimestamps
     ? ` — ${formatDate(h.createdAt)}`
     : '';
 
   lines.push(`> ${h.text}`);
-  lines.push(`— *${location}${categoryBadge}${timestamp}*`);
+  lines.push(`— *${location}${timestamp}*`);
 
   if (options.includeNotes && h.note) {
     lines.push('', `**Note:** ${h.note}`);
@@ -385,10 +341,6 @@ function exportToJSON(
         item.note = h.note;
       }
 
-      if (options.includeCategories && h.category) {
-        item.category = h.category;
-      }
-
       if (options.includeTimestamps) {
         item.createdAt = h.createdAt;
         if (h.updatedAt) item.updatedAt = h.updatedAt;
@@ -403,7 +355,6 @@ function exportToJSON(
 
 function exportToCSV(highlights: Highlight[], options: ExportOptions): string {
   const headers = ['Text', 'Type', 'Location'];
-  if (options.includeCategories) headers.push('Category');
   if (options.includeNotes) headers.push('Note');
   if (options.includeTimestamps) headers.push('Created');
 
@@ -415,10 +366,6 @@ function exportToCSV(highlights: Highlight[], options: ExportOptions): string {
       h.type,
       h.type === 'pdf' ? `Page ${h.pageLabel || h.page}` : h.cfi,
     ];
-
-    if (options.includeCategories) {
-      row.push(h.category ? CATEGORIES[h.category].label : 'Highlight');
-    }
 
     if (options.includeNotes) {
       row.push(escapeCSV(h.note || ''));

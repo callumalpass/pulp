@@ -1940,7 +1940,7 @@ input[type="search"]::-webkit-search-decoration {
   max-height: 85vh;
   display: flex;
   flex-direction: column;
-  z-index: 100;
+  z-index: 110;
 }
 
 .metadata-pane-mobile .metadata-pane-content {

@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import type { TextSelection, HighlightCategory } from '@pulp/shared';
-import { HIGHLIGHT_CATEGORIES } from '@pulp/shared';
+import type { TextSelection } from '@pulp/shared';
 import { Button } from '../../ui/Button';
 import { useCreateHighlight } from '../../../hooks/useHighlights';
 import { useToast } from '../../../contexts/ToastContext';
@@ -8,8 +7,6 @@ import { DictionaryDefinition } from './DictionaryDefinition';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
 import { usePopupPosition } from '../../../hooks/usePopupPosition';
 import { useTouchDevice } from '../../../hooks/useTouchDevice';
-
-const categoryOrder: HighlightCategory[] = ['highlight', 'important', 'question', 'todo', 'definition'];
 
 interface BaseSelection {
   text: string;
@@ -41,7 +38,6 @@ type SaveState = 'idle' | 'saving' | 'success' | 'error';
 
 export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, containerRef }: HighlightPopupProps) {
   const [note, setNote] = useState('');
-  const [category, setCategory] = useState<HighlightCategory>('highlight');
   const [showNoteInput, setShowNoteInput] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -96,11 +92,9 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
     };
   }, [onClose, focusTrapRef]);
 
-  const handleSave = useCallback(async (overrideCategory?: HighlightCategory) => {
+  const handleSave = useCallback(async () => {
     setSaveState('saving');
     setErrorMessage(null);
-
-    const finalCategory = overrideCategory ?? category;
 
     try {
       if (type === 'pdf' && 'selection' in selection) {
@@ -116,7 +110,6 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
           selection: selection.selection,
           text: selection.text,
           note: note || undefined,
-          category: finalCategory,
         });
       } else if (type === 'epub') {
         const epubCfi = cfi || ('cfi' in selection ? selection.cfi : undefined);
@@ -131,7 +124,6 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
           cfi: epubCfi,
           text: selection.text,
           note: note || undefined,
-          category: finalCategory,
         });
       }
 
@@ -152,16 +144,10 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
       );
       // Don't close popup - let user retry
     }
-  }, [type, selection, cfi, note, category, createHighlight, showToast, onClose]);
+  }, [type, selection, cfi, note, createHighlight, showToast, onClose]);
 
   const handleQuickHighlight = () => {
     handleSave();
-  };
-
-  const handleCategorySelect = (selectedCategory: HighlightCategory) => {
-    setCategory(selectedCategory);
-    // Quick save with the selected category
-    handleSave(selectedCategory);
   };
 
   const handleAddNote = () => {
@@ -191,34 +177,6 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
           </button>
         </div>
       )}
-
-      <div className="p-2 border-b border-text-secondary/20">
-        <div className="grid grid-cols-5 gap-1">
-          {categoryOrder.map((cat) => {
-            const info = HIGHLIGHT_CATEGORIES[cat];
-            const isSelected = category === cat;
-            return (
-              <button
-                key={cat}
-                onClick={() => handleCategorySelect(cat)}
-                className={`flex flex-col items-center gap-1 p-2 rounded transition-colors ${
-                  isSelected ? 'bg-accent-primary/10' : 'hover:bg-accent-primary/10'
-                }`}
-                title={info.label}
-                disabled={saveState === 'saving' || saveState === 'success'}
-              >
-                <div
-                  className="w-5 h-5 rounded-full border border-black/20"
-                  style={{ backgroundColor: info.color.replace('0.4', '0.8') }}
-                />
-                <span className="text-[10px] text-text-secondary truncate w-full text-center">
-                  {info.label}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
 
       <div className="flex">
         <button
@@ -265,37 +223,6 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
         &ldquo;{selection.text.slice(0, 100)}{selection.text.length > 100 ? '...' : ''}&rdquo;
       </p>
 
-      <div className="mb-2">
-        <span className="text-xs text-text-secondary mb-1 block">Category:</span>
-        <div className="flex gap-1">
-          {categoryOrder.map((cat) => {
-            const info = HIGHLIGHT_CATEGORIES[cat];
-            const isSelected = category === cat;
-            return (
-              <button
-                key={cat}
-                onClick={() => setCategory(cat)}
-                className={`flex-1 flex flex-col items-center gap-0.5 p-1.5 rounded border transition-colors ${
-                  isSelected
-                    ? 'border-accent-primary bg-accent-primary/10'
-                    : 'border-transparent hover:bg-accent-primary/5'
-                }`}
-                title={info.label}
-                disabled={saveState === 'saving' || saveState === 'success'}
-              >
-                <div
-                  className="w-4 h-4 rounded-full border border-black/20"
-                  style={{ backgroundColor: info.color.replace('0.4', '0.8') }}
-                />
-                <span className="text-[9px] text-text-secondary truncate w-full text-center">
-                  {info.label}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
       <textarea
         ref={inputRef}
         value={note}
@@ -339,7 +266,12 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
     </div>
   );
 
-  const handleBackdropPointerDown = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+  const handleBackdropPress = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleBackdropClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     onClose();
@@ -350,8 +282,9 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
       <>
         <div
           className="mobile-bottom-sheet-backdrop animate-fade-in z-40"
-          onMouseDown={handleBackdropPointerDown}
-          onTouchStart={handleBackdropPointerDown}
+          onMouseDown={handleBackdropPress}
+          onTouchStart={handleBackdropPress}
+          onClick={handleBackdropClick}
         />
         <div
           ref={popupRef}

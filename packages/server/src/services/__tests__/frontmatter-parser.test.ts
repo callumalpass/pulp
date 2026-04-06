@@ -854,7 +854,7 @@ describe('getReadingSessions', () => {
     expect(getReadingSessions({ reading_sessions: 'invalid' }, 'reading_sessions')).toEqual([]);
   });
 
-  it('parses reading sessions with hourOfDay', () => {
+  it('derives hourOfDay from start time', () => {
     const sessions = getReadingSessions({
       reading_sessions: [
         {
@@ -864,13 +864,12 @@ describe('getReadingSessions', () => {
           pages: 30,
           start_page: 0,
           end_page: 30,
-          hour_of_day: 10,
         },
       ],
     }, 'reading_sessions');
 
     expect(sessions).toHaveLength(1);
-    expect(sessions[0].hourOfDay).toBe(10);
+    expect(sessions[0].hourOfDay).toBe(new Date('2024-01-15T10:00:00Z').getUTCHours());
   });
 
   it('calculates hourOfDay from startTime if not stored', () => {
@@ -897,7 +896,7 @@ describe('getReadingSessions', () => {
 });
 
 describe('createReadingSessionForFrontmatter', () => {
-  it('creates session object with all fields', () => {
+  it('creates minimal session object for frontmatter storage', () => {
     const result = createReadingSessionForFrontmatter({
       startTime: '2024-01-15T10:00:00Z',
       endTime: '2024-01-15T11:00:00Z',
@@ -910,11 +909,11 @@ describe('createReadingSessionForFrontmatter', () => {
 
     expect(result.start).toBe('2024-01-15T10:00:00Z');
     expect(result.end).toBe('2024-01-15T11:00:00Z');
-    expect(result.duration_ms).toBe(3600000);
-    expect(result.pages).toBe(30);
     expect(result.start_page).toBe(0);
     expect(result.end_page).toBe(30);
-    expect(result.hour_of_day).toBe(10);
+    expect(result.duration_ms).toBeUndefined();
+    expect(result.pages).toBeUndefined();
+    expect(result.hour_of_day).toBeUndefined();
   });
 
   it('omits hourOfDay if undefined', () => {
@@ -930,7 +929,7 @@ describe('createReadingSessionForFrontmatter', () => {
     expect(result.hour_of_day).toBeUndefined();
   });
 
-  it('includes quality metrics when provided', () => {
+  it('includes idle metrics when provided', () => {
     const result = createReadingSessionForFrontmatter({
       startTime: '2024-01-15T10:00:00Z',
       endTime: '2024-01-15T11:00:00Z',
@@ -938,12 +937,11 @@ describe('createReadingSessionForFrontmatter', () => {
       pagesRead: 30,
       startPage: 0,
       endPage: 30,
-      quality: 'focused',
       idlePauseCount: 2,
       idlePauseTotalMs: 120000,
     });
 
-    expect(result.quality).toBe('focused');
+    expect(result.quality).toBeUndefined();
     expect(result.idle_pause_count).toBe(2);
     expect(result.idle_pause_total_ms).toBe(120000);
   });
@@ -1348,7 +1346,7 @@ describe('getReadingSessions with quality metrics', () => {
     expect(sessions[0].idlePauseTotalMs).toBe(120000);
   });
 
-  it('ignores invalid quality values', () => {
+  it('derives quality when stored quality is invalid', () => {
     const sessions = getReadingSessions({
       reading_sessions: [
         {
@@ -1364,10 +1362,10 @@ describe('getReadingSessions with quality metrics', () => {
     }, 'reading_sessions');
 
     expect(sessions).toHaveLength(1);
-    expect(sessions[0].quality).toBeUndefined();
+    expect(sessions[0].quality).toBe('deep');
   });
 
-  it('handles sessions without quality metrics (backward compatibility)', () => {
+  it('derives quality when not stored', () => {
     const sessions = getReadingSessions({
       reading_sessions: [
         {
@@ -1382,7 +1380,7 @@ describe('getReadingSessions with quality metrics', () => {
     }, 'reading_sessions');
 
     expect(sessions).toHaveLength(1);
-    expect(sessions[0].quality).toBeUndefined();
+    expect(sessions[0].quality).toBe('deep');
     expect(sessions[0].idlePauseCount).toBeUndefined();
     expect(sessions[0].idlePauseTotalMs).toBeUndefined();
   });
@@ -2403,7 +2401,7 @@ describe('getReadingSessions (edge cases)', () => {
     expect(sessions).toHaveLength(0);
   });
 
-  it('defaults numeric fields to 0 when missing', () => {
+  it('derives numeric fields when missing', () => {
     const sessions = getReadingSessions({
       reading_sessions: [
         {
@@ -2415,7 +2413,7 @@ describe('getReadingSessions (edge cases)', () => {
     }, 'reading_sessions');
 
     expect(sessions).toHaveLength(1);
-    expect(sessions[0].durationMs).toBe(0);
+    expect(sessions[0].durationMs).toBe(3600000);
     expect(sessions[0].pagesRead).toBe(0);
     expect(sessions[0].startPage).toBe(0);
     expect(sessions[0].endPage).toBe(0);
@@ -3206,7 +3204,7 @@ describe('getReadingSessions (edge cases)', () => {
     expect(result[0].endTime).toBe('2024-01-15T11:00:00.000Z');
   });
 
-  it('ignores invalid quality values', () => {
+  it('derives quality when stored quality is invalid', () => {
     const result = getReadingSessions({
       sessions: [
         {
@@ -3222,7 +3220,7 @@ describe('getReadingSessions (edge cases)', () => {
     }, 'sessions');
 
     expect(result).toHaveLength(1);
-    expect(result[0].quality).toBeUndefined();
+    expect(result[0].quality).toBe('deep');
   });
 
   it('ignores negative idle_pause_count and idle_pause_total_ms', () => {
@@ -3261,10 +3259,10 @@ describe('getReadingSessions (edge cases)', () => {
     }, 'sessions');
 
     expect(result).toHaveLength(1);
-    expect(result[0].hourOfDay).toBe(new Date('2024-01-15T14:30:00Z').getHours());
+    expect(result[0].hourOfDay).toBe(new Date('2024-01-15T14:30:00Z').getUTCHours());
   });
 
-  it('defaults numeric fields to 0 when not numbers', () => {
+  it('derives numeric fields when stored derived values are missing', () => {
     const result = getReadingSessions({
       sessions: [
         {
@@ -3279,7 +3277,7 @@ describe('getReadingSessions (edge cases)', () => {
     }, 'sessions');
 
     expect(result).toHaveLength(1);
-    expect(result[0].durationMs).toBe(0);
+    expect(result[0].durationMs).toBe(1800000);
     expect(result[0].pagesRead).toBe(0);
     expect(result[0].startPage).toBe(0);
     expect(result[0].endPage).toBe(0);
@@ -4577,7 +4575,7 @@ describe('getReadingSessions (quality and idle metric edge cases)', () => {
     }
   });
 
-  it('returns undefined quality for invalid quality string', () => {
+  it('derives quality for invalid quality string', () => {
     const sessions = getReadingSessions({
       s: [{
         start: '2024-01-01T10:00:00Z',
@@ -4589,10 +4587,10 @@ describe('getReadingSessions (quality and idle metric edge cases)', () => {
         quality: 'superb',
       }],
     }, 's');
-    expect(sessions[0].quality).toBeUndefined();
+    expect(sessions[0].quality).toBe('deep');
   });
 
-  it('returns undefined quality for non-string quality', () => {
+  it('derives quality for non-string quality', () => {
     const sessions = getReadingSessions({
       s: [{
         start: '2024-01-01T10:00:00Z',
@@ -4604,10 +4602,10 @@ describe('getReadingSessions (quality and idle metric edge cases)', () => {
         quality: 42,
       }],
     }, 's');
-    expect(sessions[0].quality).toBeUndefined();
+    expect(sessions[0].quality).toBe('deep');
   });
 
-  it('uses stored hour_of_day when available', () => {
+  it('uses stored hour_of_day when it is valid', () => {
     const sessions = getReadingSessions({
       s: [{
         start: '2024-01-01T10:00:00Z',
@@ -4619,13 +4617,12 @@ describe('getReadingSessions (quality and idle metric edge cases)', () => {
         hour_of_day: 22,
       }],
     }, 's');
-    // Should use stored value, not calculate from startTime
     expect(sessions[0].hourOfDay).toBe(22);
   });
 });
 
 describe('createReadingSessionForFrontmatter (optional field handling)', () => {
-  it('omits quality when undefined', () => {
+  it('omits derived fields and optional idle metrics when undefined', () => {
     const result = createReadingSessionForFrontmatter({
       startTime: '2024-01-01T10:00:00Z',
       endTime: '2024-01-01T11:00:00Z',
@@ -4638,9 +4635,11 @@ describe('createReadingSessionForFrontmatter (optional field handling)', () => {
     expect(result).not.toHaveProperty('idle_pause_count');
     expect(result).not.toHaveProperty('idle_pause_total_ms');
     expect(result).not.toHaveProperty('hour_of_day');
+    expect(result).not.toHaveProperty('duration_ms');
+    expect(result).not.toHaveProperty('pages');
   });
 
-  it('includes all optional fields when present', () => {
+  it('includes only idle metrics when present', () => {
     const result = createReadingSessionForFrontmatter({
       startTime: '2024-01-01T10:00:00Z',
       endTime: '2024-01-01T11:00:00Z',
@@ -4648,13 +4647,13 @@ describe('createReadingSessionForFrontmatter (optional field handling)', () => {
       pagesRead: 20,
       startPage: 1,
       endPage: 20,
-      hourOfDay: 10,
-      quality: 'deep',
       idlePauseCount: 0,
       idlePauseTotalMs: 0,
     });
-    expect(result.hour_of_day).toBe(10);
-    expect(result.quality).toBe('deep');
+    expect(result.hour_of_day).toBeUndefined();
+    expect(result.quality).toBeUndefined();
+    expect(result.duration_ms).toBeUndefined();
+    expect(result.pages).toBeUndefined();
     expect(result.idle_pause_count).toBe(0);
     expect(result.idle_pause_total_ms).toBe(0);
   });

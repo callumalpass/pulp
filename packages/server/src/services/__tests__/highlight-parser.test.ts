@@ -467,7 +467,7 @@ describe('extractCategory', () => {
 });
 
 describe('parseHighlights with categories', () => {
-  it('parses PDF highlight with category', () => {
+  it('ignores PDF highlight category metadata', () => {
     const content = `> Important text.
 [[books/test.pdf#page=5&selection=0,10,2,25&category=important|"text"|p. 5]]`;
 
@@ -475,11 +475,11 @@ describe('parseHighlights with categories', () => {
     expect(highlights).toHaveLength(1);
     expect(highlights[0].type).toBe('pdf');
     if (highlights[0].type === 'pdf') {
-      expect(highlights[0].category).toBe('important');
+      expect(highlights[0].category).toBeUndefined();
     }
   });
 
-  it('parses EPUB highlight with category', () => {
+  it('ignores EPUB highlight category metadata', () => {
     const content = `> Question to research.
 [[books/test.epub#cfi=epubcfi(/6/4)&category=question|"text"]]`;
 
@@ -487,7 +487,7 @@ describe('parseHighlights with categories', () => {
     expect(highlights).toHaveLength(1);
     expect(highlights[0].type).toBe('epub');
     if (highlights[0].type === 'epub') {
-      expect(highlights[0].category).toBe('question');
+      expect(highlights[0].category).toBeUndefined();
     }
   });
 
@@ -500,14 +500,14 @@ describe('parseHighlights with categories', () => {
     expect(highlights[0].category).toBeUndefined();
   });
 
-  it('parses highlights with all metadata: category, pageLabel, and timestamp', () => {
+  it('parses highlights with page label and timestamp while ignoring category', () => {
     const content = `> Definition of a key term.
 [[books/test.pdf#page=10&selection=0,5,2,20&category=definition|"text"|p. iv|2024-06-15]]`;
 
     const highlights = parseHighlights(content, 'books/test.pdf');
     expect(highlights).toHaveLength(1);
     if (highlights[0].type === 'pdf') {
-      expect(highlights[0].category).toBe('definition');
+      expect(highlights[0].category).toBeUndefined();
       expect(highlights[0].pageLabel).toBe('iv');
       expect(highlights[0].createdAt).toBe('2024-06-15T00:00:00.000Z');
     }
@@ -765,21 +765,21 @@ describe('parseHighlights - additional edge cases', () => {
   });
 
   describe('PDF highlights with category but no page label', () => {
-    it('sets category without pageLabel', () => {
+    it('ignores category without pageLabel', () => {
       const content = `> Important concept.
 [[books/test.pdf#page=5&selection=0,10,2,25&category=important|"Important concept."]]`;
 
       const highlights = parseHighlights(content, 'books/test.pdf');
       expect(highlights).toHaveLength(1);
       if (highlights[0].type === 'pdf') {
-        expect(highlights[0].category).toBe('important');
+        expect(highlights[0].category).toBeUndefined();
         expect(highlights[0].pageLabel).toBeUndefined();
       }
     });
   });
 
   describe('EPUB highlights with category and timestamp', () => {
-    it('parses EPUB highlight with both category and timestamp', () => {
+    it('parses EPUB highlight timestamp while ignoring category', () => {
       const content = `> Key definition.
 [[books/test.epub#cfi=epubcfi(/6/4)&category=definition|"Key definition."|2024-09-01]]`;
 
@@ -787,7 +787,7 @@ describe('parseHighlights - additional edge cases', () => {
       expect(highlights).toHaveLength(1);
       expect(highlights[0].type).toBe('epub');
       if (highlights[0].type === 'epub') {
-        expect(highlights[0].category).toBe('definition');
+        expect(highlights[0].category).toBeUndefined();
         expect(highlights[0].createdAt).toBe('2024-09-01T00:00:00.000Z');
       }
     });
@@ -1060,12 +1060,12 @@ describe('parseHighlights - CFI edge cases', () => {
     expect(highlights).toHaveLength(0);
   });
 
-  it('handles EPUB highlights with both category and timestamp', () => {
+  it('handles EPUB highlights with timestamp while ignoring category', () => {
     const content = `> Definition text
 [[books/test.epub#cfi=epubcfi(/6/4)&category=definition|"Definition text"|2024-03-20]]`;
     const highlights = parseHighlights(content, 'books/test.epub');
     expect(highlights).toHaveLength(1);
-    expect(highlights[0].category).toBe('definition');
+    expect(highlights[0].category).toBeUndefined();
     expect(highlights[0].createdAt).toBe('2024-03-20T00:00:00.000Z');
   });
 });

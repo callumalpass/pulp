@@ -1,5 +1,5 @@
 import Handlebars from 'handlebars';
-import type { LiteratureNote, CreateHighlightRequest, UpdateHighlightRequest, Highlight, PDFHighlight, EPUBHighlight, TextSelection, HighlightCategory } from '@pulp/shared';
+import type { LiteratureNote, CreateHighlightRequest, UpdateHighlightRequest, Highlight, PDFHighlight, EPUBHighlight, TextSelection } from '@pulp/shared';
 import type { Config } from '../config/schema.js';
 import { generatePDFHighlightId, generateEPUBHighlightId } from './highlight-parser.js';
 import { atomicFrontmatterAndContentUpdate } from './file-lock.js';
@@ -24,7 +24,6 @@ export class HighlightWriter {
 
   async write(note: LiteratureNote, request: CreateHighlightRequest): Promise<Highlight> {
     const createdAt = new Date().toISOString();
-    const category = request.category || 'highlight';
 
     let highlight: Highlight;
     let formatted: string;
@@ -44,7 +43,6 @@ export class HighlightWriter {
         selection: request.selection,
         text: request.text,
         note: request.note,
-        category,
         createdAt,
       } satisfies PDFHighlight;
 
@@ -57,8 +55,6 @@ export class HighlightWriter {
         page: highlight.page,
         pageLabel: highlight.pageLabel ?? String(highlight.page), // Falls back to physical page if no label
         selection: this.formatSelection(highlight.selection),
-        // Include category in the fragment if not the default 'highlight'
-        category: category !== 'highlight' ? category : undefined,
         text: this.formatBlockquote(highlight.text),
         note: highlight.note ? new Handlebars.SafeString(highlight.note) : undefined,
         citekey,
@@ -73,7 +69,6 @@ export class HighlightWriter {
         cfi: request.cfi!,
         text: request.text,
         note: request.note,
-        category,
         createdAt,
       } satisfies EPUBHighlight;
 
@@ -84,8 +79,6 @@ export class HighlightWriter {
       formatted = this.epubTemplate({
         source: note.sourceRelative,
         cfi: highlight.cfi,
-        // Include category in the fragment if not the default 'highlight'
-        category: category !== 'highlight' ? category : undefined,
         text: this.formatBlockquote(highlight.text),
         note: highlight.note ? new Handlebars.SafeString(highlight.note) : undefined,
         citekey,
@@ -153,7 +146,6 @@ export class HighlightWriter {
     }
 
     const updatedAt = new Date().toISOString();
-    const newCategory = request.category ?? highlight.category;
     let notFound = false;
     let noteText: string | undefined;
 
@@ -168,27 +160,20 @@ export class HighlightWriter {
         return null;
       }
 
-      // If category changed, update the link
-      if (request.category !== undefined && request.category !== highlight.category) {
-        const oldLink = match[0];
-        // Build the new fragment with category
-        let newFragment: string;
-        if (highlight.type === 'pdf') {
-          const sel = highlight.selection;
-          const selectionStr = `${sel.beginIndex},${sel.beginOffset},${sel.endIndex},${sel.endOffset}`;
-          const categoryStr = newCategory && newCategory !== 'highlight' ? `&category=${newCategory}` : '';
-          newFragment = `#page=${highlight.page}&selection=${selectionStr}${categoryStr}`;
-        } else {
-          const categoryStr = newCategory && newCategory !== 'highlight' ? `&category=${newCategory}` : '';
-          newFragment = `#cfi=${(highlight as EPUBHighlight).cfi}${categoryStr}`;
-        }
-
-        // Replace the fragment portion while keeping the display text
-        const displayTextMatch = oldLink.match(/\|([^\]]*)\]\]$/);
-        const displayText = displayTextMatch ? displayTextMatch[1] : '';
-        const newLink = `[[${note.sourceRelative}${newFragment}|${displayText}]]`;
-
-        content = content.slice(0, match.index) + newLink + content.slice(match.index + oldLink.length);
+      const oldLink = match[0];
+      let normalizedFragment: string;
+      if (highlight.type === 'pdf') {
+        const sel = highlight.selection;
+        const selectionStr = `${sel.beginIndex},${sel.beginOffset},${sel.endIndex},${sel.endOffset}`;
+        normalizedFragment = `#page=${highlight.page}&selection=${selectionStr}`;
+      } else {
+        normalizedFragment = `#cfi=${(highlight as EPUBHighlight).cfi}`;
+      }
+      const displayTextMatch = oldLink.match(/\|([^\]]*)\]\]$/);
+      const displayText = displayTextMatch ? displayTextMatch[1] : '';
+      const normalizedLink = `[[${note.sourceRelative}${normalizedFragment}|${displayText}]]`;
+      if (normalizedLink !== oldLink) {
+        content = content.slice(0, match.index) + normalizedLink + content.slice(match.index + oldLink.length);
       }
 
       // Now handle note text updates
@@ -258,7 +243,7 @@ export class HighlightWriter {
     return {
       ...highlight,
       note: noteText,
-      category: newCategory as HighlightCategory,
+      category: undefined,
       updatedAt,
     };
   }

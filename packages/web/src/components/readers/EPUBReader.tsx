@@ -1,7 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState, useCallback } from 'react';
 import ePub, { Book, Rendition, Contents, NavItem } from 'epubjs';
-import type { LiteratureNote, EPUBHighlight, HighlightCategory } from '@pulp/shared';
-import { HIGHLIGHT_CATEGORIES } from '@pulp/shared';
+import type { LiteratureNote, EPUBHighlight } from '@pulp/shared';
 import { useReaderStore } from '../../stores/reader';
 import { usePreferencesStore } from '../../stores/preferences';
 import { useReadingStatsStore } from '../../stores/readingStats';
@@ -609,10 +608,7 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
 
     epubHighlights.forEach((highlight) => {
       try {
-        // Get category-based color
-        const category: HighlightCategory = highlight.category || 'highlight';
-        const categoryInfo = HIGHLIGHT_CATEGORIES[category];
-        const fillColor = categoryInfo.color;
+        const fillColor = 'rgba(255, 235, 59, 0.4)';
 
         (rendition.annotations.highlight as (
           cfiRange: string,
@@ -622,7 +618,7 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
           styles?: object
         ) => void)(
           highlight.cfi,
-          { highlightId: highlight.id, category },
+          { highlightId: highlight.id },
           (e: MouseEvent) => {
             const containerRect = containerRef.current?.getBoundingClientRect();
             if (!containerRect) return;
@@ -635,15 +631,14 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
               },
             });
           },
-          `pulp-highlight pulp-highlight-${category}`,
+          'pulp-highlight',
           { fill: fillColor, cursor: 'pointer' }
         );
       } catch {}
     });
   };
 
-  // Quick highlight with category (for keyboard shortcuts)
-  const quickHighlight = useCallback(async (category: HighlightCategory = 'highlight') => {
+  const quickHighlight = useCallback(async () => {
     if (!selection) return;
 
     try {
@@ -651,7 +646,6 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
         type: 'epub',
         cfi: selection.cfi,
         text: selection.text,
-        category,
       });
       clearSelection();
       showToast('Highlight saved', 'success');
@@ -744,19 +738,11 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
         return;
       }
 
-      // Quick highlight shortcuts (when text is selected)
+      // Quick highlight shortcut (when text is selected)
       if (selection) {
-        // 1-5 - Quick highlight with specific category
-        const categoryKeys: Record<string, HighlightCategory> = {
-          '1': 'highlight',
-          '2': 'important',
-          '3': 'question',
-          '4': 'todo',
-          '5': 'definition',
-        };
-        if (categoryKeys[e.key]) {
+        if (e.key === 'h' || e.key === 'H') {
           e.preventDefault();
-          quickHighlight(categoryKeys[e.key]);
+          quickHighlight();
           return;
         }
       }

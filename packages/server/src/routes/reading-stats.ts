@@ -12,7 +12,6 @@ import {
   getReadingSessions,
   addReadingSession,
   createReadingSessionForFrontmatter,
-  calculateSessionQuality,
   calculateMomentum,
   checkMilestones,
   createMilestoneRecord,
@@ -85,12 +84,22 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
     // Ensure non-negative values (defensive - schema should already enforce this)
     const sessionDurationMs = Math.max(0, request.body.sessionDurationMs || 0);
     const pagesRead = Math.max(0, request.body.pagesRead || 0);
-    const startPage = Math.max(0, request.body.startPage || 0);
-    const endPage = Math.max(0, request.body.endPage || 0);
+    let startPage = Math.max(0, request.body.startPage || 0);
+    let endPage = Math.max(0, request.body.endPage || 0);
     const startTime = request.body.startTime || new Date(Date.now() - sessionDurationMs).toISOString();
     const idlePauseCount = request.body.idlePauseCount;
     const idlePauseTotalMs = request.body.idlePauseTotalMs;
     const currentProgress = request.body.currentProgress;
+
+    if (pagesRead > 0) {
+      if (startPage === 0 && endPage === 0) {
+        endPage = pagesRead;
+      } else if (endPage === 0 && startPage > 0) {
+        endPage = startPage + pagesRead;
+      } else if (startPage === 0 && endPage > 0) {
+        startPage = Math.max(0, endPage - pagesRead);
+      }
+    }
 
     // Skip if no meaningful session data - return current stats to maintain consistent response shape
     if (sessionDurationMs === 0) {
@@ -102,8 +111,9 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
       };
     }
 
-    const now = new Date().toISOString();
-    const today = now.split('T')[0]; // YYYY-MM-DD
+    const effectiveElapsedMs = sessionDurationMs + Math.max(0, idlePauseTotalMs ?? 0);
+    const derivedEndTime = new Date(new Date(startTime).getTime() + effectiveElapsedMs).toISOString();
+    const today = derivedEndTime.split('T')[0]; // YYYY-MM-DD
 
     try {
       let newStats: ReadingStats | null = null;
@@ -136,20 +146,15 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
           pagesRead
         );
 
-        // Calculate session quality
-        const sessionQuality = calculateSessionQuality(sessionDurationMs, idlePauseCount, idlePauseTotalMs);
-
-        // Add individual session record with hour of day for time-of-day analysis
-        const startDate = new Date(startTime);
+        // Add individual session record. Derived fields like duration, pages,
+        // hour of day, and quality are recomputed when sessions are read back.
         const newSession = {
           startTime,
-          endTime: now,
+          endTime: derivedEndTime,
           durationMs: sessionDurationMs,
           pagesRead,
           startPage,
           endPage,
-          hourOfDay: startDate.getHours(),
-          quality: sessionQuality,
           idlePauseCount,
           idlePauseTotalMs,
         };
@@ -164,7 +169,7 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
         // Update frontmatter
         frontmatter[config.reading_history_key] = updatedHistory.map(createDailyReadingEntryForFrontmatter);
         frontmatter[config.reading_sessions_key] = updatedSessions.map(createReadingSessionForFrontmatter);
-        frontmatter[config.last_read_key] = now;
+        frontmatter[config.last_read_key] = derivedEndTime;
 
         newStats = getComputedReadingStats(frontmatter, {
           readingStatsKey: config.reading_stats_key,
@@ -206,7 +211,7 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
       // Update in-memory cache
       scanner.updateNote(request.params.id, {
         readingStats: newStats,
-        lastRead: now,
+        lastRead: derivedEndTime,
         frontmatter: updatedFrontmatter, // Update frontmatter cache for goals service
       });
 
@@ -216,7 +221,7 @@ export const readingStatsRoutes: FastifyPluginAsync<ReadingStatsRouteOptions> = 
       return {
         success: true,
         readingStats: newStats,
-        lastRead: now,
+        lastRead: derivedEndTime,
         streak,
       };
     } catch (error) {

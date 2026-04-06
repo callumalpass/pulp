@@ -347,18 +347,14 @@ describe('api', () => {
 
       await api.highlights.export('note-1', 'json', {
         includeNotes: true,
-        includeCategories: false,
         includeTimestamps: true,
-        groupByCategory: true,
       });
 
       const [url] = mockFetch.mock.calls[0];
       const parsed = new URL(url, 'http://localhost');
       expect(parsed.searchParams.get('format')).toBe('json');
       expect(parsed.searchParams.get('includeNotes')).toBe('true');
-      expect(parsed.searchParams.get('includeCategories')).toBe('false');
       expect(parsed.searchParams.get('includeTimestamps')).toBe('true');
-      expect(parsed.searchParams.get('groupByCategory')).toBe('true');
     });
 
     it('omits undefined export options from query string', async () => {
@@ -369,9 +365,7 @@ describe('api', () => {
       const [url] = mockFetch.mock.calls[0];
       const parsed = new URL(url, 'http://localhost');
       expect(parsed.searchParams.get('includeNotes')).toBe('true');
-      expect(parsed.searchParams.has('includeCategories')).toBe(false);
       expect(parsed.searchParams.has('includeTimestamps')).toBe(false);
-      expect(parsed.searchParams.has('groupByCategory')).toBe(false);
     });
 
     it('exports highlights with no options object', async () => {
@@ -390,17 +384,13 @@ describe('api', () => {
 
       await api.highlights.export('note-1', 'markdown', {
         includeNotes: false,
-        includeCategories: false,
         includeTimestamps: false,
-        groupByCategory: false,
       });
 
       const [url] = mockFetch.mock.calls[0];
       const parsed = new URL(url, 'http://localhost');
       expect(parsed.searchParams.get('includeNotes')).toBe('false');
-      expect(parsed.searchParams.get('includeCategories')).toBe('false');
       expect(parsed.searchParams.get('includeTimestamps')).toBe('false');
-      expect(parsed.searchParams.get('groupByCategory')).toBe('false');
     });
 
     it('returns export response data', async () => {
