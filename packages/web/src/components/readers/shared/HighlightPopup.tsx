@@ -89,17 +89,10 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
         onClose();
       }
     };
-    const handleTouchStart = (e: TouchEvent) => {
-      if (focusTrapRef.current && !focusTrapRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
 
     document.addEventListener('mousedown', handleClick);
-    document.addEventListener('touchstart', handleTouchStart, { passive: true });
     return () => {
       document.removeEventListener('mousedown', handleClick);
-      document.removeEventListener('touchstart', handleTouchStart);
     };
   }, [onClose, focusTrapRef]);
 
@@ -346,10 +339,20 @@ export function HighlightPopup({ selection, noteId, onClose, type = 'pdf', cfi, 
     </div>
   );
 
+  const handleBackdropPointerDown = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onClose();
+  }, [onClose]);
+
   if (isTouchDevice) {
     return (
       <>
-        <div className="mobile-bottom-sheet-backdrop animate-fade-in z-40" onClick={onClose} />
+        <div
+          className="mobile-bottom-sheet-backdrop animate-fade-in z-40"
+          onMouseDown={handleBackdropPointerDown}
+          onTouchStart={handleBackdropPointerDown}
+        />
         <div
           ref={popupRef}
           role="dialog"
