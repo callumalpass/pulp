@@ -90,8 +90,8 @@ export function usePinchZoom({
         onPreviewChange?.(null);
         if (
           initialDistance.current !== null &&
-          lastCenter.current &&
-          Math.abs(lastZoom.current - initialZoom.current) > 0.0001
+          lastCenter.current
+          && Math.abs(lastZoom.current - initialZoom.current) > 0.0001
         ) {
           onZoomCommit?.(lastZoom.current, lastCenter.current);
           onZoomChange?.(lastZoom.current);

@@ -635,7 +635,6 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   }, []);
 
   const handlePinchZoomCommit = useCallback((nextZoom: number, center: { x: number; y: number }) => {
-    setPinchPreview(null);
     setIsPinchSettling(true);
     if (pinchSettleTimeoutRef.current !== null) {
       window.clearTimeout(pinchSettleTimeoutRef.current);
@@ -652,7 +651,9 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     if (!isPinchSettling) return;
 
     const visiblePagesReady = Array.from(visiblePages).every((pageNum) => (
-      renderedPagesRef.current.has(pageNum) && pageZoomRef.current.get(pageNum) === zoom
+      renderedPagesRef.current.has(pageNum) &&
+      pageZoomRef.current.get(pageNum) === zoom &&
+      textLayerZoomRef.current.get(pageNum) === zoom
     ));
 
     if (!visiblePagesReady) return;
@@ -914,6 +915,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   const renderedPagesRef = useRef<Set<number>>(new Set());
   // Track the zoom level each page was rendered at
   const pageZoomRef = useRef<Map<number, number>>(new Map());
+  const textLayerZoomRef = useRef<Map<number, number>>(new Map());
 
   // Clear rendered pages and bump version when debounced zoom changes
   useEffect(() => {
@@ -922,6 +924,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     renderedPagesRef.current = new Set();
     renderingRef.current = new Set();
     pageZoomRef.current = new Map();
+    textLayerZoomRef.current = new Map();
     // Clear text layer contents so they get re-rendered at the new zoom level
     textLayerRefs.current.forEach((textLayerDiv) => {
       textLayerDiv.innerHTML = '';
@@ -1153,7 +1156,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
           // Only render text layer for visible pages (not buffer pages)
           // Text layer is expensive and only needed for selection
           // Pass canvas CSS dimensions to ensure exact alignment
-          if (visiblePages.has(pageNum) && !isPinchSettling) {
+          if (visiblePages.has(pageNum)) {
             renderTextLayer(pageNum, textLayerDiv, scale, cssWidth, cssHeight);
           }
           return;
@@ -1201,36 +1204,9 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         setRenderedPages((prev) => new Set(prev).add(pageNum));
 
         // Render text layer
-        if (textLayerDiv && !isPinchSettling) {
+        if (textLayerDiv) {
           requestAnimationFrame(() => {
-            textLayerDiv.innerHTML = '';
-            textLayerDiv.style.setProperty('--scale-factor', String(displayViewport.scale));
-
-            page.getTextContent().then((textContent) => {
-              const pageText = textContent.items
-                .map((item) => ('str' in item ? item.str : ''))
-                .join(' ');
-              setTextCacheEntry(pageNum, pageText);
-
-              const textLayer = new TextLayer({
-                textContentSource: textContent,
-                container: textLayerDiv,
-                viewport: displayViewport,
-              });
-
-              // Override round(down) dimensions with exact viewport dimensions
-              textLayerDiv.style.width = `${displayViewport.width}px`;
-              textLayerDiv.style.height = `${displayViewport.height}px`;
-
-              textLayerTasksRef.current.set(pageNum, textLayer);
-              textLayer.render().then(() => {
-                const spans = textLayerDiv.querySelectorAll('span');
-                spans.forEach((span, idx) => {
-                  span.setAttribute('data-idx', String(idx));
-                  span.classList.add('textLayerNode');
-                });
-              });
-            });
+            renderTextLayer(pageNum, textLayerDiv, scale, displayViewport.width, displayViewport.height);
           });
         }
       } catch (mainThreadError) {
@@ -1265,9 +1241,10 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     // Skip if already rendering or already rendered at this scale
     if (textLayerRenderingRef.current.has(pageNum)) return;
     const existingLayer = textLayerTasksRef.current.get(pageNum);
-    if (existingLayer && textLayerDiv.querySelectorAll('span').length > 0) return;
+    if (existingLayer && textLayerDiv.querySelectorAll('span').length > 0 && textLayerZoomRef.current.get(pageNum) === scale) return;
 
     textLayerRenderingRef.current.add(pageNum);
+    textLayerZoomRef.current.delete(pageNum);
     const generation = textLayerGenRef.current;
 
     try {
@@ -1375,6 +1352,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         span.setAttribute('data-idx', String(idx));
         span.classList.add('textLayerNode');
       });
+      textLayerZoomRef.current.set(pageNum, scale);
     } catch (error) {
       // Ignore errors (page might have been removed from DOM)
     } finally {
@@ -2601,7 +2579,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         {/* PDF Pages Container */}
         <div
           ref={scrollContainerRef}
-          className={`flex-1 bg-bg-deep ${pdfColorMode === 'dark' ? 'pdf-dark-mode' : ''} ${pdfColorMode === 'eink' ? 'pdf-eink-mode overflow-hidden' : 'overflow-auto'} ${isTouchDevice ? 'hide-scrollbar-mobile touch-manipulation' : ''}`}
+          className={`relative flex-1 bg-bg-deep ${pdfColorMode === 'dark' ? 'pdf-dark-mode' : ''} ${pdfColorMode === 'eink' ? 'pdf-eink-mode overflow-hidden' : 'overflow-auto'} ${isTouchDevice ? 'hide-scrollbar-mobile touch-manipulation' : ''}`}
           onMouseUp={handleMouseUp}
           onTouchStart={isTouchDevice ? handleMobileTouchStart : undefined}
           onTouchMove={isTouchDevice ? handleMobileTouchMove : undefined}
