@@ -539,7 +539,6 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     }
 
     const rect = scrollContainer.getBoundingClientRect();
-    const anchorX = center ? center.x - rect.left : rect.width / 2;
     const anchorY = center ? center.y - rect.top : rect.height / 2;
     const viewportAnchor = scrollContainer.scrollTop + anchorY;
     const anchorPage = findPageAtOffset(pageHeights, totalPages, viewportAnchor);

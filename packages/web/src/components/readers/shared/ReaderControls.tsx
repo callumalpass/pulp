@@ -23,6 +23,38 @@ interface ReaderControlsProps {
   saveStatus?: SaveStatus;
 }
 
+export function resolvePageNavigationTarget(
+  input: string,
+  totalPages: number,
+  pageLabels?: string[] | null,
+): number | null {
+  const trimmedInput = input.trim();
+  if (!trimmedInput) return null;
+
+  // When page labels exist, prefer an exact label match because the input
+  // displays logical labels, not physical indices.
+  if (pageLabels) {
+    const labelIndex = pageLabels.findIndex(
+      (label) => label.toLowerCase() === trimmedInput.toLowerCase()
+    );
+    if (labelIndex !== -1) {
+      return labelIndex + 1;
+    }
+  }
+
+  // Only accept strict integers as physical page numbers.
+  if (!/^\d+$/.test(trimmedInput)) {
+    return null;
+  }
+
+  const page = parseInt(trimmedInput, 10);
+  if (page >= 1 && page <= totalPages) {
+    return page;
+  }
+
+  return null;
+}
+
 export function ReaderControls({
   noteId,
   currentPage,
@@ -118,26 +150,12 @@ export function ReaderControls({
 
   const handlePageSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmedInput = pageInput.trim();
+    const targetPage = resolvePageNavigationTarget(pageInput, totalPages, pageLabels);
 
-    // First, try parsing as a physical page number
-    const page = parseInt(trimmedInput, 10);
-    if (!isNaN(page) && page >= 1 && page <= totalPages) {
-      onPageChange(page);
+    if (targetPage !== null) {
+      onPageChange(targetPage);
       inputRef.current?.blur();
       return;
-    }
-
-    // Next, try matching against page labels
-    if (pageLabels) {
-      const labelIndex = pageLabels.findIndex(
-        label => label.toLowerCase() === trimmedInput.toLowerCase()
-      );
-      if (labelIndex !== -1) {
-        onPageChange(labelIndex + 1);
-        inputRef.current?.blur();
-        return;
-      }
     }
 
     // Invalid input, reset to current page
