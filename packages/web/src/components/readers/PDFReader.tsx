@@ -2292,6 +2292,8 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     const dims = getPageDimensions(pageNum);
     // Use zoom for container to match canvas rendering
     const containerZoom = zoom;
+    const containerWidth = dims ? `${dims.width * containerZoom}px` : 'auto';
+    const containerHeight = dims ? `${dims.height * containerZoom}px` : 'auto';
 
     return (
       <div
@@ -2306,8 +2308,8 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         }}
         className="pdf-page-container relative bg-white shadow-lg"
         style={{
-          width: dims ? `${dims.width * containerZoom}px` : 'auto',
-          height: dims ? `${dims.height * containerZoom}px` : 'auto',
+          width: containerWidth,
+          height: containerHeight,
         }}
       >
         <canvas
@@ -2326,6 +2328,10 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
             }
           }}
           className="block"
+          style={{
+            width: containerWidth,
+            height: containerHeight,
+          }}
         />
 
         {/* Text layer for selection */}
@@ -2338,7 +2344,11 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
             }
           }}
           className="textLayer absolute top-0 left-0"
-          style={{ zIndex: 1 }}
+          style={{
+            zIndex: 1,
+            width: containerWidth,
+            height: containerHeight,
+          }}
         />
 
         {/* Search highlight layer */}
