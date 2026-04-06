@@ -13,7 +13,6 @@ import { useToast } from '../../contexts/ToastContext';
 import { useMobile } from '../../hooks/useMobile';
 import { useTouchDevice } from '../../hooks/useTouchDevice';
 import { usePerformanceMode } from '../../hooks/usePerformanceMode';
-import { useSwipeGesture } from '../../hooks/useSwipeGesture';
 import { usePinchZoom } from '../../hooks/usePinchZoom';
 import { useDoubleTapZoom } from '../../hooks/useDoubleTapZoom';
 import { useIdleDetection } from '../../hooks/useIdleDetection';
@@ -62,6 +61,12 @@ interface ZoomAnchorSnapshot {
   pageOffsetRatio: number;
 }
 
+interface PinchPreviewState {
+  scale: number;
+  originX: number;
+  originY: number;
+}
+
 interface PageDimensions {
   width: number;
   height: number;
@@ -81,6 +86,7 @@ const BACKGROUND_DIMENSION_BATCH_SIZE = 25;
 const PDF_RANGE_CHUNK_SIZE = 512 * 1024;
 const FALLBACK_PAGE_DIMENSIONS: PageDimensions = { width: 816, height: 1056 };
 const MOBILE_SELECTION_SETTLE_MS = 450;
+const PINCH_COMMIT_MAX_SETTLE_MS = 400;
 
 function findPageAtOffset(heights: number[], totalPages: number, offset: number): number {
   if (totalPages === 0) return 1;
@@ -225,6 +231,8 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     start: 1,
     end: isLowEnd ? 6 : 10,
   });
+  const [pinchPreview, setPinchPreview] = useState<PinchPreviewState | null>(null);
+  const [isPinchSettling, setIsPinchSettling] = useState(false);
 
   // Scroll direction tracking for predictive preloading
   const lastScrollTopRef = useRef(0);
@@ -238,6 +246,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   const loadGenerationRef = useRef(0);
   const restoreTargetPageRef = useRef<number | null>(null);
   const pendingZoomAnchorRef = useRef<ZoomAnchorSnapshot | null>(null);
+  const pinchSettleTimeoutRef = useRef<number | null>(null);
   const mobileSelectionCheckTimeoutRef = useRef<number | null>(null);
   const mobileSelectionDismissedRef = useRef(false);
   const lastMobileSelectionSignatureRef = useRef<string | null>(null);
@@ -348,6 +357,12 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     restoreTargetPageRef.current = null;
     mobileSelectionDismissedRef.current = false;
     lastMobileSelectionSignatureRef.current = null;
+    setPinchPreview(null);
+    setIsPinchSettling(false);
+    if (pinchSettleTimeoutRef.current !== null) {
+      window.clearTimeout(pinchSettleTimeoutRef.current);
+      pinchSettleTimeoutRef.current = null;
+    }
     if (mobileSelectionCheckTimeoutRef.current !== null) {
       window.clearTimeout(mobileSelectionCheckTimeoutRef.current);
       mobileSelectionCheckTimeoutRef.current = null;
@@ -369,6 +384,9 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
       textLayerTasksRef.current.forEach(task => task.cancel());
       if (idleCallbackRef.current !== null) {
         cancelIdleCallback(idleCallbackRef.current);
+      }
+      if (pinchSettleTimeoutRef.current !== null) {
+        window.clearTimeout(pinchSettleTimeoutRef.current);
       }
       if (mobileSelectionCheckTimeoutRef.current !== null) {
         window.clearTimeout(mobileSelectionCheckTimeoutRef.current);
@@ -513,14 +531,17 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     }
   }, [currentPage, isLoading, totalPages, updateStatsCurrentPage]);
 
-  const captureZoomAnchor = useCallback(() => {
+  const captureZoomAnchor = useCallback((center?: { x: number; y: number }) => {
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer || totalPages === 0 || pdfColorMode === 'eink') {
       pendingZoomAnchorRef.current = null;
       return;
     }
 
-    const viewportAnchor = scrollContainer.scrollTop + scrollContainer.clientHeight / 2;
+    const rect = scrollContainer.getBoundingClientRect();
+    const anchorX = center ? center.x - rect.left : rect.width / 2;
+    const anchorY = center ? center.y - rect.top : rect.height / 2;
+    const viewportAnchor = scrollContainer.scrollTop + anchorY;
     const anchorPage = findPageAtOffset(pageHeights, totalPages, viewportAnchor);
     const pageTop = pageHeights[anchorPage] ?? 0;
     const pageBottom = pageHeights[anchorPage + 1] ?? pageTop;
@@ -595,6 +616,57 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     captureZoomAnchor();
     setCustomZoom(nextZoom);
   }, [captureZoomAnchor, setCustomZoom]);
+
+  const handlePinchPreviewChange = useCallback((preview: { scale: number; center: { x: number; y: number } } | null) => {
+    if (!preview) {
+      setPinchPreview(null);
+      return;
+    }
+
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    const rect = scrollContainer.getBoundingClientRect();
+    setPinchPreview({
+      scale: preview.scale,
+      originX: preview.center.x - rect.left,
+      originY: preview.center.y - rect.top + scrollContainer.scrollTop,
+    });
+  }, []);
+
+  const handlePinchZoomCommit = useCallback((nextZoom: number, center: { x: number; y: number }) => {
+    setPinchPreview(null);
+    setIsPinchSettling(true);
+    if (pinchSettleTimeoutRef.current !== null) {
+      window.clearTimeout(pinchSettleTimeoutRef.current);
+    }
+    pinchSettleTimeoutRef.current = window.setTimeout(() => {
+      setIsPinchSettling(false);
+      pinchSettleTimeoutRef.current = null;
+    }, PINCH_COMMIT_MAX_SETTLE_MS);
+    captureZoomAnchor(center);
+    setCustomZoom(nextZoom);
+  }, [captureZoomAnchor, setCustomZoom]);
+
+  useEffect(() => {
+    if (!isPinchSettling) return;
+
+    const visiblePagesReady = Array.from(visiblePages).every((pageNum) => (
+      renderedPagesRef.current.has(pageNum) && pageZoomRef.current.get(pageNum) === zoom
+    ));
+
+    if (!visiblePagesReady) return;
+
+    const settleFrame = window.requestAnimationFrame(() => {
+      setIsPinchSettling(false);
+      if (pinchSettleTimeoutRef.current !== null) {
+        window.clearTimeout(pinchSettleTimeoutRef.current);
+        pinchSettleTimeoutRef.current = null;
+      }
+    });
+
+    return () => window.cancelAnimationFrame(settleFrame);
+  }, [isPinchSettling, visiblePages, zoom]);
 
   const applyZoomMode = useCallback((mode: ZoomMode) => {
     if (pageDimensions.size === 0 || !scrollContainerRef.current) return;
@@ -921,7 +993,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         // Page was already rendered (e.g. as a buffer page) but may not have a text layer.
         // Ensure text layer is rendered for visible pages.
         const textLayerDiv = textLayerRefs.current.get(pageNum);
-        if (textLayerDiv && textLayerDiv.querySelectorAll('span').length === 0) {
+        if (!isPinchSettling && textLayerDiv && textLayerDiv.querySelectorAll('span').length === 0) {
           const canvas = pageCanvasRefs.current.get(pageNum);
           if (canvas) {
             const cssWidth = parseFloat(canvas.style.width);
@@ -935,7 +1007,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     });
 
     // Render buffer pages during idle time
-    if (bufferPages.size > 0) {
+    if (!isPinchSettling && bufferPages.size > 0) {
       idleCallbackRef.current = requestIdleCallback(
         (deadline) => {
           const pagesToRender = Array.from(bufferPages).filter((pageNum) => {
@@ -992,10 +1064,11 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         return next;
       });
     }
-  }, [visiblePages, totalPages, isLoading, renderVersion, zoom, pageBuffer]);
+  }, [visiblePages, totalPages, isLoading, renderVersion, zoom, pageBuffer, isPinchSettling]);
 
   // Render highlights when pages are ready
   useEffect(() => {
+    if (isPinchSettling) return;
     if (!highlights) return;
 
     renderedPages.forEach((pageNum) => {
@@ -1016,7 +1089,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         renderHighlightFromSelection(textLayerDiv, highlightLayerDiv, highlight);
       }
     });
-  }, [highlights, renderedPages]);
+  }, [highlights, isPinchSettling, renderedPages]);
 
   const renderPage = async (pageNum: number) => {
     if (!pdfDocRef.current) return;
@@ -1080,7 +1153,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
           // Only render text layer for visible pages (not buffer pages)
           // Text layer is expensive and only needed for selection
           // Pass canvas CSS dimensions to ensure exact alignment
-          if (visiblePages.has(pageNum)) {
+          if (visiblePages.has(pageNum) && !isPinchSettling) {
             renderTextLayer(pageNum, textLayerDiv, scale, cssWidth, cssHeight);
           }
           return;
@@ -1128,7 +1201,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         setRenderedPages((prev) => new Set(prev).add(pageNum));
 
         // Render text layer
-        if (textLayerDiv) {
+        if (textLayerDiv && !isPinchSettling) {
           requestAnimationFrame(() => {
             textLayerDiv.innerHTML = '';
             textLayerDiv.style.setProperty('--scale-factor', String(displayViewport.scale));
@@ -1542,6 +1615,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
 
   // Render search highlights on rendered pages
   useEffect(() => {
+    if (isPinchSettling) return;
     if (!searchQuery) {
       // Clear all search highlights
       searchLayerRefs.current.forEach((layer) => {
@@ -1598,7 +1672,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         }
       });
     });
-  }, [searchQuery, searchResults, currentMatchIndex, renderedPages]);
+  }, [currentMatchIndex, isPinchSettling, renderedPages, searchQuery, searchResults]);
 
   // Enter presentation mode
   const enterPresentation = useCallback(() => {
@@ -1641,20 +1715,13 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
     [totalPages, setScrollToPage, setCurrentPage, pdfColorMode]
   );
 
-  // Swipe gestures for mobile navigation
-  const swipeHandlers = useSwipeGesture({
-    onSwipeLeft: () => goToPage(currentPage + 1),
-    onSwipeRight: () => goToPage(currentPage - 1),
-    enabled: isMobile && pdfViewMode === 'single',
-    threshold: 50,
-  });
-
   // Pinch zoom for mobile
   const pinchHandlers = usePinchZoom({
-    onZoomChange: applyCustomZoom,
+    onPreviewChange: handlePinchPreviewChange,
+    onZoomCommit: handlePinchZoomCommit,
     minZoom: 0.5,
     maxZoom: 3.0,
-    enabled: isMobile,
+    enabled: isTouchDevice,
   });
 
   // Double-tap zoom for mobile (toggle between fit-width and 150%)
@@ -1668,7 +1735,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         applyZoomMode('fit-width');
       }
     },
-    enabled: isMobile,
+    enabled: isTouchDevice,
   });
 
   // Combined touch handlers for mobile
@@ -1677,12 +1744,9 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
       if (e.touches.length === 2) {
         // Two fingers: pinch zoom
         pinchHandlers.handlePinchStart(e, zoom);
-      } else if (e.touches.length === 1) {
-        // One finger: swipe
-        swipeHandlers.handleTouchStart(e);
       }
     },
-    [pinchHandlers, swipeHandlers, zoom]
+    [pinchHandlers, zoom]
   );
 
   const handleMobileTouchMove = useCallback(
@@ -1700,17 +1764,16 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         pinchHandlers.handlePinchEnd(e);
       }
       if (e.touches.length === 0) {
-        swipeHandlers.handleTouchEnd(e);
         doubleTapHandlers.handleDoubleTapEnd(e);
       }
     },
-    [pinchHandlers, swipeHandlers, doubleTapHandlers]
+    [pinchHandlers, doubleTapHandlers]
   );
 
   // Prevent browser/page pinch-zoom over the PDF viewport on mobile.
   useEffect(() => {
     const el = scrollContainerRef.current;
-    if (!isMobile || !el) return;
+    if (!isTouchDevice || !el) return;
 
     const preventPinchPageZoom = (event: TouchEvent) => {
       if (event.touches.length === 2) {
@@ -1731,12 +1794,12 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
       el.removeEventListener('gesturestart', preventGestureZoom);
       el.removeEventListener('gesturechange', preventGestureZoom);
     };
-  }, [isMobile]);
+  }, [isTouchDevice]);
 
   // Also suppress browser pinch-zoom over the full reader surface (including toolbar).
   useEffect(() => {
     const el = containerRef.current;
-    if (!isMobile || !el) return;
+    if (!isTouchDevice || !el) return;
 
     const preventPinchPageZoom = (event: TouchEvent) => {
       if (event.touches.length === 2) {
@@ -1757,7 +1820,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
       el.removeEventListener('gesturestart', preventGestureZoom);
       el.removeEventListener('gesturechange', preventGestureZoom);
     };
-  }, [isMobile]);
+  }, [isTouchDevice]);
 
   /**
    * Find the page element containing the given DOM node.
@@ -2490,7 +2553,7 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
   }
 
   return (
-    <div className={`flex-1 flex flex-col overflow-hidden min-w-0 ${isMobile ? 'touch-pan-only' : ''}`} ref={containerRef}>
+    <div className={`flex-1 flex flex-col overflow-hidden min-w-0 ${isTouchDevice ? 'touch-pan-only' : ''}`} ref={containerRef}>
       <ReaderControls
         noteId={note.id}
         currentPage={currentPage}
@@ -2538,14 +2601,20 @@ export function PDFReader({ note, initialPage }: PDFReaderProps) {
         {/* PDF Pages Container */}
         <div
           ref={scrollContainerRef}
-          className={`flex-1 bg-bg-deep ${pdfColorMode === 'dark' ? 'pdf-dark-mode' : ''} ${pdfColorMode === 'eink' ? 'pdf-eink-mode overflow-hidden' : 'overflow-auto'} ${isMobile ? 'hide-scrollbar-mobile touch-manipulation' : ''}`}
+          className={`flex-1 bg-bg-deep ${pdfColorMode === 'dark' ? 'pdf-dark-mode' : ''} ${pdfColorMode === 'eink' ? 'pdf-eink-mode overflow-hidden' : 'overflow-auto'} ${isTouchDevice ? 'hide-scrollbar-mobile touch-manipulation' : ''}`}
           onMouseUp={handleMouseUp}
-          onTouchStart={isMobile ? handleMobileTouchStart : undefined}
-          onTouchMove={isMobile ? handleMobileTouchMove : undefined}
-          onTouchEnd={isMobile ? handleMobileTouchEnd : undefined}
+          onTouchStart={isTouchDevice ? handleMobileTouchStart : undefined}
+          onTouchMove={isTouchDevice ? handleMobileTouchMove : undefined}
+          onTouchEnd={isTouchDevice ? handleMobileTouchEnd : undefined}
           onContextMenu={handleContextMenu}
         >
-          <div className={`pdf-pages-container flex flex-col items-center py-4 gap-4 ${pdfViewMode === 'spread' ? 'pdf-spread-layout' : ''} ${pdfColorMode === 'eink' ? 'eink-single-page' : ''}`}>
+          <div
+            className={`pdf-pages-container flex flex-col items-center py-4 gap-4 ${pdfViewMode === 'spread' ? 'pdf-spread-layout' : ''} ${pdfColorMode === 'eink' ? 'eink-single-page' : ''} ${pinchPreview ? 'pdf-pages-container-pinching' : ''} ${isPinchSettling ? 'pdf-pages-container-zoom-settling' : ''}`}
+            style={pinchPreview ? {
+              transform: `scale(${pinchPreview.scale})`,
+              transformOrigin: `${pinchPreview.originX}px ${pinchPreview.originY}px`,
+            } : undefined}
+          >
             {/* E-ink mode: single page, no scroll */}
             {pdfColorMode === 'eink' ? (
               <div className="eink-page-container flex flex-col items-center justify-center h-full w-full">

@@ -1,12 +1,12 @@
 import { useRef, useCallback } from 'react';
 
 interface PinchZoomOptions {
-  onZoomChange: (zoom: number) => void;
+  onPreviewChange?: (preview: { scale: number; center: TouchPoint } | null) => void;
+  onZoomCommit?: (zoom: number, center: TouchPoint) => void;
+  onZoomChange?: (zoom: number) => void;
   minZoom?: number;
   maxZoom?: number;
   enabled?: boolean;
-  updateThreshold?: number;
-  maxUpdatesPerSecond?: number;
 }
 
 interface TouchPoint {
@@ -21,59 +21,17 @@ function getDistance(touch1: TouchPoint, touch2: TouchPoint): number {
 }
 
 export function usePinchZoom({
+  onPreviewChange,
+  onZoomCommit,
   onZoomChange,
   minZoom = 0.5,
   maxZoom = 3.0,
   enabled = true,
-  updateThreshold = 0.015,
-  maxUpdatesPerSecond = 15,
 }: PinchZoomOptions) {
   const initialDistance = useRef<number | null>(null);
   const initialZoom = useRef<number>(1);
   const lastZoom = useRef<number>(1);
-  const lastEmittedZoom = useRef<number>(1);
-  const lastEmitAt = useRef<number | null>(null);
-  const pendingZoom = useRef<number | null>(null);
-  const frameHandle = useRef<number | ReturnType<typeof setTimeout> | null>(null);
-  const frameUsesRaf = useRef(false);
-
-  const minIntervalMs = Math.max(1, Math.round(1000 / Math.max(1, maxUpdatesPerSecond)));
-
-  const emitZoom = useCallback((value: number) => {
-    if (Math.abs(value - lastEmittedZoom.current) <= 0.0001) return;
-    lastEmittedZoom.current = value;
-    onZoomChange(value);
-  }, [onZoomChange]);
-
-  const flushPendingZoom = useCallback(() => {
-    frameHandle.current = null;
-    frameUsesRaf.current = false;
-    if (pendingZoom.current === null) return;
-
-    const now = Date.now();
-    const elapsed = lastEmitAt.current === null ? Infinity : now - lastEmitAt.current;
-    if (elapsed < minIntervalMs) {
-      const waitMs = minIntervalMs - elapsed;
-      frameHandle.current = setTimeout(() => flushPendingZoom(), waitMs);
-      return;
-    }
-
-    const value = pendingZoom.current;
-    pendingZoom.current = null;
-    lastEmitAt.current = now;
-    emitZoom(value);
-  }, [emitZoom, minIntervalMs]);
-
-  const scheduleZoomFlush = useCallback(() => {
-    if (frameHandle.current !== null) return;
-    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
-      frameUsesRaf.current = true;
-      frameHandle.current = window.requestAnimationFrame(() => flushPendingZoom());
-      return;
-    }
-    frameUsesRaf.current = false;
-    frameHandle.current = setTimeout(() => flushPendingZoom(), 16);
-  }, [flushPendingZoom]);
+  const lastCenter = useRef<TouchPoint | null>(null);
 
   const handleTouchStart = useCallback(
     (e: React.TouchEvent, currentZoom: number) => {
@@ -86,11 +44,16 @@ export function usePinchZoom({
       initialDistance.current = getDistance(touch1, touch2);
       initialZoom.current = currentZoom;
       lastZoom.current = currentZoom;
-      lastEmittedZoom.current = currentZoom;
-      lastEmitAt.current = null;
-      pendingZoom.current = null;
+      lastCenter.current = {
+        x: (touch1.x + touch2.x) / 2,
+        y: (touch1.y + touch2.y) / 2,
+      };
+      onPreviewChange?.({
+        scale: 1,
+        center: lastCenter.current,
+      });
     },
-    [enabled]
+    [enabled, onPreviewChange]
   );
 
   const handleTouchMove = useCallback(
@@ -107,39 +70,37 @@ export function usePinchZoom({
 
       // Clamp to bounds
       newZoom = Math.max(minZoom, Math.min(maxZoom, newZoom));
-
-      // Skip tiny changes to reduce render churn during pinch.
-      if (Math.abs(newZoom - lastZoom.current) > updateThreshold) {
-        lastZoom.current = newZoom;
-        pendingZoom.current = newZoom;
-        scheduleZoomFlush();
-      }
+      lastZoom.current = newZoom;
+      lastCenter.current = {
+        x: (touch1.x + touch2.x) / 2,
+        y: (touch1.y + touch2.y) / 2,
+      };
+      onPreviewChange?.({
+        scale: initialZoom.current === 0 ? 1 : newZoom / initialZoom.current,
+        center: lastCenter.current,
+      });
+      onZoomChange?.(newZoom);
     },
-    [enabled, minZoom, maxZoom, scheduleZoomFlush, updateThreshold]
+    [enabled, maxZoom, minZoom, onPreviewChange, onZoomChange]
   );
 
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent) => {
       if (e.touches.length < 2) {
-          if (frameHandle.current !== null) {
-            if (frameUsesRaf.current && typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
-              window.cancelAnimationFrame(frameHandle.current as number);
-            } else {
-              clearTimeout(frameHandle.current as ReturnType<typeof setTimeout>);
-            }
-          frameHandle.current = null;
-          frameUsesRaf.current = false;
-        }
-        flushPendingZoom();
-        // Pinch ended, apply final zoom
-        if (initialDistance.current !== null && lastZoom.current !== initialZoom.current) {
-          lastEmitAt.current = Date.now();
-          emitZoom(lastZoom.current);
+        onPreviewChange?.(null);
+        if (
+          initialDistance.current !== null &&
+          lastCenter.current &&
+          Math.abs(lastZoom.current - initialZoom.current) > 0.0001
+        ) {
+          onZoomCommit?.(lastZoom.current, lastCenter.current);
+          onZoomChange?.(lastZoom.current);
         }
         initialDistance.current = null;
+        lastCenter.current = null;
       }
     },
-    [emitZoom, flushPendingZoom]
+    [onPreviewChange, onZoomCommit, onZoomChange]
   );
 
   return {

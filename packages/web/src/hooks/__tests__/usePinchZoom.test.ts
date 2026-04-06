@@ -322,7 +322,7 @@ describe('usePinchZoom', () => {
   });
 
   describe('update behavior', () => {
-    it('coalesces rapid pinch updates to one frame for smooth performance', () => {
+    it('emits each pinch preview update immediately', () => {
       const onZoomChange = vi.fn();
       const { handlePinchStart, handlePinchMove } = usePinchZoom({ onZoomChange });
 
@@ -333,59 +333,51 @@ describe('usePinchZoom', () => {
       handlePinchMove(createTwoFingerTouchEvent(0, 0, 160, 0));
       handlePinchMove(createTwoFingerTouchEvent(0, 0, 170, 0));
 
-      // Before frame flush, nothing has been emitted yet.
-      expect(onZoomChange).not.toHaveBeenCalled();
-
-      // After one frame, latest zoom is emitted.
-      vi.advanceTimersByTime(20);
-      expect(onZoomChange).toHaveBeenCalledTimes(1);
-      expect(onZoomChange).toHaveBeenCalledWith(1.7);
+      expect(onZoomChange).toHaveBeenCalledTimes(3);
+      expect(onZoomChange).toHaveBeenNthCalledWith(1, 1.5);
+      expect(onZoomChange).toHaveBeenNthCalledWith(2, 1.6);
+      expect(onZoomChange).toHaveBeenNthCalledWith(3, 1.7);
     });
 
-    it('ignores zoom changes smaller than the default threshold (0.015)', () => {
+    it('emits small zoom changes without thresholding', () => {
       const onZoomChange = vi.fn();
       const { handlePinchStart, handlePinchMove } = usePinchZoom({ onZoomChange });
 
       handlePinchStart(createTwoFingerTouchEvent(0, 0, 100, 0), 1.0);
 
-      // Move slightly - less than 1.5% change (101px = 1.01x zoom)
       handlePinchMove(createTwoFingerTouchEvent(0, 0, 101, 0));
 
-      expect(onZoomChange).not.toHaveBeenCalled();
+      expect(onZoomChange).toHaveBeenCalledTimes(1);
+      expect(onZoomChange).toHaveBeenCalledWith(1.01);
     });
 
-    it('triggers update when zoom change exceeds the default threshold (0.015)', () => {
+    it('emits larger zoom changes directly', () => {
       const onZoomChange = vi.fn();
       const { handlePinchStart, handlePinchMove } = usePinchZoom({ onZoomChange });
 
       handlePinchStart(createTwoFingerTouchEvent(0, 0, 100, 0), 1.0);
 
-      // Move enough to exceed threshold (102px = 1.02x zoom, > 0.015 change)
       handlePinchMove(createTwoFingerTouchEvent(0, 0, 102, 0));
-      vi.advanceTimersByTime(20);
 
       expect(onZoomChange).toHaveBeenCalledTimes(1);
+      expect(onZoomChange).toHaveBeenCalledWith(1.02);
     });
 
-    it('respects custom updateThreshold', () => {
+    it('ignores removed throttling options and still emits updates', () => {
       const onZoomChange = vi.fn();
       const { handlePinchStart, handlePinchMove } = usePinchZoom({
         onZoomChange,
+        // @ts-expect-error Legacy option no longer has any effect.
         updateThreshold: 0.03,
       });
 
       handlePinchStart(createTwoFingerTouchEvent(0, 0, 100, 0), 1.0);
-
-      // 2% change should be ignored with a 3% threshold.
       handlePinchMove(createTwoFingerTouchEvent(0, 0, 102, 0));
-      vi.advanceTimersByTime(20);
-      expect(onZoomChange).not.toHaveBeenCalled();
-
-      // 4% change should be emitted.
       handlePinchMove(createTwoFingerTouchEvent(0, 0, 104, 0));
-      vi.advanceTimersByTime(20);
-      expect(onZoomChange).toHaveBeenCalledTimes(1);
-      expect(onZoomChange).toHaveBeenCalledWith(1.04);
+
+      expect(onZoomChange).toHaveBeenCalledTimes(2);
+      expect(onZoomChange).toHaveBeenNthCalledWith(1, 1.02);
+      expect(onZoomChange).toHaveBeenNthCalledWith(2, 1.04);
     });
   });
 

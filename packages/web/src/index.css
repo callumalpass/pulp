@@ -287,10 +287,22 @@ body {
   min-height: 100%;
 }
 
+.pdf-pages-container-pinching {
+  will-change: transform;
+}
+
+.pdf-pages-container-zoom-settling .pdf-page-container {
+  transition: none !important;
+}
+
+.pdf-pages-container-zoom-settling .textLayer,
+.pdf-pages-container-zoom-settling .pdf-search-highlight,
+.pdf-pages-container-zoom-settling .pdf-highlight {
+  opacity: 0;
+}
+
 .pdf-page-container {
   flex-shrink: 0;
-  transition: width 200ms cubic-bezier(0.25, 0.8, 0.25, 1),
-              height 200ms cubic-bezier(0.25, 0.8, 0.25, 1);
   contain: layout style;
 }
 
