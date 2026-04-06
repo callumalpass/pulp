@@ -275,6 +275,7 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
         return !!sel && !sel.isCollapsed;
       });
       if (!hasSelection) {
+        clearSelection({ clearNativeSelection: false });
         setTouchSelectionEnabled(false);
       }
     }, 100);
@@ -282,7 +283,7 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
     return () => {
       window.clearTimeout(resetSelectionModeTimer);
     };
-  }, [isTouchDevice, selection, setTouchSelectionEnabled]);
+  }, [clearSelection, isTouchDevice, selection, setTouchSelectionEnabled]);
 
   // Load EPUB
   useEffect(() => {
