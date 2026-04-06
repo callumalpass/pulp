@@ -12,19 +12,64 @@ interface UseEpubSelectionArgs {
   isTouchDevice: boolean;
   currentPage: number;
   touchSelectionEnabledRef: MutableRefObject<boolean>;
+  registeredContentsRef: MutableRefObject<Set<Contents>>;
 }
 
 export function useEpubSelection({
   isTouchDevice,
   currentPage,
   touchSelectionEnabledRef,
+  registeredContentsRef,
 }: UseEpubSelectionArgs) {
   const [selection, setSelection] = useState<EpubSelection | null>(null);
+  const [pendingMobileSelection, setPendingMobileSelection] = useState<EpubSelection | null>(null);
 
-  const clearSelection = useCallback(() => {
+  const clearNativeSelection = useCallback(() => {
     window.getSelection()?.removeAllRanges();
+    for (const contents of registeredContentsRef.current) {
+      contents.window.getSelection()?.removeAllRanges();
+    }
+  }, [registeredContentsRef]);
+
+  const clearSelection = useCallback((options?: { clearNativeSelection?: boolean; dismissOnly?: boolean }) => {
+    if (options?.dismissOnly) {
+      if (isTouchDevice) {
+        setPendingMobileSelection(selection);
+      }
+      setSelection(null);
+      return;
+    }
+
+    if (options?.clearNativeSelection !== false) {
+      clearNativeSelection();
+    }
     setSelection(null);
-  }, []);
+    setPendingMobileSelection(null);
+  }, [clearNativeSelection, isTouchDevice, selection]);
+
+  const openPendingMobileSelection = useCallback(() => {
+    if (!pendingMobileSelection) return;
+    setSelection(pendingMobileSelection);
+    setPendingMobileSelection(null);
+  }, [pendingMobileSelection]);
+
+  const showSelection = useCallback((nextSelection: EpubSelection | null) => {
+    setSelection(nextSelection);
+    if (isTouchDevice) {
+      setPendingMobileSelection(null);
+    }
+  }, [isTouchDevice]);
+
+  const armSelection = useCallback((nextSelection: EpubSelection | null) => {
+    if (isTouchDevice) {
+      setSelection(null);
+      setPendingMobileSelection(nextSelection);
+      return;
+    }
+
+    setSelection(nextSelection);
+    setPendingMobileSelection(null);
+  }, [isTouchDevice]);
 
   const handleSelected = useCallback((cfiRange: string, contents: Contents) => {
     if (isTouchDevice && !touchSelectionEnabledRef.current) {
@@ -45,7 +90,7 @@ export function useEpubSelection({
 
     if (!iframeRect) return;
 
-    setSelection({
+    const nextSelection = {
       text,
       page: currentPage,
       position: {
@@ -53,13 +98,24 @@ export function useEpubSelection({
         y: iframeRect.top + rect.bottom + 10,
       },
       cfi: cfiRange,
-    });
-  }, [currentPage, isTouchDevice, touchSelectionEnabledRef]);
+    };
+
+    if (isTouchDevice) {
+      armSelection(nextSelection);
+    } else {
+      showSelection(nextSelection);
+    }
+  }, [armSelection, currentPage, isTouchDevice, showSelection, touchSelectionEnabledRef]);
 
   return {
     selection,
+    pendingMobileSelection,
     setSelection,
+    showSelection,
+    armSelection,
     clearSelection,
+    clearNativeSelection,
+    openPendingMobileSelection,
     handleSelected,
   };
 }

@@ -30,6 +30,7 @@ import { BookmarksPanel } from './shared/BookmarksPanel';
 import { HighlightsPanel } from './shared/HighlightsPanel';
 import { ReadingTimeIndicator } from './shared/ReadingTimeIndicator';
 import { SaveIndicator } from './shared/SaveIndicator';
+import { Button } from '../ui/Button';
 import { api } from '../../lib/api';
 import { Link } from 'react-router-dom';
 
@@ -139,10 +140,17 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
     setCurrentPage,
     updateProgress,
   });
-  const { selection, setSelection, clearSelection, handleSelected } = useEpubSelection({
+  const {
+    selection,
+    pendingMobileSelection,
+    clearSelection,
+    openPendingMobileSelection,
+    handleSelected,
+  } = useEpubSelection({
     isTouchDevice,
     currentPage,
     touchSelectionEnabledRef,
+    registeredContentsRef,
   });
   const { goToPage, goToChapter } = useEpubNavigation({
     locations,
@@ -1258,13 +1266,27 @@ export function EPUBReader({ note, initialCfi }: EPUBReaderProps) {
         )}
       </div>
 
+      {isTouchDevice && pendingMobileSelection && !selection && (
+        <div className="fixed inset-x-0 bottom-6 z-40 flex justify-center px-4 pointer-events-none">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="pointer-events-auto min-h-[40px] rounded-full border-accent-primary/20 bg-bg-surface/95 px-4 py-2 text-sm shadow-lg shadow-black/20 backdrop-blur"
+            onClick={openPendingMobileSelection}
+          >
+            Selection actions
+          </Button>
+        </div>
+      )}
+
       {selection && (
         <HighlightPopup
           selection={selection}
           noteId={note.id}
           type="epub"
           cfi={selection.cfi}
-          onClose={() => setSelection(null)}
+          onClose={() => clearSelection({ dismissOnly: isTouchDevice })}
         />
       )}
 
